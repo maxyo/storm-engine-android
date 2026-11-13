@@ -22,6 +22,8 @@
 //                   views: 1 the gloss (magenta: no map), 2 the relief (the normal's tilt by the normal map, grey: none),
 //                   3 the open sun the bake shows times the sun's light (yellow), its highlight (blue); lit draws
 //                   dark blue; 4 the metal mask (cyan).
+//   FX_LIGHT_PARALLAX   with FX_LIGHT_NORMALMAP (a stage 0 map whose material, stage 7, has a height): parallax occlusion mapping;
+//                   stage 0's colour and the normal map are read where the eye's ray meets the relief.
 //   FX_LIGHT_SHADOW[_SOFT]  with FX_FF_LIT: the sun's diffuse and specular terms are scaled by the sun shadow map
 //                   (stage 15, src/effects/shadows.hpp).
 //   AO volume       FX_FF_LIT / FX_FF_BAKED: the interior's ambient occlusion (ffAoVolume, off per draw by
@@ -38,8 +40,7 @@
 uniform vec4 u_fxFf;
 
 #ifdef FX_LIGHT_SPECULAR
-SAMPLER2D(s_fxGlossMap, 7);
-uniform vec4 u_fxGloss;
+uniform vec4 u_fxGloss; // the gloss of the material texture (s_fxMaterial, fx_lighting.sh)
 #endif
 
 // Ambient-occlusion volume of the interior (src/effects/ao_volume.hpp; stage 12 = fx::kAoVolumeStage).
@@ -474,7 +475,12 @@ vec4 ffCombine(float op, vec4 a1, vec4 a2, vec4 a0, vec4 current, vec4 tex, vec4
 #define FF_UV(tc, ms) ((ms).y > 0.5 ? (tc).xy / (tc).w : (tc).xy)
 
 #ifndef STAGE0_SAMPLE
+#ifdef FX_LIGHT_PARALLAX
+// The parallax variant is only chosen for a stage 0 without projected coordinates (effects/lighting.cpp).
+#define STAGE0_SAMPLE texture2DGrad(s_tex0, ffReliefUv, ffReliefDx, ffReliefDy)
+#else
 #define STAGE0_SAMPLE texture2D(s_tex0, FF_UV(v_texcoord0, ms))
+#endif
 #endif
 #ifndef STAGE1_SAMPLE
 #define STAGE1_SAMPLE texture2D(s_tex1, FF_UV(v_texcoord1, ms))
@@ -504,7 +510,22 @@ void main()
 #endif
     vec3 Ng = N;
 #ifdef FX_LIGHT_NORMALMAP
-    N = fxPerturbNormal(Ng, P, u_fxFf.y > 0.5 ? v_texcoord1.xy : v_texcoord0.xy);
+    // The relief follows the coordinates of its stage (u_fxFf.y); with the parallax always stage 0's, whose colour is
+    // then read where the relief's map is (ffReliefUv, with the derivatives of the unshifted coordinates).
+    vec2 ffReliefUv = u_fxFf.y > 0.5 ? v_texcoord1.xy : v_texcoord0.xy;
+    vec2 ffReliefDx = dFdx(ffReliefUv);
+    vec2 ffReliefDy = dFdy(ffReliefUv);
+    vec3 reliefGu;
+    vec3 reliefGv;
+    fxReliefFrame(Ng, P, ffReliefDx, ffReliefDy, reliefGu, reliefGv);
+#ifdef FX_LIGHT_PARALLAX
+    vec3 ffPomFound;
+    vec2 ffReliefUv0 = ffReliefUv;
+    ffReliefUv = fxParallax(ffReliefUv, ffReliefDx, ffReliefDy, reliefGu, reliefGv, Ng, V, length(P), ffPomFound);
+    N = fxPerturbNormal(Ng, reliefGu, reliefGv, texture2DGrad(s_fxNormalMap, ffReliefUv, ffReliefDx, ffReliefDy).rg);
+#else
+    N = fxPerturbNormal(Ng, reliefGu, reliefGv, texture2D(s_fxNormalMap, ffReliefUv).rg);
+#endif
 #endif
     // The highlight of this pixel: its gloss texel (stage 0's coordinates; the G of the material texture) or the
     // material's. ffGloss -1: no gloss map (ff_wet.sh may read it).
@@ -517,7 +538,7 @@ void main()
 #ifdef FX_LIGHT_SPECULAR
     if (u_fxGloss.x > 0.0)
     {
-        ffGloss = texture2D(s_fxGlossMap, v_texcoord0.xy).g;
+        ffGloss = texture2D(s_fxMaterial, v_texcoord0.xy).g;
         ffMetal = u_fxGloss.y * smoothstep(0.55, 0.75, ffGloss) * u_fxGloss.x;
         // Metal reflects several times what lacquer or glazing do.
         ffSpec = mix(ffSpec, fxGlossSpec(ffGloss) * vec2(1.0, (1.0 + 2.5 * ffMetal) * u_fxGloss.w), u_fxGloss.x);
@@ -541,10 +562,20 @@ void main()
         skySeen = vec2_splat(0.0);
 #endif
     float aoVolume = mix(ffAoVolume(P, Ng, Nw), 1.0, skySeen.x);
+    // The relief's cavity: an occlusion at the texture's scale, under the light as the volume's is (ambient and bounce
+    // in full, half of the direct light).
+    float cavity = 1.0;
+#ifdef FX_LIGHT_PARALLAX
+    cavity = fxReliefCavity(ffReliefUv, ffPomFound);
+#endif
+    float cavityDirect = mix(1.0, cavity, 0.5);
 #ifdef FX_FF_LIT
     // The volume occludes the ambient part (the per-vertex sum carries the global ambient and the lights not lit per
     // pixel); the per-pixel sun and the lamps keep their own visibility.
-    float sunShadow = fxSunShadow(P, Ng) * skySeen.y;
+    float sunShadow = fxSunShadow(P, Ng) * skySeen.y * cavityDirect;
+#ifdef FX_LIGHT_PARALLAX
+    sunShadow *= fxParallaxShadow(ffReliefUv, ffPomFound, reliefGu, reliefGv, Ng, u_fxLight[0].xyz);
+#endif
     vec3 ambient = fxAmbient(N);
     float lampSeen = dot(lamps.rgb, vec3(0.299, 0.587, 0.114));
     if (u_fxLampGrid[2].w > 0.5)
@@ -570,10 +601,11 @@ void main()
     // A lamp's light on a model is at most that of a fully lit surface: above half of it the sum is compressed
     // towards 1 (a model at a candle's flame is lit, not burnt out).
     float lampShown = lampSeen <= 0.5 ? lampSeen : 0.5 + (lampSeen - 0.5) / (1.0 + 2.0 * (lampSeen - 0.5));
-    vec3 lampLight = lamps.rgb * (lampShown / max(lampSeen, 1e-4));
-    vec4 ffDiffuse = vec4(clamp(fxLit(v_color0.rgb * aoVolume, v_matDiffuse.rgb,
-                                 fxSunDiffuse(N, V) * sunShadow + fxPointDiffuse(N, P) + lampLight + ffLampMoved,
-                                 v_matAmbient.rgb, ambient * aoVolume), 0.0, 1.0), v_color0.a);
+    vec3 lampLight = lamps.rgb * (lampShown / max(lampSeen, 1e-4)) * cavityDirect;
+    vec4 ffDiffuse = vec4(clamp(fxLit(v_color0.rgb * (aoVolume * cavity), v_matDiffuse.rgb,
+                                 fxSunDiffuse(N, V) * sunShadow + (fxPointDiffuse(N, P) + ffLampMoved) * cavityDirect +
+                                     lampLight,
+                                 v_matAmbient.rgb, ambient * (aoVolume * cavity)), 0.0, 1.0), v_color0.a);
 #else
     vec4 ffDiffuse = v_color0;
 #endif
@@ -619,6 +651,10 @@ void main()
 #endif
 #ifdef FX_LIGHT_NORMALMAP
     current.rgb *= fxBakedRelief(Ng, N, V);
+#ifdef FX_LIGHT_PARALLAX
+    // The baked colour holds the sun and the sky: the relief's own shadow takes the sun's part (about half of it).
+    current.rgb *= 1.0 - 0.5 * (1.0 - fxParallaxShadow(ffReliefUv, ffPomFound, reliefGu, reliefGv, Ng, u_fxLight[0].xyz));
+#endif
 #endif
     // The place's lamps relight the baked colour b: b * (b + G * lit) / (b + k * G * unshadowed). Where no lamp
     // reaches, the colour is the bake; the side towards a lamp gets its light, what the lamp cannot see loses the
@@ -639,6 +675,8 @@ void main()
     // bounce of that light is added in the same tone.
     vec3 lampAdded = lamps.rgb + lampBounce;
     vec3 lampTone = mix(vec3_splat(dot(lampAdded, vec3(0.299, 0.587, 0.114))), lampAdded, u_fxLampGrid[4].z);
+    // The baked colour holds the sky, the bounce and the sun together: three quarters of the cavity.
+    aoVolume *= mix(1.0, cavity, 0.75);
 #ifdef FX_LIGHT_LINEAR
     current.rgb *= aoVolume * sqrt((vec3_splat(baked * baked) + gain * gain * lampTone) /
                                    (baked * baked + u_fxLamps[0].w * gain * gain * lamps.a));
@@ -659,7 +697,8 @@ void main()
         float then = u_fxTownWall[0].x + u_fxTownWall[0].y * sunThen + u_fxTownWall[0].z * ffWallSky(seen.x);
         current.rgb *= clamp(now / max(then, 0.02), 0.33, 3.0);
     }
-    current.rgb = fxLit(current.rgb, tex0.rgb, fxPointDiffuse(N, P) + ffLampMoved, vec3_splat(0.0), vec3_splat(0.0));
+    current.rgb = fxLit(current.rgb, tex0.rgb, (fxPointDiffuse(N, P) + ffLampMoved) * cavityDirect, vec3_splat(0.0),
+                        vec3_splat(0.0));
 #ifdef FX_LIGHT_SPECULAR
     // Highlights the bake cannot hold: the sun's (outdoors: u_fxLight[1] is black indoors), the lamps' with their
     // shadows (at the lamps' gain on baked colours), the dynamic lights'.
@@ -722,6 +761,15 @@ void main()
         current.rgb = vec3(vis.x, vis.y, 0.15) * (0.35 + 0.65 * dot(current.rgb, vec3(0.299, 0.587, 0.114)));
     }
 #endif
+#endif
+#ifdef FX_LIGHT_PARALLAX
+    if (u_fxParallax[1].y > 0.5)
+    {
+        // Debug view (fx_parallax_debug): red the uv shift in texels of the height's top level (full red at 8), green
+        // the relief's height where the eye's ray met it, blue 0.3 on every parallax draw (other draws keep their colour).
+        float shifted = length((ffReliefUv - ffReliefUv0) * exp2(u_fxParallax[0].w));
+        current.rgb = vec3(clamp(shifted / 8.0, 0.0, 1.0), ffPomFound.x > 0.0 ? 1.0 - ffPomFound.y : 0.0, 0.3);
+    }
 #endif
     gl_FragColor = ffFinish(current);
     FF_SLOPE_DEPTH();

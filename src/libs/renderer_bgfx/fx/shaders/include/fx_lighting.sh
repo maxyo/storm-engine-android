@@ -15,6 +15,7 @@
 //                         the terminator is soft. Combine with fxLit() / fxAddSpecular().
 //   FX_LIGHT_NORMALMAP    relief from a normal map derived from the game's height ("bump") texture of texture
 //                         stage 1 or the colour texture of stage 0 (fx/normal_map.hpp); no mesh tangents needed
+//   FX_LIGHT_PARALLAX     with FX_LIGHT_NORMALMAP: parallax occlusion mapping from the relief's height (stage 0 maps)
 //
 // Contract with the emulator's vertex shader when FX_LIGHT_PER_PIXEL is on:
 //   * pass the view-space normal and position to the fragment shader;
@@ -42,9 +43,13 @@
 //
 // FX_LIGHT_NORMALMAP (only for draw calls whose stage 1 or stage 0 texture has a derived normal map, bound with
 // fx::Lighting::BindNormalMap): replace the interpolated normal before any of the calls above,
-//   N = fxPerturbNormal(N, P, that stage's texture coordinates);
-// The stages themselves stay as they are (colour, and the 2x multiply detail layer of the original look). Cost per pixel:
-// one RG8 fetch, four screen-space derivatives, two cross products and two normalisations.
+//   fxReliefFrame(N, P, dFdx(uv), dFdy(uv), gu, gv);  N = fxPerturbNormal(N, gu, gv, the map's texel at uv);
+// with uv that stage's texture coordinates. The stages themselves stay as they are (colour, and the 2x multiply detail
+// layer of the original look). Cost per pixel: one RG8 fetch, six screen-space derivatives, two cross products and two
+// normalisations.
+// FX_LIGHT_PARALLAX (with FX_LIGHT_NORMALMAP, a stage 0 map whose class has a height: its material at fx::Lighting::BindMaterial):
+// before that, uv = fxParallax(uv, ...): the map and stage 0's colour are read where the eye's ray meets the relief
+// (with the derivatives of the unshifted uv: no seams where the shift jumps).
 // For baked geometry, which has no run-time sun term, multiply the baked colour instead:
 //   current.rgb *= fxBakedRelief(Ngeometry, N, V);
 //
@@ -175,28 +180,143 @@ vec3 fxRim(vec3 N, vec3 V)
 }
 #endif // FX_LIGHT_PER_PIXEL
 
+#if defined(FX_LIGHT_PARALLAX) || defined(FX_LIGHT_SPECULAR)
+// Sampler stage 7 (fx::kMaterialStage): the material texture, EAC RG11 with mips: R the relief's height (1 = the top,
+// fx/height_map.hpp: the parallax and the cavity), G the gloss (fx/gloss_map.hpp: the highlights).
+SAMPLER2D(s_fxMaterial, 7);
+#endif
+
 #ifdef FX_LIGHT_NORMALMAP
 // Sampler stage 14 (fx::kNormalMapStage) is reserved for the derived normal map (RG8: x, y of the tangent-space normal).
 SAMPLER2D(s_fxNormalMap, 14);
 
-// N: unit interpolated normal, P: position (both view space), uv: the coordinates of the map's texture.
-// The tangent frame comes from screen-space derivatives of P and uv (a cotangent frame), so meshes need no
-// tangents and mirrored or rotated texture mappings are handled by construction.
-vec3 fxPerturbNormal(vec3 N, vec3 P, vec2 uv)
+// The relief's frame at a pixel: gu, gv are the surface gradients of the map's coordinates u and v (view space, per
+// metre: the direction in which u grows, as fast as it grows), from screen-space derivatives of the position P and of
+// uv (dux = dFdx(uv), duy = dFdy(uv)) around the unit normal N: a cotangent frame (Schüler, "Followup: Normal Mapping
+// Without Precomputed Tangents"), so meshes need no tangents and mirrored or rotated mappings are handled by
+// construction. The determinant keeps its sign: a picture drawn with its rows the other way round has the same frame.
+void fxReliefFrame(vec3 N, vec3 P, vec2 dux, vec2 duy, out vec3 gu, out vec3 gv)
 {
     vec3 dpx = dFdx(P);
     vec3 dpy = dFdy(P);
-    vec2 dux = dFdx(uv);
-    vec2 duy = dFdy(uv);
     vec3 px = cross(dpy, N);
     vec3 py = cross(N, dpx);
-    vec3 T = px * dux.x + py * duy.x; // direction of growing u on the surface
-    vec3 B = px * dux.y + py * duy.y; // direction of growing v
-    float scale = inversesqrt(max(max(dot(T, T), dot(B, B)), 1e-20));
-    vec2 n = (texture2D(s_fxNormalMap, uv).rg * 2.0 - vec2_splat(1.0)) * u_fxLight[5].x;
-    float nz = sqrt(max(1.0 - dot(n, n), 0.0));
-    return normalize(T * (scale * n.x) + B * (scale * n.y) + N * nz);
+    float det = dot(dpx, px);
+    float inv = abs(det) > 1e-30 ? 1.0 / det : 0.0;
+    gu = (px * dux.x + py * duy.x) * inv;
+    gv = (px * dux.y + py * duy.y) * inv;
 }
+
+// N: unit interpolated normal, gu, gv: its relief frame (fxReliefFrame), rg: the normal map's texel.
+vec3 fxPerturbNormal(vec3 N, vec3 gu, vec3 gv, vec2 rg)
+{
+    float scale = inversesqrt(max(max(dot(gu, gu), dot(gv, gv)), 1e-20));
+    vec2 n = (rg * 2.0 - vec2_splat(1.0)) * u_fxLight[5].x;
+    float nz = sqrt(max(1.0 - dot(n, n), 0.0));
+    return normalize(gu * (scale * n.x) + gv * (scale * n.y) + N * nz);
+}
+
+#ifdef FX_LIGHT_PARALLAX
+// [0] x, y: the depth of the height's 0..1 span in u and v (its depth in texels over the map's width and height, times
+//         the class's depth, the strength and the relief's fade-in); z: the most steps of the ray (1 = one-tap offset
+//         mapping); w: log2 of the map's larger side (the level the steps read).
+// [1] x: the self-shadow towards the sun, 0..1 of the sun's light it may take (0 = none: offset mapping, interiors);
+//     y: 1 = the debug view (ff_fragment.sh, fx_parallax_debug); z: the cavity's strength (fxReliefCavity, 0 = none).
+// With z set and no parallax (x, y and z of [0] zero) the variant draws only the cavity.
+uniform vec4 u_fxParallax[2];
+
+// Parallax occlusion mapping: where the ray from the eye along -V meets the relief below the surface at uv (its
+// derivatives dux, duy; frame gu, gv; geometric unit normal Ng facing the viewer; distance: the pixel's from the eye in
+// metres). The relief's top is the surface: the ray goes down into the texture's pits, never above it. The step count
+// grows towards grazing views (8 looking straight at the surface, up to z), the last two steps are interpolated
+// linearly; the effect fades out between 10 and 15 m, where it is not drawn at all. At grazing views the shift is held
+// to 2.5 times the depth: further, it runs off the texture's region at the edge of a polygon (a dark band under a step).
+// One tap (z = 1): offset mapping with offset limiting (no division by the cosine).
+// `found`, for fxParallaxShadow: x the full depth in metres (0: no parallax drawn), y where the eye's ray met the relief
+// (0 the top .. 1 the deepest), z the level the steps read.
+vec2 fxParallax(vec2 uv, vec2 dux, vec2 duy, vec3 gu, vec3 gv, vec3 Ng, vec3 V, float distance, out vec3 found)
+{
+    float lod = max(0.5 * log2(max(dot(dux, dux), dot(duy, duy))) + u_fxParallax[0].w, 0.0);
+    found = vec3(0.0, 0.0, lod);
+    float fade = 1.0 - smoothstep(10.0, 15.0, distance);
+    if (fade <= 0.0 || u_fxParallax[0].z < 0.5)
+        return uv;
+    // The full depth in metres: the depth in texels times a texel's size along u and along v, averaged.
+    float lu = length(gu);
+    float lv = length(gv);
+    float depth = 0.5 * (u_fxParallax[0].x / max(lu, 1e-6) + u_fxParallax[0].y / max(lv, 1e-6)) * fade;
+    float nv = clamp(dot(Ng, V), 0.0, 1.0);
+    // Along the ray, going one metre down into the surface moves the point 1 / nv metres along it, its uv by gu, gv.
+    vec2 along = vec2(dot(gu, V), dot(gv, V)) * depth;
+    found.x = depth;
+    if (u_fxParallax[0].z < 1.5)
+    {
+        float h = texture2DLod(s_fxMaterial, uv, lod).r;
+        found.y = 1.0 - h;
+        return uv - along * (1.0 - h);
+    }
+    vec2 shift = along / max(nv, 0.4);
+    float steps = mix(u_fxParallax[0].z, 8.0, nv);
+    float layer = 1.0 / steps;
+    vec2 step = shift * layer;
+    vec2 at = uv;
+    float below = 0.0;                                           // the ray's depth (0 at the top, 1 the deepest)
+    float ground = 1.0 - texture2DLod(s_fxMaterial, at, lod).r; // the relief's depth under it
+    float prev_below = 0.0;
+    float prev_ground = ground;
+    for (int i = 0; i < 32; ++i)
+    {
+        if (below >= ground || float(i) >= steps)
+            break;
+        prev_below = below;
+        prev_ground = ground;
+        at -= step;
+        below += layer;
+        ground = 1.0 - texture2DLod(s_fxMaterial, at, lod).r;
+    }
+    // Between the last step above the relief and the first below it: where the two lines cross.
+    float after = ground - below;
+    float before = prev_ground - prev_below;
+    float t = clamp(after / min(after - before, -1e-5), 0.0, 1.0);
+    found.y = mix(below, prev_below, t);
+    return at + step * t;
+}
+
+// The relief's own shadow towards the light L (unit, view space) at the point fxParallax found (uv: its result, found:
+// what it found): a short
+// ray from it up to the top along L, six taps; what of the relief stands above the ray darkens softly, the more the
+// higher it stands and the nearer it is. 1 = lit, down to 1 - u_fxParallax[1].x. The ray's run along the surface is held
+// to three times the depth (a low sun). Nothing where no parallax was drawn or the surface faces away from L.
+float fxParallaxShadow(vec2 uv, vec3 found, vec3 gu, vec3 gv, vec3 Ng, vec3 L)
+{
+    float nl = dot(Ng, L);
+    if (u_fxParallax[1].x <= 0.0 || found.x <= 0.0 || nl <= 0.0 || found.y <= 0.0)
+        return 1.0;
+    // Going one unit of depth up towards L moves the point by this much uv.
+    vec2 toward = vec2(dot(gu, L), dot(gv, L)) * (found.x / max(nl, 0.33));
+    float occlusion = 0.0;
+    for (int i = 1; i <= 6; ++i)
+    {
+        float k = float(i) / 6.0;
+        float ray = found.y * (1.0 - k); // the ray's depth there
+        float ground = 1.0 - texture2DLod(s_fxMaterial, uv + toward * (found.y * k), found.z).r;
+        occlusion = max(occlusion, (ray - ground) * (1.0 - 0.6 * k) * 6.0);
+    }
+    return 1.0 - u_fxParallax[1].x * clamp(occlusion, 0.0, 1.0);
+}
+// The relief's cavity (micro-occlusion) at uv: how far the height there lies below its surroundings, the same height
+// two and a half levels coarser (`found`: fxParallax's, its z the level; its y the depth of the ray's hit when the
+// parallax ran, else the height is read). 1 = open, down to 1 - u_fxParallax[1].z in joints, gaps and recesses. One
+// tap of the height (two without the parallax).
+float fxReliefCavity(vec2 uv, vec3 found)
+{
+    if (u_fxParallax[1].z <= 0.0)
+        return 1.0;
+    float h = found.x > 0.0 ? 1.0 - found.y : texture2DLod(s_fxMaterial, uv, found.z).r;
+    float around = texture2DLod(s_fxMaterial, uv, found.z + 2.5).r;
+    return 1.0 - u_fxParallax[1].z * clamp((around - h) * 4.0, 0.0, 1.0);
+}
+#endif // FX_LIGHT_PARALLAX
 
 // Baked geometry: how much brighter or darker the relief makes a surface that was baked with normal Ng; V: unit
 // vector to the eye. The baked colours already hold the sun's strength, so only its direction matters here: a light

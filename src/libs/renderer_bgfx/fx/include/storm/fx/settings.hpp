@@ -29,9 +29,10 @@ inline constexpr uint8_t kLampStaticStage = 11;
 inline constexpr uint8_t kRoomLightStage = 8;    // the baked colours around every point of an interior (RGBA8 3D)
 inline constexpr uint8_t kLampGridStage = 9;     // which lamps reach which cell of the place (RGBA8 3D)
 inline constexpr uint8_t kNormalMapStage = 14;
-// The material texture (EAC RG11: R height for the parallax, G gloss, gloss_map.hpp) in the lit and baked programs: unit 7 is the stage-2 cube of the plain
-// fixed-function cube variants, which those programs never are (cube-mapped draws keep the fixed-function path).
-inline constexpr uint8_t kGlossMapStage = 7;
+// The material texture (EAC RG11: R the relief's height for the parallax and its cavity, height_map.hpp; G gloss,
+// gloss_map.hpp) in the lit and baked programs: unit 7 is the stage-2 cube of the plain fixed-function cube variants,
+// which those programs never are (cube-mapped draws keep the fixed-function path).
+inline constexpr uint8_t kMaterialStage = 7;
 
 enum class QualityPreset : uint8_t
 {
@@ -64,6 +65,15 @@ enum LightingFlags : uint32_t
     kLightingWind = 1u << 9,        // FX_WIND: wind sway in the vertex shader (foliage, grass, sails)
     kLightingAll = 0x3ff,
 };
+
+// Parallax from the relief's height (Settings::parallax, height_map.hpp) on the classes that have one.
+enum class ParallaxQuality : uint8_t
+{
+    Off,
+    Offset,    // one tap: offset mapping with offset limiting
+    Occlusion, // parallax occlusion mapping: 8 steps looking straight at a surface, up to kParallaxSteps at grazing
+};
+inline constexpr int kParallaxSteps = 24;
 
 enum class ShadowQuality : uint8_t
 {
@@ -151,8 +161,8 @@ struct Settings
     uint32_t lighting_flags = kLightingNone;
     uint8_t point_lights = 4;      // per draw call with kLightingPoint: 4 or 8
     // With kLightingNormalMap: the one strength of all relief (lit models and baked surfaces alike; the texture classes
-    // keep their ratios), the same on Средняя and Высокая. 1.0: the owner's choice, DeepBump's maps at the full strength
-    // of our own derivation (relief_store.hpp).
+    // keep their ratios), the same on Средняя and Высокая. 1.0: the owner's choice, PBRify's maps as the model gives them
+    // and the height maps' own derivation (relief_store.hpp).
     float normal_map_strength = 1.0f;
     // With kLightingTranslucent: strength of the sunlight through sails and flags (scales LightingMaterial::translucency).
     float sail_light = 1.0f;
@@ -167,6 +177,17 @@ struct Settings
     // 2 the relief: the shading normal of the pixels whose relief is on, grey elsewhere; 3 the share of the open sun the
     // bake shows (its highlight's mask on baked surfaces); 4 the metal mask.
     uint8_t gloss_debug = 0;
+    // With kLightingNormalMap: parallax from the relief's height (R of the material texture, at the normal map's size) on
+    // stone, wood, plaster, ground and the buildings' atlases, fading out between 10 and 15 m.
+    ParallaxQuality parallax = ParallaxQuality::Off;
+    // The parallax's depth, scaling every class's own (fx::ReliefDepthTexels in height_map.hpp), 0..3.
+    float parallax_strength = 1.0f;
+    // With ParallaxQuality::Occlusion: the relief's own shadow towards the sun (six more taps of the height).
+    bool parallax_shadow = false;
+    // With kLightingNormalMap: the relief's cavity (fx_lighting.sh fxReliefCavity) darkens joints, gaps and recesses from
+    // the same height, under the lighting like an occlusion; with or without the parallax.
+    bool relief_cavity = false;
+    bool parallax_debug = false; // parallax draws show their uv shift (red) and height (green) instead of their colour
     ShadowQuality shadows = ShadowQuality::Off; // sun shadows on per-pixel lit surfaces (needs kLightingPerPixel)
     // Towns light their lightmapped surfaces with our own bake for the live sun instead of the game's lightmaps
     // (needs kLightingPerPixel; src/effects/town_light.hpp).

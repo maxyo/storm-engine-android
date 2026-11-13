@@ -85,8 +85,9 @@ is not wired into the game. `Shadows::CasterProgram`,
 | `include/storm/fx/sky.hpp` | `Sky`: the atmosphere state of the weather (grade of the place and hour, hemisphere ambient, aerial perspective); the sky itself is the game's on every preset |
 | `include/storm/fx/lighting.hpp`, `shaders/include/fx_lighting.sh` | lighting flags and uniforms for the fixed-function emulator |
 | `include/storm/fx/light_set.hpp` | point / spot lights: selection per draw call, flash lights |
-| `include/storm/fx/deepbump.hpp`, `relief_store.hpp` | DeepBump's tiles, axes, mips and strength around the model (run by src/libs/relief); the relief directory's files and keys |
+| `include/storm/fx/relief_model.hpp`, `relief_store.hpp` | PBRify's normal and height models' input, crop, axes and mips (run by src/libs/relief); the relief directory's files and keys |
 | `include/storm/fx/gloss_map.hpp` | gloss maps derived from the colour textures (material class from the path rules, luminance and colour cues per texel) that shape the sun's and the lamps' highlights |
+| `include/storm/fx/height_map.hpp` | the relief's material texture: PBRify's height (normalised per atlas region) for the parallax and the cavity, the gloss beside it |
 | `include/storm/fx/normal_map.hpp` | normal maps of the grey "bump" heights; the path/name rules table that gives each texture its relief class |
 | `include/storm/fx/shadows.hpp` | `Shadows`: sun shadow map |
 | `include/storm/fx/contact_shadows.hpp` | `ContactShadows`: soft blobs under characters and objects |
@@ -149,7 +150,7 @@ fixed-function emulator's units).
 Normal maps come from the player's own textures, on the device; never ship or commit them. Which textures get one is
 the ordered rules table of `ClassifyTextureName` (stone, wood, building atlases, plaster and ground; nothing for faces,
 cloth and sails, UI, water, glass, foliage cards, grass ground, sky, decals and unknown names). Colour textures get
-DeepBump's normals as the model gives them (`deepbump.hpp`, the owner's choice), made by src/libs/relief; grey "bump"
+PBRify's normals as the model gives them (`relief_model.hpp`, the owner's choice), made by src/libs/relief; grey "bump"
 textures get `DeriveNormalMap` of their heights, in the game. Both live in the relief directory (`relief_store.hpp`) as EAC RG11 with
 mips: 1 byte per texel plus a third (a 512² map 0.35 MB; prepared maps are 512, fx::kReliefMapSize; Settings::normal_map_size caps the resident
 size).
@@ -162,3 +163,17 @@ window glass; rust). Derived in the game on a texture worker (~10 ms a texture, 
 as EAC R11 with mips (256², 43 KB). The lit and baked programs with FX_LIGHT_SPECULAR read them at stage 7
 (fx_lighting.sh `fxGlossSpec`: energy-kept Blinn-Phong, power 8..181, reflectance gloss^2.5 / 2): the sun's highlight on
 lit and on baked surfaces outdoors (where the bake shows the open sun), the lamps' highlights with their shadows.
+The colour textures' maps of the classes with a height (stone, wood, building atlases, plaster) also hold the relief's
+material texture (`height_map.hpp`): R PBRify's height for the parallax and the cavity, G the gloss (so these textures
+have no gloss map of their own), EAC RG11 with the same mips in the same file (a 512² material 0.35 MB). With Settings::parallax (Высокая: occlusion, 8..24 steps by view angle;
+Средняя: one-tap offset mapping) the lit and baked draws whose relief follows stage 0 take the FX_LIGHT_PARALLAX variants:
+the material at stage 7 (`kMaterialStage`, `s_fxMaterial`, the unit the gloss reads), stage 0's colour and the
+normal map read where the eye's ray meets the relief (`fx_lighting.sh` fxParallax), fading out between 10 and 15 m.
+The height is normalised per atlas region (`height_map.hpp`), each class has its
+own depth (`ReliefDepthTexels`: stone 12 texels of the 512 map, building atlases 8, plaster 5, wood 4), the shift at grazing views is held to 2.5 times the depth, and clamp-addressed textures have none (the
+reads would run off their edge). On Высокая the relief also shadows itself towards the sun (fxParallaxShadow, six taps
+of the height; not indoors): the lit draws' sun term, half of the baked colours.
+The same height gives the relief's cavity on Высокая and Средняя (fxReliefCavity: the height against itself two and a
+half levels coarser, one more tap): joints, gaps and recesses take ambient and bounce in full, half of the direct light,
+three quarters of the baked colours; it also draws where the parallax is off or clamped.
+The grey "bump" textures' maps (stage 1, their own coordinates) have no height and no parallax.

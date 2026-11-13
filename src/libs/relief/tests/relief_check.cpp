@@ -1,6 +1,7 @@
-// Host check of the relief preparation with the real DeepBump model (storm_relief_core): a small synthetic game,
+// Host check of the relief preparation with the real PBRify models (storm_relief_core): a small synthetic game,
 // prepared, marked complete, keyed as the game keys it, resumed without work, stale maps pruned, cancelled.
 #include "relief.hpp"
+#include "storm/fx/height_map.hpp"
 #include "storm/fx/relief_store.hpp"
 
 #include <cmath>
@@ -8,6 +9,7 @@
 #include <cstring>
 #include <fstream>
 #include <iterator>
+#include <string>
 #include <vector>
 
 namespace
@@ -56,11 +58,14 @@ int main(int argc, char **argv)
     using namespace storm;
     if (argc < 2)
     {
-        std::printf("usage: %s <deepbump256.onnx>\n", argv[0]);
+        std::printf("usage: %s <model dir>\n", argv[0]);
         return 2;
     }
-    std::ifstream in(argv[1], std::ios::binary);
-    const std::vector<uint8_t> model{std::istreambuf_iterator<char>(in), {}};
+    const auto read = [&](const char *name) {
+        std::ifstream in(std::string(argv[1]) + "/" + name, std::ios::binary);
+        return std::vector<uint8_t>{std::istreambuf_iterator<char>(in), {}};
+    };
+    const std::vector<uint8_t> normal = read("pbrify-normal-int8.onnx"), height = read("pbrify-height-int8.onnx");
     const std::filesystem::path root = std::filesystem::temp_directory_path() / "storm_relief_check";
     std::filesystem::remove_all(root);
     const std::filesystem::path textures = root / "RESOURCE/Textures", output = root / "relief";
@@ -70,7 +75,7 @@ int main(int argc, char **argv)
     relief::Job job;
     job.textures = textures;
     job.output = output;
-    job.model = model;
+    job.models = {normal, height};
     job.map_size = 128;
     job.threads = 2;
     CHECK(!relief::Complete(textures, output, job.map_size));
@@ -93,6 +98,8 @@ int main(int argc, char **argv)
     const uint64_t key = fx::ReliefKey("locations/stonewall", probe, 64, 64, fx::ReliefMethod(fx::ReliefClass::Stone), job.map_size);
     const std::optional<fx::NormalMap> map = fx::ReadReliefMap(output, key);
     CHECK(map && map->width == 128 && map->mip_count == 8 && map->format == fx::NormalMapFormat::EacRg11);
+    // A stone texture's map holds its material texture (EAC RG11: height, gloss; the same mips) and the stone's depth.
+    CHECK(map && map->material.size() == map->rg.size() && map->depth == fx::ReliefDepthTexels(fx::ReliefClass::Stone) * 0.25f);
     // Resumed: nothing to do; a stale map from another game is pruned after the complete run.
     fx::WriteReliefMap(output, 42, *map);
     result = relief::Prepare(job, nullptr);
@@ -110,7 +117,7 @@ int main(int argc, char **argv)
     CHECK(result.status == 1 && result.prepared == 0 && fx::HasReliefMap(output, 42));
     // A broken model is an error, not a crash.
     const std::vector<uint8_t> junk(100, 7);
-    job.model = junk;
+    job.models = {junk, height};
     CHECK(relief::Prepare(job, nullptr).status == 2);
     std::filesystem::remove_all(root);
     if (failures)

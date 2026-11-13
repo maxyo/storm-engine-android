@@ -1,4 +1,4 @@
-# Relief preparation (README.md): DeepBump through onnxruntime. The game makes its maps with it while it runs
+# Relief preparation (README.md): PBRify's models through onnxruntime. The game makes its maps with them while it runs
 # (renderer_bgfx effects/relief_generator); storm_relief_cli does a whole game at once.
 include(FetchContent)
 
@@ -18,19 +18,26 @@ else()
 endif()
 FetchContent_MakeAvailable(storm_onnxruntime)
 
-# The DeepBump model (GPL-3.0), derived from HugoTini/DeepBump at fad19ba8 by model/make_model.py (model/README.md).
-set(STORM_DEEPBUMP_MODEL "${CMAKE_CURRENT_SOURCE_DIR}/model/deepbump256-int8.onnx")
-file(SHA256 "${STORM_DEEPBUMP_MODEL}" model_digest)
-if(NOT model_digest STREQUAL "24b0975701c94500a7ecbc1e0927fc0d07803c19310437ddc4b4ca86fe239603")
-    message(FATAL_ERROR "model/deepbump256-int8.onnx does not match its recorded sha256 (${model_digest})")
-endif()
-# The maps' method includes the model's digest (fx::kDeepBumpModelDigest, fx/deepbump.hpp): a new model must change it.
-file(READ "${CMAKE_CURRENT_SOURCE_DIR}/../renderer_bgfx/fx/include/storm/fx/deepbump.hpp" deepbump_header)
-string(REGEX MATCH "kDeepBumpModelDigest = 0x([0-9a-f]+)ull" digest_line "${deepbump_header}")
-string(SUBSTRING "${model_digest}" 0 16 model_digest_prefix)
-if(NOT CMAKE_MATCH_1 STREQUAL model_digest_prefix)
-    message(FATAL_ERROR "fx::kDeepBumpModelDigest (${CMAKE_MATCH_1}) is not the model's sha256 prefix (${model_digest_prefix})")
-endif()
+# PBRify's normal and height models (CC0-1.0), int8 from Kim2091/PBRify_Remix's by model/make_models.py (model/README.md).
+# The maps' method includes their digests (fx/relief_model.hpp): a new model must change them.
+set(STORM_RELIEF_MODELS "${CMAKE_CURRENT_SOURCE_DIR}/model")
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/../renderer_bgfx/fx/include/storm/fx/relief_model.hpp" relief_model_header)
+foreach(pair "pbrify-normal-int8.onnx|kReliefNormalModelDigest|fc91ce30e48deaf5847ed19342bd1fc7a8ffc11a2ec94f26c4d6bcbe63df4b33"
+             "pbrify-height-int8.onnx|kReliefHeightModelDigest|01f251dc40e79fa7ef5348b51f538de5a14bc6113c8ea3173ba78ce0b648c409")
+    string(REPLACE "|" ";" fields "${pair}")
+    list(GET fields 0 file)
+    list(GET fields 1 constant)
+    list(GET fields 2 expected)
+    file(SHA256 "${STORM_RELIEF_MODELS}/${file}" digest)
+    if(NOT digest STREQUAL expected)
+        message(FATAL_ERROR "model/${file} does not match its recorded sha256 (${digest})")
+    endif()
+    string(REGEX MATCH "${constant} = 0x([0-9a-f]+)ull" digest_line "${relief_model_header}")
+    string(SUBSTRING "${digest}" 0 16 prefix)
+    if(NOT CMAKE_MATCH_1 STREQUAL prefix)
+        message(FATAL_ERROR "fx::${constant} (${CMAKE_MATCH_1}) is not the sha256 prefix of model/${file} (${prefix})")
+    endif()
+endforeach()
 
 add_library(storm_onnxruntime SHARED IMPORTED GLOBAL)
 if(ANDROID)
@@ -52,13 +59,14 @@ if(ANDROID)
 endif()
 set_target_properties(storm_relief_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
-# What the app packages next to libengine.so (which links onnxruntime): onnxruntime and the model (an asset), in
+# What the app packages next to libengine.so (which links onnxruntime): onnxruntime and the two models (assets), in
 # <build>/game.
 if(ANDROID)
     add_custom_target(storm_relief_package
         COMMAND "${CMAKE_COMMAND}" -E make_directory "${CMAKE_BINARY_DIR}/game/assets"
         COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${onnxruntime_library}" "${CMAKE_BINARY_DIR}/game/libonnxruntime.so"
-        COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${STORM_DEEPBUMP_MODEL}" "${CMAKE_BINARY_DIR}/game/assets/deepbump256-int8.onnx"
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${STORM_RELIEF_MODELS}/pbrify-normal-int8.onnx" "${CMAKE_BINARY_DIR}/game/assets/pbrify-normal-int8.onnx"
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${STORM_RELIEF_MODELS}/pbrify-height-int8.onnx" "${CMAKE_BINARY_DIR}/game/assets/pbrify-height-int8.onnx"
         VERBATIM)
 endif()
 # The same job from a shell: host checks, and timing on a device or emulator (adb push with libonnxruntime.so).
@@ -66,10 +74,10 @@ add_executable(storm_relief_cli cli.cpp)
 target_link_libraries(storm_relief_cli PRIVATE storm_relief_core)
 if(NOT ANDROID)
     set_target_properties(storm_relief_cli PROPERTIES BUILD_RPATH "${storm_onnxruntime_SOURCE_DIR}/lib")
-    # tests/renderer_bgfx/run.py: the preparation with the real model on a small synthetic game.
+    # tests/renderer_bgfx/run.py: the preparation with the real models on a small synthetic game.
     add_executable(storm_relief_check tests/relief_check.cpp)
     target_link_libraries(storm_relief_check PRIVATE storm_relief_core)
     set_target_properties(storm_relief_check PROPERTIES BUILD_RPATH "${storm_onnxruntime_SOURCE_DIR}/lib")
-    # The model's path for the runner (not a compile definition: absolute paths there defeat ccache).
-    file(WRITE "${CMAKE_BINARY_DIR}/deepbump_model_path.txt" "${STORM_DEEPBUMP_MODEL}")
+    # The models' directory for the runner (not a compile definition: absolute paths there defeat ccache).
+    file(WRITE "${CMAKE_BINARY_DIR}/relief_models_path.txt" "${STORM_RELIEF_MODELS}")
 endif()

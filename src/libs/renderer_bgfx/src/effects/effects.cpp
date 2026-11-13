@@ -141,6 +141,16 @@ const Option kOptions[] = {
      [](fx::Settings &s, int v) { s.gloss_strength = static_cast<float>(std::clamp(v, 10, 300)) / 100.0f; }},
     {"fx_gloss_debug", "0 off, 1 the gloss (magenta: no map), 2 the relief normals, 3 the sun the bake shows, 4 the metal mask",
      [](fx::Settings &s, int v) { s.gloss_debug = static_cast<uint8_t>(std::clamp(v, 0, 4)); }},
+    {"fx_parallax", "0 off, 1 offset mapping (one tap), 2 parallax occlusion mapping",
+     [](fx::Settings &s, int v) { s.parallax = static_cast<fx::ParallaxQuality>(std::clamp(v, 0, 2)); }},
+    {"fx_parallax_shadow", "0 off, 1 the relief's own shadow towards the sun (with fx_parallax 2)",
+     [](fx::Settings &s, int v) { s.parallax_shadow = on(v); }},
+    {"fx_parallax_strength", "0..300 % of the relief's depth",
+     [](fx::Settings &s, int v) { s.parallax_strength = static_cast<float>(std::clamp(v, 0, 300)) / 100.0f; }},
+    {"fx_relief_cavity", "0 off, 1 the relief's cavity darkens joints and gaps (from its height)",
+     [](fx::Settings &s, int v) { s.relief_cavity = on(v); }},
+    {"fx_parallax_debug", "0 off, 1 parallax draws show their uv shift (red, full at 8 texels) and height (green)",
+     [](fx::Settings &s, int v) { s.parallax_debug = on(v); }},
     {"fx_light_rim", "0 off, 1 on", [](fx::Settings &s, int v) { set_flag(s, fx::kLightingRim, v); }},
     {"fx_light_linear", "0 off, 1 on", [](fx::Settings &s, int v) { set_flag(s, fx::kLightingLinear, v); }},
     {"fx_aerial", "0 off, 1 on", [](fx::Settings &s, int v) { set_flag(s, fx::kLightingAerial, v); }},
@@ -177,12 +187,13 @@ std::string describe(const fx::Settings &s)
     snprintf(text, sizeof(text),
              "tonemap=%d bloom=%d(1/%u,%u) shafts=%d smaa=%d scene_height=%u sharpen=%d(%.2f) ssao=%d dither=%d flare=%d scene_grading=%d "
              "grade=%d msaa=%u a2c=%d aniso=%u sea=%d%d%d waves=%d%d%d shadows=%d "
-             "lighting=0x%x contact=%d",
+             "lighting=0x%x parallax=%d(%.2f, shadow %d, cavity %d) contact=%d",
              s.tonemap, s.bloom, s.bloom_downscale, s.bloom_levels, s.sun_shafts, s.smaa, s.render_height, s.sharpen,
              static_cast<double>(s.sharpness), s.ssao, s.dither,
              s.lens_flare, s.scene_grading, static_cast<int>(s.grade), s.msaa,
              s.alpha_to_coverage, s.anisotropy, s.sea_band_limit, s.sea_soft_edges, s.sea_specular,
-             s.sea_waves, s.sea_waves_lift, s.sea_wakes, static_cast<int>(s.shadows), s.lighting_flags, s.contact_shadows);
+             s.sea_waves, s.sea_waves_lift, s.sea_wakes, static_cast<int>(s.shadows), s.lighting_flags, static_cast<int>(s.parallax),
+             static_cast<double>(s.parallax_strength), s.parallax_shadow, s.relief_cavity, s.contact_shadows);
     return text;
 }
 } // namespace
@@ -676,10 +687,10 @@ void Host::end_frame(bool scene_frame, uint32_t frame)
                          profile_sum_rcas_ / profile_gpu_frames_);
             const Lighting::Counts counts = lighting_.last_frame();
             shim::logf("effects profile: preset %d scene=%ux%u display=%ux%u %s cpu_frame_ms=%.2f draws=%.0f post_views=%u lit_draws=%u "
-                       "baked_draws=%u coverage_draws=%u relief_draws=%u gloss_draws=%u aerial_draws=%u shadowed_draws=%u casters=%u ao_draws=%u lamp_draws=%u lamp_casters=%u lamp_slots=%d lamp_static_faces=%d sun_static_tiles=%u sun_static_triangles=%u lightmapped_draws=%u town_relit_draws=%u town_wall_draws=%u",
+                       "baked_draws=%u coverage_draws=%u relief_draws=%u parallax_draws=%u gloss_draws=%u aerial_draws=%u shadowed_draws=%u casters=%u ao_draws=%u lamp_draws=%u lamp_casters=%u lamp_slots=%d lamp_static_faces=%d sun_static_tiles=%u sun_static_triangles=%u lightmapped_draws=%u town_relit_draws=%u town_wall_draws=%u",
                        preset_, last_post_size_[0], last_post_size_[1], last_post_size_[2], last_post_size_[3], gpu,
                        profile_sum_cpu_ / kProfileFrames, static_cast<double>(profile_draws_) / kProfileFrames,
-                       last_post_views_, counts.lit, counts.baked, counts.coverage, counts.relief, counts.glossy, counts.aerial, counts.shadowed, counts.casters, counts.ao, counts.lamp_lit, counts.lamp_casters,
+                       last_post_views_, counts.lit, counts.baked, counts.coverage, counts.relief, counts.parallax, counts.glossy, counts.aerial, counts.shadowed, counts.casters, counts.ao, counts.lamp_lit, counts.lamp_casters,
                        lighting_.lamp_shadows().last_slots(), lighting_.lamp_shadows().last_static_faces(),
                        lighting_.shadows().last_static_casters()[0], lighting_.shadows().last_static_casters()[1], lighting_.town_light().last_counts()[0], lighting_.town_light().last_counts()[1], counts.town_walls);
             profile_count_ = profile_gpu_frames_ = 0;

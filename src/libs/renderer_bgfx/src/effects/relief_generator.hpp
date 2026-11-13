@@ -1,4 +1,4 @@
-// The game's relief maps made while it runs (the owner's choice): DeepBump (src/libs/relief) on one worker thread in the
+// The game's relief maps made while it runs (the owner's choice): PBRify's models (src/libs/relief) on one worker thread in the
 // game process, into the relief directory (fx/relief_store.hpp) the game reads.
 //
 //   * A loaded colour texture of a relief class without its map is requested (NormalMaps::on_texture_loaded). The
@@ -41,9 +41,9 @@ struct ReliefSetup
 {
     std::filesystem::path directory; // the relief directory
     std::filesystem::path textures;  // the game's RESOURCE/Textures
-    // Reads the DeepBump model (src/libs/relief/model): the APK asset on Android, engine.ini relief_model on the host.
-    // Null: no maps are made (logged at the first request); the textures without a map get no relief.
-    std::function<std::vector<uint8_t>()> model;
+    // Reads a model file by its name (src/libs/relief/model): the APK assets on Android, engine.ini relief_models on the
+    // host. Null: no maps are made (logged at the first request); the textures without a map get no relief.
+    std::function<std::vector<uint8_t>(const char *file)> model;
 };
 
 class ReliefGenerator
@@ -98,7 +98,7 @@ class ReliefGenerator
     Stats stats_;
     // Worker only.
     std::unique_ptr<relief::Session> session_;
-    std::vector<uint8_t> model_; // onnxruntime keeps no copy of the bytes it was given
+    std::vector<uint8_t> normal_model_, height_model_; // onnxruntime keeps no copy of the bytes it was given
     bool model_failed_ = false;
     std::vector<std::filesystem::path> rest_;
     size_t rest_at_ = 0;

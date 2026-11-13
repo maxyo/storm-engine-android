@@ -1,15 +1,18 @@
-# The DeepBump model of the relief maps
+# The PBRify models of the relief maps
 
-`deepbump256-int8.onnx` (7 084 998 bytes, sha256
-`24b0975701c94500a7ecbc1e0927fc0d07803c19310437ddc4b4ca86fe239603`) is derived from DeepBump's
-`deepbump256.onnx` (github.com/HugoTini/DeepBump, commit fad19ba8, sha256 `3a2aba…6d67`) by `make_model.py`:
-constant-scale upsamplings and a free input size (the model runs once per whole texture), then static int8
-quantisation (QDQ, per-channel weights) calibrated on procedural textures. It is a modified version of GPL-3.0 weights
-and stays GPL-3.0 (`third_party/licenses/DeepBump-GPL-3.0.txt`; provenance in `DeepBump-PROVENANCE.txt`).
-Regenerate with `make_model.py` (pinned versions in its docstring; deterministic) when the source or the tools change,
-and bump `fx::kReliefMethodVersion`.
+`pbrify-normal-int8.onnx` (501 397 bytes, sha256 `fc91ce30e48deaf5847ed19342bd1fc7a8ffc11a2ec94f26c4d6bcbe63df4b33`)
+and `pbrify-height-int8.onnx` (501 394 bytes, sha256
+`01f251dc40e79fa7ef5348b51f538de5a14bc6113c8ea3173ba78ce0b648c409`) are made by `make_models.py` from
+Kim2091/PBRify_Remix's SPAN models 1x-PBRify_NormalV3 and 1x-PBRify_Height (CC0-1.0), as ONNX exports by
+fernandotonon/QtMeshEditor-models (revision b35b7f4c, CC0-1.0; their sha256 pinned in the script): static int8
+quantisation (QDQ, per-channel weights) calibrated on procedural textures with the game's 48 px wrap padding (no game
+data), unused nodes dropped. They stay CC0-1.0 (`third_party/licenses/PBRify-CC0-1.0.txt`; provenance in
+`PBRify-PROVENANCE.txt`). Input and output 1x3xHxW, 0..1, any size.
 
-Against the float model as DeepBump runs it (256 tiles, overlap 64) on 16 TEHO textures at 512 px, the RMS of the
-normals' tilt difference relative to their tilt: this model 36 %; the float model on the whole image 27 % (the whole
-image alone changes the normals as much as the int8 weights do); float 512 tiles 18 %. One inference of a 512 texture
-on an x86-64 core: 213 ms against 579 ms for the float model's nine 256 tiles.
+Regenerate with `make_models.py` (pinned versions in its docstring; deterministic) when the source or the tools
+change, then update `fx::kReliefNormalModelDigest` / `fx::kReliefHeightModelDigest` (the build checks the files
+against them; they are part of the maps' method, so the maps are made again).
+
+Against the float models on 10 TEHO textures at 512 px, the correlation of the int8 output: at least 0.9985 for the
+normals and 0.9917 for the height. One 512 texture on an x86-64 host with 4 threads: about 0.19 s per model (the float
+model 0.52 s).

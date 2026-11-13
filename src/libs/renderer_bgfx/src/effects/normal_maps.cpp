@@ -3,6 +3,7 @@
 #include "effects/relief_generator.hpp"
 #include "relief.hpp"
 #include "shim/device.hpp"
+#include "storm/fx/height_map.hpp"
 #include "storm/fx/lighting.hpp"
 #include "storm/fx/relief_store.hpp"
 #include "texture/core/formats.hpp"
@@ -41,16 +42,21 @@ void ConfigureRelief(ReliefSetup setup)
 
 NormalMapEntry::~NormalMapEntry()
 {
-    if (bgfx::isValid(handle) && shim::Context::instance().initialised())
+    if (!shim::Context::instance().initialised())
+        return;
+    if (bgfx::isValid(handle))
         bgfx::destroy(handle);
+    if (bgfx::isValid(material))
+        bgfx::destroy(material);
 }
 
-void NormalMaps::configure(bool enabled, int max_size)
+void NormalMaps::configure(bool enabled, int max_size, bool material)
 {
     const bool switched_on = enabled && !enabled_;
-    const bool changed = enabled != enabled_ || max_size != max_size_;
+    const bool changed = enabled != enabled_ || max_size != max_size_ || material != material_;
     enabled_ = enabled;
     max_size_ = max_size;
+    material_ = material;
     ReliefGenerator::instance().set_active(enabled);
     if (!changed)
         return;
@@ -71,8 +77,11 @@ void NormalMaps::release(NormalMapEntry &entry)
         return;
     if (bgfx::isValid(entry.handle))
         bgfx::destroy(entry.handle);
-    entry.handle = BGFX_INVALID_HANDLE;
-    entry.bytes = 0;
+    if (bgfx::isValid(entry.material))
+        bgfx::destroy(entry.material);
+    entry.handle = entry.material = BGFX_INVALID_HANDLE;
+    entry.depth = 0.0f;
+    entry.bytes = entry.material_bytes = 0;
     entry.wanted = false;
     entry.state = NormalMapEntry::Stored; // read back from the relief directory when drawn again
 }
@@ -99,9 +108,11 @@ void NormalMaps::on_texture_loaded(shim::TexStore &store, const char *path, cons
         small.resize(size_t(pw) * ph * 4);
         texture::decode_rgba8(format, probe_data->data(), pw, ph, small.data());
     }
-    if (readable && probe_bytes && probe_data->size() >= probe_bytes)
-        add_gloss(store, name, {probe_data->data(), probe_bytes}, pw, ph, file);
     const fx::ReliefVerdict verdict = classifier_.Classify(path, small);
+    // A texture of a relief class with a height has its gloss in its relief's material texture; the others their own
+    // gloss map.
+    if (readable && probe_bytes && probe_data->size() >= probe_bytes && !fx::ReliefHasHeight(verdict.relief))
+        add_gloss(store, name, {probe_data->data(), probe_bytes}, pw, ph, file);
     if (verdict.relief == fx::ReliefClass::None)
         return;
     if (!readable)
@@ -126,6 +137,7 @@ void NormalMaps::on_texture_loaded(shim::TexStore &store, const char *path, cons
     auto entry = std::make_shared<NormalMapEntry>();
     entry->name = name;
     entry->relief = verdict.relief;
+    entry->material_gloss = fx::ReliefHasHeight(verdict.relief) ? fx::ClassifyGlossName(name).gloss : fx::GlossClass::None;
     entry->file = file;
     entry->key = fx::ReliefKey(name, {probe_data->data(), probe_bytes}, static_cast<int>(pw), static_cast<int>(ph),
                                fx::ReliefMethod(verdict.relief), fx::kReliefMapSize);
@@ -247,6 +259,24 @@ NormalMaps::Relief NormalMaps::upload(const std::shared_ptr<NormalMapEntry> &ent
         fx::DropTopMips(entry->map, max_size);
         entry->handle = lighting.CreateNormalMap(entry->map); // logs why when it cannot
         entry->bytes = entry->map.rg.size();
+        entry->width = entry->map.width;
+        entry->height_texels = entry->map.height;
+        if (material_ && !entry->map.material.empty())
+        {
+            const fx::NormalMap material{entry->map.width, entry->map.height, entry->map.mip_count, entry->map.format,
+                                         std::move(entry->map.material)};
+            entry->material = lighting.CreateNormalMap(material); // logs why when it cannot
+            entry->depth = entry->map.depth;
+            entry->material_bytes = bgfx::isValid(entry->material) ? material.rg.size() : 0;
+            entry->bytes += entry->material_bytes;
+        }
+        else if (material_ && fx::ReliefHasHeight(entry->relief) && !entry->no_height_reported)
+        {
+            // Flat (the preparation logs "flat, no height"): this texture has no parallax, cavity or gloss.
+            entry->no_height_reported = true;
+            shim::logf("effects: relief %s (%s): its map has no material texture: no parallax, cavity or gloss for it",
+                       entry->name.c_str(), fx::ReliefClassName(entry->relief));
+        }
         entry->map = {};
         entry->state = bgfx::isValid(entry->handle) ? NormalMapEntry::Uploaded : NormalMapEntry::Failed;
         entry->uploaded = now_;
@@ -268,7 +298,7 @@ NormalMaps::Relief NormalMaps::upload(const std::shared_ptr<NormalMapEntry> &ent
         return {};
     const float fade = std::chrono::duration<float>(now_ - entry->uploaded).count() /
                        std::chrono::duration<float>(kReliefFade).count();
-    return {entry->handle, std::clamp(fade, 0.0f, 1.0f)};
+    return {entry->handle, std::clamp(fade, 0.0f, 1.0f), entry->material, entry->depth, entry->width, entry->height_texels};
 }
 
 void NormalMaps::configure_gloss(bool enabled, int max_size)
@@ -377,6 +407,11 @@ NormalMaps::Stats NormalMaps::stats()
             {
                 ++stats.resident;
                 stats.bytes += entry->bytes;
+                if (bgfx::isValid(entry->material))
+                {
+                    ++stats.materials;
+                    stats.material_bytes += entry->material_bytes;
+                }
             }
             stats.unqueued += entry->state == NormalMapEntry::Unqueued ? 1 : 0;
             stats.waiting += entry->state == NormalMapEntry::Waiting ? 1 : 0;
@@ -413,17 +448,19 @@ void NormalMaps::end_frame()
     const uint32_t rest = generator.rest > 0 ? static_cast<uint32_t>(generator.rest) : 0;
     const bool gloss_same = now.gloss_resident == logged_.gloss_resident && now.gloss_bytes == logged_.gloss_bytes &&
                             now.gloss_unqueued == logged_.gloss_unqueued && now.gloss_derived == logged_.gloss_derived;
-    if (gloss_same && now.resident == logged_.resident && now.bytes == logged_.bytes && now.waiting == logged_.waiting &&
+    if (gloss_same && now.resident == logged_.resident && now.materials == logged_.materials && now.bytes == logged_.bytes && now.waiting == logged_.waiting &&
         now.missing == logged_.missing && now.unqueued == logged_.unqueued && now.derived == logged_.derived && rest == logged_rest_ &&
         generator.made == logged_made_)
         return;
     logged_ = now;
     logged_rest_ = rest;
     logged_made_ = generator.made;
-    shim::logf("effects relief: %u normal maps resident (%.1f MB, max %d px); %u loaded textures waiting for their map, "
+    shim::logf("effects relief: %u normal maps resident (%.1f MB, max %d px; %u with a material texture (height, gloss), %.1f MB of "
+               "it); %u loaded textures waiting for their map, "
                "%u more of the game to make in the background%s; %u maps made (%.0f ms, slowest %.0f ms); %u without "
                "a map (generation unavailable); %u height maps derived (%.0f ms); %u loaded while relief was off",
-               now.resident, static_cast<double>(now.bytes) / 1048576.0, max_size_, now.waiting, rest,
+               now.resident, static_cast<double>(now.bytes) / 1048576.0, max_size_, now.materials,
+               static_cast<double>(now.material_bytes) / 1048576.0, now.waiting, rest,
                generator.hot ? " (paused: the device is hot)" : "", generator.made, generator.made_ms,
                generator.slowest_ms, now.missing, now.derived, now.derive_ms, now.unqueued);
     if (!gloss_same)

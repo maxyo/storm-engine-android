@@ -20,7 +20,8 @@ void Lighting::Shutdown()
     detail::Destroy(u_point_);
     detail::Destroy(u_point_count_);
     detail::Destroy(s_normal_map_);
-    detail::Destroy(s_gloss_map_);
+    detail::Destroy(s_material_);
+    detail::Destroy(u_parallax_);
 }
 
 void Lighting::OnDeviceLost()
@@ -29,7 +30,8 @@ void Lighting::OnDeviceLost()
     u_point_ = BGFX_INVALID_HANDLE;
     u_point_count_ = BGFX_INVALID_HANDLE;
     s_normal_map_ = BGFX_INVALID_HANDLE;
-    s_gloss_map_ = BGFX_INVALID_HANDLE;
+    s_material_ = BGFX_INVALID_HANDLE;
+    u_parallax_ = BGFX_INVALID_HANDLE;
 }
 
 void Lighting::Apply(const LightingUniforms &uniforms)
@@ -87,11 +89,18 @@ void Lighting::BindNormalMap(bgfx::TextureHandle normal_map, uint32_t sampler_fl
     bgfx::setTexture(kNormalMapStage, s_normal_map_, normal_map, sampler_flags);
 }
 
-void Lighting::BindGlossMap(bgfx::TextureHandle gloss_map, uint32_t sampler_flags)
+void Lighting::BindMaterial(bgfx::TextureHandle material, uint32_t sampler_flags)
 {
-    if (!bgfx::isValid(s_gloss_map_))
-        s_gloss_map_ = bgfx::createUniform("s_fxGlossMap", bgfx::UniformType::Sampler);
-    bgfx::setTexture(kGlossMapStage, s_gloss_map_, gloss_map, sampler_flags);
+    if (!bgfx::isValid(s_material_))
+        s_material_ = bgfx::createUniform("s_fxMaterial", bgfx::UniformType::Sampler);
+    bgfx::setTexture(kMaterialStage, s_material_, material, sampler_flags);
+}
+
+void Lighting::SetParallax(const std::array<float, 8> &parallax)
+{
+    if (!bgfx::isValid(u_parallax_))
+        u_parallax_ = bgfx::createUniform("u_fxParallax", bgfx::UniformType::Vec4, 2);
+    bgfx::setUniform(u_parallax_, parallax.data(), 2);
 }
 
 int Lighting::TakeDroppedLights()

@@ -76,7 +76,8 @@ void ReliefGenerator::shutdown()
         worker_.join();
     running_ = nullptr;
     session_.reset();
-    model_.clear();
+    normal_model_.clear();
+    height_model_.clear();
 }
 
 void ReliefGenerator::request(const std::shared_ptr<NormalMapEntry> &entry, std::filesystem::path file)
@@ -161,9 +162,9 @@ void ReliefGenerator::run()
                     {
                         running_ = nullptr;
                         session_.reset();
-                        model_.clear();
-                        model_.shrink_to_fit();
-                        shim::logf("effects: relief generation idle: the DeepBump model is released");
+                        normal_model_ = {};
+                        height_model_ = {};
+                        shim::logf("effects: relief generation idle: the relief models are released");
                         continue;
                     }
                     until = std::min(until, idle_since_ + kIdleRelease);
@@ -210,29 +211,34 @@ bool ReliefGenerator::open_session()
         return false;
     if (!setup_.model)
     {
-        // A host without engine.ini relief_model: a configuration, not a defect.
+        // A host without engine.ini relief_models: a configuration, not a defect.
         model_failed_ = true;
-        shim::logf("effects: relief generation off: no DeepBump model configured (engine.ini relief_model): textures "
+        shim::logf("effects: relief generation off: no relief models configured (engine.ini relief_models): textures "
                    "without a map get no relief");
         return false;
     }
     const Clock::time_point start = Clock::now();
-    model_ = setup_.model();
-    std::string error = "the DeepBump model could not be read";
+    normal_model_ = setup_.model("pbrify-normal-int8.onnx");
+    height_model_ = setup_.model("pbrify-height-int8.onnx");
+    std::string error = "the relief models could not be read";
     // All cores but the game's main and render threads.
     const unsigned cores = std::thread::hardware_concurrency();
     const int threads = cores > 2 ? static_cast<int>(cores - 2) : 1;
-    std::unique_ptr<relief::Session> session = model_.empty() ? nullptr : relief::Session::Open(model_, threads, error);
+    std::unique_ptr<relief::Session> session = normal_model_.empty() || height_model_.empty()
+                                                   ? nullptr
+                                                   : relief::Session::Open({normal_model_, height_model_}, threads, error);
     if (!session)
     {
         model_failed_ = true;
-        model_.clear();
+        normal_model_.clear();
+        height_model_.clear();
         shim::logf("ERROR: effects: relief generation unavailable (%s): textures without a map get no relief",
                    error.c_str());
         return false;
     }
-    shim::logf("effects: relief generation: DeepBump model loaded (%.1f MB, onnxruntime %s) in %.0f ms",
-               static_cast<double>(model_.size()) / 1048576.0, session->stats().provider.c_str(), Ms(start));
+    shim::logf("effects: relief generation: PBRify models loaded (%.1f MB, onnxruntime %s) in %.0f ms",
+               static_cast<double>(normal_model_.size() + height_model_.size()) / 1048576.0, session->stats().provider.c_str(),
+               Ms(start));
     std::lock_guard lock(mutex_);
     if (stopping_)
         return false;

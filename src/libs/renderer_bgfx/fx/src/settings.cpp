@@ -58,6 +58,8 @@ Settings Settings::FromPreset(QualityPreset preset)
         // Gloss (with the specular it needs) waits for its cost on phones (fx_gloss, fx_light_specular switch it on);
         // its maps would come from their second mip.
         s.gloss_map_size = 128;
+        s.parallax = ParallaxQuality::Offset; // one tap: nearly free
+        s.relief_cavity = true;
         s.shadows = ShadowQuality::Low;
         s.town_light = true;
         s.town_walls = true;
@@ -82,6 +84,9 @@ Settings Settings::FromPreset(QualityPreset preset)
                        kLightingRim | kLightingAerial;
     s.point_lights = 8;
     s.gloss = true;
+    s.parallax = ParallaxQuality::Occlusion;
+    s.parallax_shadow = true;
+    s.relief_cavity = true;
     s.shadows = ShadowQuality::Soft;
     s.town_light = true;
     s.town_walls = true;
@@ -234,6 +239,17 @@ constexpr Rule kRules[] = {
      [](Settings &s) { s.gloss = false; }, "gloss maps shape the specular highlights and specular is off: switched off"},
     {[](const Settings &s, const Support &c) { return s.gloss && !c.normal_map; }, [](Settings &s) { s.gloss = false; },
      "gloss maps need EAC textures (as the normal maps): switched off"},
+    {[](const Settings &s, const Support &) { return s.gloss && !(s.lighting_flags & kLightingNormalMap); },
+     [](Settings &s) { s.gloss = false; },
+     "gloss needs the normal maps (the relief textures keep their gloss in the relief's material texture): switched off"},
+    {[](const Settings &s, const Support &) {
+         return s.parallax != ParallaxQuality::Off && !(s.lighting_flags & kLightingNormalMap);
+     },
+     [](Settings &s) { s.parallax = ParallaxQuality::Off; }, "the parallax needs the normal maps: switched off"},
+    {[](const Settings &s, const Support &) { return s.relief_cavity && !(s.lighting_flags & kLightingNormalMap); },
+     [](Settings &s) { s.relief_cavity = false; }, "the relief's cavity needs the normal maps: switched off"},
+    {[](const Settings &s, const Support &) { return s.parallax_shadow && s.parallax != ParallaxQuality::Occlusion; },
+     [](Settings &s) { s.parallax_shadow = false; }, "the relief's own shadow needs parallax occlusion mapping: switched off"},
     {[](const Settings &s, const Support &) { return s.ao_volume > kAoVolumeLevels; },
      [](Settings &s) { s.ao_volume = kAoVolumeLevels; }, "ambient occlusion volume strength must be 0..3: lowered to 3"},
     {[](const Settings &s, const Support &c) { return s.ao_volume && !c.ao_volume; }, [](Settings &s) { s.ao_volume = 0; },

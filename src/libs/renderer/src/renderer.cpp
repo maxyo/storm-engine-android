@@ -778,11 +778,11 @@ bool Renderer::Init()
         programCache.directory = fs::GetCachePath() / "ProgramCache";
         storm::render::ConfigureProgramCache(programCache);
 
-        // Relief maps (fx/relief_store.hpp): made by DeepBump in the game process from the game's own files, never
+        // Relief maps (fx/relief_store.hpp): made by PBRify's models in the game process from the game's own files, never
         // shipped; derived data, so in the engine's cache root (fs::GetCachePath: on Android the app's cache) + "relief":
         // «Очистить кэш» or the system's eviction removes them and the game makes them again.
-        // engine.ini relief_dir overrides (host checks with prepared maps). The model: the APK asset on Android,
-        // engine.ini relief_model on the host (none: no maps are made, logged).
+        // engine.ini relief_dir overrides (host checks with prepared maps). The models: APK assets on Android, the files
+        // in engine.ini relief_models (src/libs/relief/model) on the host (none: no maps are made, logged).
         storm::render::ReliefConfig relief;
         ini->ReadString(nullptr, "relief_dir", str, sizeof(str), "");
         relief.directory = std::filesystem::u8path(str);
@@ -790,9 +790,9 @@ bool Renderer::Init()
         if (relief.directory.empty())
             relief.directory = fs::GetCachePath() / "relief";
 #ifdef __ANDROID__
-        relief.model = [] {
+        relief.model = [](const char *file) {
             std::vector<uint8_t> model;
-            if (SDL_RWops *asset = SDL_RWFromFile("deepbump256-int8.onnx", "rb"))
+            if (SDL_RWops *asset = SDL_RWFromFile(file, "rb"))
             {
                 const Sint64 size = SDL_RWsize(asset);
                 model.resize(size > 0 ? static_cast<size_t>(size) : 0);
@@ -803,10 +803,10 @@ bool Renderer::Init()
             return model;
         };
 #else
-        ini->ReadString(nullptr, "relief_model", str, sizeof(str), "");
+        ini->ReadString(nullptr, "relief_models", str, sizeof(str), "");
         if (*str)
-            relief.model = [path = std::filesystem::u8path(str)] {
-                std::ifstream in(path, std::ios::binary);
+            relief.model = [directory = std::filesystem::u8path(str)](const char *file) {
+                std::ifstream in(directory / file, std::ios::binary);
                 return std::vector<uint8_t>{std::istreambuf_iterator<char>(in), {}};
             };
 #endif

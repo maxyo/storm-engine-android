@@ -1,5 +1,5 @@
-// Relief maps from DeepBump (fx/deepbump.hpp) through onnxruntime, for the game's stone, wood, building, plaster and
-// ground textures, made from the player's game files into the relief directory (fx/relief_store.hpp) the game reads.
+// Relief maps from PBRify's normal and height models (fx/relief_model.hpp) through onnxruntime, for the game's stone,
+// wood, building, plaster and ground textures, made from the player's game files into the relief directory (fx/relief_store.hpp) the game reads.
 // The game makes them while it runs (renderer_bgfx effects/relief_generator.hpp: Session, List, Prune, MarkComplete);
 // the host tool makes a whole game at once (Prepare). Contract: README.md here.
 #pragma once
@@ -29,7 +29,14 @@ enum class Outcome
     Failed,   // logged with the reason
 };
 
-// The model loaded once (onnxruntime, CPU provider) for many textures. One thread at a time (Cancel aside).
+// The two model files (model/README.md).
+struct Models
+{
+    std::span<const uint8_t> normal; // pbrify-normal-int8.onnx
+    std::span<const uint8_t> height; // pbrify-height-int8.onnx
+};
+
+// The models loaded once (onnxruntime, CPU provider) for many textures. One thread at a time (Cancel aside).
 class Session
 {
   public:
@@ -40,7 +47,7 @@ class Session
         std::string provider;
     };
     // `threads`: inference threads; 0 = every core. Null and `error` on failure.
-    static std::unique_ptr<Session> Open(std::span<const uint8_t> model, int threads, std::string &error);
+    static std::unique_ptr<Session> Open(const Models &models, int threads, std::string &error);
     ~Session();
     // One texture file under `textures` (the game's RESOURCE/Textures; the key does not depend on where the game
     // lies), unless its map is there already.
@@ -71,7 +78,7 @@ struct Job
 {
     std::filesystem::path textures; // the game's RESOURCE/Textures
     std::filesystem::path output;   // the relief directory
-    std::span<const uint8_t> model; // the DeepBump model (model/README.md)
+    Models models;
     int map_size = fx::kReliefMapSize;
     int threads = 0;
 };

@@ -1,8 +1,11 @@
 #include "storm/fx/relief_store.hpp"
 
-#include "storm/fx/deepbump.hpp"
+#include "storm/fx/gloss_map.hpp"
+#include "storm/fx/relief_model.hpp"
+#include "storm/fx/height_map.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <fstream>
@@ -15,13 +18,16 @@ namespace storm::fx
 namespace
 {
 constexpr char kMagic[8] = {'S', 'T', 'R', 'E', 'L', 'I', 'E', 'F'};
-constexpr uint32_t kFileVersion = 1;
+constexpr uint32_t kFileVersion = 3;
 
 struct Header
 {
     char magic[8];
     uint32_t version, width, height, levels, format;
-    uint64_t payload;
+    uint64_t payload;        // the normals (NormalMap::rg)
+    uint64_t material_payload; // the material texture after them (NormalMap::material): the normals' bytes, or 0
+    float depth;             // NormalMap::depth
+    uint32_t reserved;
 };
 
 uint64_t Mix(uint64_t key, const void *data, size_t size)
@@ -61,8 +67,10 @@ uint64_t ReliefMethod(ReliefClass relief)
         const uint64_t parts[2] = {kReliefHeightMethod, NormalMapCacheKey(options)};
         return Mix(method, parts, sizeof(parts));
     }
-    // DeepBump's normals as the model gives them: the same for every colour class.
-    const uint64_t parts[3] = {kReliefMethodVersion, kDeepBumpModelDigest, static_cast<uint64_t>(kReliefMapSize)};
+    // PBRify's normals and height (their models' digests), the material's height and gloss derivations.
+    const uint64_t parts[6] = {kReliefMethodVersion, kReliefNormalModelDigest, kReliefHeightModelDigest,
+                               static_cast<uint64_t>(kReliefMapSize), ReliefHasHeight(relief) ? kHeightMapVersion : 0u,
+                               kGlossMethod};
     return Mix(method, parts, sizeof(parts));
 }
 
@@ -109,8 +117,11 @@ bool WriteMapFile(const std::filesystem::path &target, const NormalMap &map)
         header.levels = static_cast<uint32_t>(map.mip_count);
         header.format = static_cast<uint32_t>(map.format);
         header.payload = map.rg.size();
+        header.material_payload = map.material.size();
+        header.depth = map.depth;
         out.write(reinterpret_cast<const char *>(&header), sizeof(header));
         out.write(reinterpret_cast<const char *>(map.rg.data()), static_cast<std::streamsize>(map.rg.size()));
+        out.write(reinterpret_cast<const char *>(map.material.data()), static_cast<std::streamsize>(map.material.size()));
         if (!out.good())
         {
             out.close();
@@ -146,13 +157,22 @@ std::optional<NormalMap> ReadMapFile(const std::filesystem::path &path, std::ini
         int levels = 1;
         for (int w = map.width, h = map.height; w > 1 || h > 1; w = std::max(w / 2, 1), h = std::max(h / 2, 1))
             ++levels;
-        ok = map.mip_count == levels && header.payload == NormalMapBytes(map.width, map.height, map.format);
+        ok = map.mip_count == levels && header.payload == NormalMapBytes(map.width, map.height, map.format) &&
+             (header.material_payload == 0 || header.material_payload == header.payload) &&
+             std::isfinite(header.depth) && header.depth >= 0.0f;
     }
     if (ok)
     {
         map.rg.resize(header.payload);
         in.read(reinterpret_cast<char *>(map.rg.data()), static_cast<std::streamsize>(map.rg.size()));
         ok = in.gcount() == static_cast<std::streamsize>(map.rg.size());
+        map.material.resize(header.material_payload);
+        map.depth = header.material_payload ? header.depth : 0.0f;
+        if (ok && !map.material.empty())
+        {
+            in.read(reinterpret_cast<char *>(map.material.data()), static_cast<std::streamsize>(map.material.size()));
+            ok = in.gcount() == static_cast<std::streamsize>(map.material.size());
+        }
     }
     if (!ok)
     {

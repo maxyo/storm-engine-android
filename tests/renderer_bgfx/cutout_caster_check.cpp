@@ -316,7 +316,8 @@ int main()
                                                     c.lamps, room_lo, room_hi});
                 render::ConfigureEffects(2, {{"fx_ao_volume", 0}, {"fx_lamp_shadows", c.lamps ? 8 : 0}, {"fx_shadows", c.lamps ? 0 : 2}});
                 std::vector<uint8_t> picture;
-                for (int frame = 0; frame < 400; ++frame)
+                // The lamps draw their atlases over the frames after the preset is active: 20 frames past it.
+                for (int frame = 0, active = 0; frame < 400; ++frame)
                 {
                     if (c.lamps)
                         render::SetEffectsLamps(std::span(&lamp, 1));
@@ -326,7 +327,8 @@ int main()
                         render::SetEffectsWeather(weather);
                     }
                     picture = harness.render(scene);
-                    if (!render::CurrentEffects().pending && frame > 40)
+                    active = render::CurrentEffects().pending ? 0 : active + 1;
+                    if (active > 20 && frame > 40)
                         break;
                     SDL_Delay(5);
                 }

@@ -263,15 +263,15 @@ void SetEffectsLightmaps(std::string_view name, std::span<const std::array<float
 // relief (fx_light_normal_map, fx/normal_map.hpp, src/effects/relief_generator.hpp).
 void SetEffectsTextureSource(shim::BaseTexture *texture, const char *path, const std::filesystem::path &file);
 
-// Relief maps (fx/relief_store.hpp): made by DeepBump in the game process the first time a texture needs one, and the
+// Relief maps (fx/relief_store.hpp): made by PBRify's models in the game process the first time a texture needs one, and the
 // height maps the game derives; kept in `directory`. Before the first texture is loaded.
 struct ReliefConfig
 {
     std::filesystem::path directory;
     std::filesystem::path textures; // the game's RESOURCE/Textures (the generator reads the texture files)
-    // Reads the DeepBump model (src/libs/relief/model). Null: no maps are made (logged); textures without one get no
-    // relief.
-    std::function<std::vector<uint8_t>()> model;
+    // Reads a model file by its name (src/libs/relief/model: pbrify-normal-int8.onnx, pbrify-height-int8.onnx). Null:
+    // no maps are made (logged); textures without one get no relief.
+    std::function<std::vector<uint8_t>(const char *file)> model;
 };
 void ConfigureRelief(const ReliefConfig &config);
 // Before the renderer goes: stops the generator (the texture in progress is abandoned, its map made next time).

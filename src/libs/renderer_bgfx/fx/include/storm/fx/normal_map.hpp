@@ -4,8 +4,8 @@
 //   * the game's grey height ("bump") textures: the 2x multiply detail layer on the second texture stage
 //     (GEOM_SERVICE_R::SetMaterial, texture[1], second UV set). Their values are heights; the game derives their maps
 //     itself (DeriveNormalMap).
-//   * ordinary colour textures of stone, wood, plaster and ground: DeepBump's normals as the model gives them
-//     (deepbump.hpp, made by src/libs/relief; the owner's choice).
+//   * ordinary colour textures of stone, wood, plaster and ground: PBRify's normals as the model gives them
+//     (relief_model.hpp, made by src/libs/relief; the owner's choice).
 // Which textures get relief comes from one ordered table of path / name rules (ClassifyTextureName) written from TEHO's
 // texture folders. Anything the table does not know gets no relief (and is logged once).
 //
@@ -71,6 +71,13 @@ struct NormalMap
     // All mips, top first, tightly packed: x and y of the unit tangent-space normal as 0.5 + 0.5 * n.
     // z = sqrt(1 - x² - y²) is rebuilt in the shader. +x follows +u, +y follows +v, z points out of the surface.
     std::vector<uint8_t> rg;
+    // The relief's material texture (height_map.hpp AddReliefMaterial; sampler unit 7): the same mips and format as `rg`
+    // (RG8 beside Rg8, EAC RG11 beside EacRg11), R the height (0 the deepest, 1 the top), G the gloss (gloss_map.hpp).
+    // Empty: no material (the grey "bump" textures' maps).
+    std::vector<uint8_t> material;
+    // What 0..1 of the material's height spans, in texels of the top mip (DropTopMips keeps it in texels of the new
+    // top); 0: a flat height (no parallax, no cavity).
+    float depth = 0.0f;
 };
 
 // Bump this when the derivation changes, and put NormalMapCacheKey() into the cache key of the device cache.
@@ -85,7 +92,8 @@ void NormalMapSize(int width, int height, const NormalMapOptions &options, int &
 // noisy, shortened normal. Empty map on bad input.
 NormalMap DeriveNormalMap(std::span<const uint8_t> rgba, int width, int height, const NormalMapOptions &options);
 
-// Removes top mips until the larger side is at most `max_size` (the preset's resolution of the resident map).
+// Removes top mips (of `rg` and `material`) until the larger side is at most `max_size` (the preset's resolution of the
+// resident map).
 void DropTopMips(NormalMap &map, int max_size);
 // Bytes of one level, and of all mips of a map whose top mip is width x height.
 size_t NormalMapLevelBytes(NormalMapFormat format, int width, int height);

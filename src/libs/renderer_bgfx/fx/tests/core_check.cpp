@@ -14,8 +14,9 @@
 #include "storm/fx/lighting_model.hpp"
 #include "storm/fx/log.hpp"
 #include "storm/fx/noise_bake.hpp"
-#include "storm/fx/deepbump.hpp"
+#include "storm/fx/relief_model.hpp"
 #include "storm/fx/gloss_map.hpp"
+#include "storm/fx/height_map.hpp"
 #include "storm/fx/normal_map.hpp"
 #include "storm/fx/relief_store.hpp"
 #include "storm/fx/settings.hpp"
@@ -416,6 +417,9 @@ void CheckSupport()
     unlit.town_walls = false;
     unlit.bounce = false;
     unlit.gloss = false;
+    unlit.parallax = ParallaxQuality::Off;
+    unlit.parallax_shadow = false;
+    unlit.relief_cavity = false;
     changes.clear();
     CHECK(ConstrainSettings(unlit, all, changes).ao_volume == 0 && changes.size() == 1);
     // Gloss without per-pixel highlights has nothing to shape: switched off, said.
@@ -436,6 +440,9 @@ void CheckSupport()
     flat_town.bounce = false;
     flat_town.town_walls = false;
     flat_town.gloss = false;
+    flat_town.parallax = ParallaxQuality::Off;
+    flat_town.parallax_shadow = false;
+    flat_town.relief_cavity = false;
     changes.clear();
     CHECK(!ConstrainSettings(flat_town, all, changes).town_light && changes.size() == 1);
     // So does the bounce.
@@ -533,9 +540,21 @@ void CheckSupport()
     no_rg.normal_map = false;
     changes.clear();
     constrained = ConstrainSettings(high, no_rg, changes);
-    CHECK(changes.size() == 2 && !(constrained.lighting_flags & kLightingNormalMap) && !constrained.gloss);
+    // Gloss, the parallax, its self-shadow and the cavity go with them.
+    CHECK(changes.size() == 5 && !constrained.gloss && !constrained.parallax_shadow && !constrained.relief_cavity &&
+          !(constrained.lighting_flags & kLightingNormalMap) && constrained.parallax == ParallaxQuality::Off);
     CHECK(LightingDefines(constrained).find("NORMALMAP") == std::string::npos);
-    // One relief strength for both presets: DeepBump's maps at full strength (the owner's choice).
+    CHECK(high.parallax == ParallaxQuality::Occlusion && Settings::FromPreset(QualityPreset::Medium).parallax == ParallaxQuality::Offset &&
+          Settings::FromPreset(QualityPreset::Low).parallax == ParallaxQuality::Off);
+    // The self-shadow on Высокая only (it needs occlusion mapping); the classes' depths: stone deepest, wood shallowest.
+    CHECK(high.parallax_shadow && !Settings::FromPreset(QualityPreset::Medium).parallax_shadow);
+    CHECK(high.relief_cavity && Settings::FromPreset(QualityPreset::Medium).relief_cavity &&
+          !Settings::FromPreset(QualityPreset::Low).relief_cavity);
+    CHECK(ReliefDepthTexels(ReliefClass::Stone) > ReliefDepthTexels(ReliefClass::Building) &&
+          ReliefDepthTexels(ReliefClass::Building) > ReliefDepthTexels(ReliefClass::Plaster) &&
+          ReliefDepthTexels(ReliefClass::Plaster) > ReliefDepthTexels(ReliefClass::Wood) &&
+          ReliefDepthTexels(ReliefClass::Wood) > 0.0f && ReliefDepthTexels(ReliefClass::HeightMap) == 0.0f);
+    // One relief strength for both presets: the models' maps at full strength (the owner's choice).
     CHECK(Settings::FromPreset(QualityPreset::Medium).normal_map_strength == high.normal_map_strength &&
           high.normal_map_strength == 1.0f);
 
@@ -893,65 +912,67 @@ void CheckHeightMapSizes()
     CHECK(lean_full > 0.1f && Near(lean_half, lean_full, 0.1f * lean_full));
 }
 
-// DeepBump around the model (a stand-in `infer`): tiles cover the wrapped image, axes, strength; the relief store.
-void CheckDeepBump()
+// The relief models around their inference (a stand-in `infer`): the wrapped colour input, the crop, the axes, the
+// mips; the relief store.
+void CheckReliefModel()
 {
-    // A stand-in whose output depends only on the texel's own value: the cropped result must be that function of the
-    // texel (padding, wrap, crop, axes).
-    const int w = 300, h = 170;
-    std::vector<float> grey(static_cast<size_t>(w) * h);
-    for (int y = 0; y < h; ++y)
-        for (int x = 0; x < w; ++x)
-            grey[static_cast<size_t>(y) * w + x] = static_cast<float>((x * 7 + y * 13) % 97) / 96.0f;
-    int calls = 0, pw = 0, ph = 0;
-    bool wrapped = true;
-    const auto per_texel = [&](const float *image, int iw, int ih, float *out) {
-        ++calls;
-        pw = iw, ph = ih;
-        const size_t plane = static_cast<size_t>(iw) * ih;
-        // The padding repeats the texture: the texel kDeepBumpPad left of the image's first column is its last one.
-        wrapped = image[kDeepBumpPad * iw + 0] == grey[w - kDeepBumpPad] && image[0] == grey[static_cast<size_t>(h - kDeepBumpPad) * w + w - kDeepBumpPad];
-        for (size_t i = 0; i < plane; ++i)
+    // A 4x2 map from an 8x4 texture: the input is the colour box-halved, wrap-padded by kReliefModelPad, three planes.
+    std::vector<uint8_t> rgba(8 * 4 * 4);
+    for (int y = 0; y < 4; ++y)
+        for (int x = 0; x < 8; ++x)
         {
-            out[i] = 0.5f + 0.3f * image[i];  // x grows with the value
-            out[plane + i] = 0.5f + 0.2f;     // the model's +y (up the image)
-            out[2 * plane + i] = 1.0f;
+            uint8_t *t = &rgba[(static_cast<size_t>(y) * 8 + x) * 4];
+            t[0] = static_cast<uint8_t>(x * 30), t[1] = static_cast<uint8_t>(y * 60), t[2] = 255, t[3] = 255;
         }
+    const int mw = 4, mh = 2, pw = mw + 2 * kReliefModelPad, ph = mh + 2 * kReliefModelPad;
+    const std::vector<float> input = ReliefModelInput(rgba, 8, 4, mw, mh);
+    const size_t plane = static_cast<size_t>(pw) * ph;
+    CHECK(input.size() == plane * 3);
+    // The map's texel (0, 0) averages the texture's 2x2 block; the padding repeats the map (the texel kReliefModelPad
+    // left of the first column is the last one).
+    const auto at = [&](int c, int x, int y) { return input[c * plane + static_cast<size_t>(y + kReliefModelPad) * pw + x + kReliefModelPad]; };
+    CHECK(Near(at(0, 0, 0), (0 + 30) / 2.0f / 255.0f, 1e-5f) && Near(at(1, 0, 0), (0 + 60) / 2.0f / 255.0f, 1e-5f) &&
+          Near(at(2, 0, 0), 1.0f, 1e-6f));
+    CHECK(at(0, -1, 0) == at(0, mw - 1, 0) && at(1, 0, -1) == at(1, 0, mh - 1) && at(0, -kReliefModelPad, 0) == at(0, 0, 0));
+    // Run: the stand-in returns a function of each padded texel; the crop takes the map's own texels back.
+    int calls = 0;
+    const std::vector<float> planes = ReliefModelRun(input, mw, mh, [&](const float *image, int iw, int ih, float *out) {
+        ++calls;
+        CHECK(iw == pw && ih == ph);
+        for (size_t i = 0; i < plane * 3; ++i)
+            out[i] = 0.5f + 0.5f * image[i];
         return true;
-    };
-    const std::vector<float> normals = DeepBumpNormals(grey, w, h, per_texel);
-    CHECK(calls == 1 && pw == 448 && ph == 320 && wrapped && normals.size() == static_cast<size_t>(w) * h * 3);
-    float worst = 0.0f;
-    for (size_t t = 0; t < grey.size(); ++t)
-    {
-        float n[3] = {0.3f * grey[t], -0.2f, 0.5f}; // y flipped into our +v
-        const float l = std::sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
-        for (int c = 0; c < 3; ++c)
-            worst = std::max(worst, std::fabs(normals[t * 3 + c] - n[c] / l));
-    }
-    CHECK(worst < 1e-4f);
-    // An aborted inference gives no normals.
-    CHECK(DeepBumpNormals(grey, w, h, [](const float *, int, int, float *) { return false; }).empty());
-
-    // The input: grey = mean of R, G, B, box-halved to the map size.
-    std::vector<uint8_t> rgba(16 * 8 * 4, 0);
-    for (size_t i = 0; i < rgba.size(); i += 4)
-        rgba[i] = 255, rgba[i + 3] = 255; // pure red: grey 1/3
-    const std::vector<float> input = DeepBumpInput(rgba, 16, 8, 4, 2);
-    CHECK(input.size() == 8 && Near(input[0], 1.0f / 3.0f, 1e-5f));
+    });
+    CHECK(calls == 1 && planes.size() == static_cast<size_t>(mw) * mh * 3 && Near(planes[0], 0.5f + 0.5f * at(0, 0, 0), 1e-6f));
+    CHECK(ReliefModelRun(input, mw, mh, [](const float *, int, int, float *) { return false; }).empty());
+    // Normals: the planes' 2 v - 1, unit, in our axes; height: the planes' mean.
+    std::vector<float> p(static_cast<size_t>(mw) * mh * 3);
+    for (size_t t = 0; t < static_cast<size_t>(mw) * mh; ++t)
+        p[t] = 0.75f, p[mw * mh + t] = 0.5f, p[2 * mw * mh + t] = 1.0f; // (0.5, 0, 1): tilted to +u
+    const std::vector<float> n = ReliefModelNormals(p, mw, mh), h = ReliefModelHeight(p, mw, mh);
+    CHECK(Near(n[0], 0.5f / std::sqrt(1.25f), 1e-5f) && Near(n[1], 0.0f, 1e-6f) && Near(n[2], 1.0f / std::sqrt(1.25f), 1e-5f));
+    CHECK(Near(h[0], 0.75f, 1e-6f));
 
     // The map: mips down to 1x1, the top mip the model's own normals (no rescale), tilts never above 0.99.
-    const NormalMap map = DeepBumpNormalMap(normals, w, h);
-    CHECK(map.width == w && map.height == h && map.mip_count == 9 && map.rg.size() == NormalMapBytes(w, h));
+    const int w = 300, hh = 170;
+    std::vector<float> normals(static_cast<size_t>(w) * hh * 3);
+    for (size_t t = 0; t < normals.size() / 3; ++t)
+    {
+        const float x = 0.3f * static_cast<float>(t % 7) / 7.0f, y = -0.2f;
+        const float l = std::sqrt(x * x + y * y + 0.25f);
+        normals[t * 3] = x / l, normals[t * 3 + 1] = y / l, normals[t * 3 + 2] = 0.5f / l;
+    }
+    const NormalMap map = NormalMapOfNormals(normals, w, hh);
+    CHECK(map.width == w && map.height == hh && map.mip_count == 9 && map.rg.size() == NormalMapBytes(w, hh));
     float off = 0.0f;
-    for (size_t t = 0; t < static_cast<size_t>(w) * h; ++t)
+    for (size_t t = 0; t < static_cast<size_t>(w) * hh; ++t)
         for (int c = 0; c < 2; ++c)
             off = std::max(off, std::fabs(map.rg[t * 2 + c] / 255.0f * 2 - 1 - normals[t * 3 + c]));
     CHECK(off < 0.01f);
     std::vector<float> flat_out(normals.size());
     for (size_t t = 0; t < flat_out.size(); t += 3)
         flat_out[t] = 1.0f; // lying flat: x = 1, z = 0
-    const NormalMap steep = DeepBumpNormalMap(flat_out, w, h);
+    const NormalMap steep = NormalMapOfNormals(flat_out, w, hh);
     for (size_t i = 0; i < steep.rg.size(); i += 2)
     {
         const float x = steep.rg[i] / 255.0f * 2 - 1, y = steep.rg[i + 1] / 255.0f * 2 - 1;
@@ -971,17 +992,19 @@ void CheckDeepBump()
     CHECK(key != ReliefKey("a/c", probe, 4, 4, stone, kReliefMapSize));
     CHECK(key != ReliefKey("a/b", other, 4, 4, stone, kReliefMapSize));
     CHECK(key != ReliefKey("a/b", probe, 4, 4, ReliefMethod(ReliefClass::HeightMap), kReliefMapSize));
-    // The method covers what makes the map: DeepBump's maps (one method for every colour class: the model's own
-    // normals), the derivation of height maps, the model and the version. The maps of the methods before it (version 3
-    // alone; version 4, rescaled to our luminance derivation per class) are never found again.
+    // The method covers what makes the map: PBRify's maps (one method for every colour class), the derivation of height
+    // maps, the models, the material's height and gloss and the version. The maps of the methods before it (DeepBump's)
+    // are never found again.
     CHECK(ReliefMethod(ReliefClass::None) == 0);
-    for (const ReliefClass colour : {ReliefClass::Stone, ReliefClass::Wood, ReliefClass::Building, ReliefClass::Plaster,
-                                     ReliefClass::Metal})
+    CHECK(ReliefMethod(ReliefClass::Metal) != ReliefMethod(ReliefClass::Stone) &&
+          ReliefMethod(ReliefClass::Metal) != ReliefMethod(ReliefClass::HeightMap)); // no material texture
+    for (const ReliefClass colour : {ReliefClass::Stone, ReliefClass::Wood, ReliefClass::Building, ReliefClass::Plaster})
         CHECK(ReliefMethod(colour) == ReliefMethod(ReliefClass::Stone) &&
               ReliefMethod(colour) != ReliefMethod(ReliefClass::HeightMap));
-    CHECK(kReliefMethodVersion == 5);
+    CHECK(kReliefMethodVersion == 6);
     CHECK(ReliefMethod(ReliefClass::Stone) != 3 && key != ReliefKey("a/b", probe, 4, 4, 3, kReliefMapSize));
-    CHECK(kDeepBumpModelDigest == 0x24b0975701c94500ull); // the model file's sha256 prefix (checked by CMake too)
+    // The model files' sha256 prefixes (checked by CMake too).
+    CHECK(kReliefNormalModelDigest == 0xfc91ce30e48deaf5ull && kReliefHeightModelDigest == 0x01f251dc40e79fa7ull);
 
     // The store: a written map reads back; a damaged file is deleted and reported.
     const std::filesystem::path dir = std::filesystem::temp_directory_path() / "storm_fx_relief_check";
@@ -992,10 +1015,61 @@ void CheckDeepBump()
     const std::optional<NormalMap> back = ReadReliefMap(dir, key);
     CHECK(back && back->width == 8 && back->height == 4 && back->mip_count == 4 && back->format == NormalMapFormat::EacRg11 &&
           back->rg == eac.rg);
+    // With the material texture: it and its depth read back.
+    eac.material.assign(eac.rg.size(), 9);
+    eac.depth = 6.5f;
+    CHECK(WriteReliefMap(dir, key, eac));
+    const std::optional<NormalMap> with_material = ReadReliefMap(dir, key);
+    CHECK(with_material && with_material->rg == eac.rg && with_material->material == eac.material && with_material->depth == 6.5f);
     std::filesystem::resize_file(ReliefFile(dir, key), 40);
     std::string error;
     CHECK(!ReadReliefMap(dir, key, &error) && !error.empty() && !HasReliefMap(dir, key));
     std::filesystem::remove_all(dir);
+}
+
+// The relief's material texture (height_map.hpp): the height normalised per region (an atlas of a deep and a shallow
+// part: each keeps its own range), its depth the class's, the gloss in G, the mips.
+void CheckReliefMaterial()
+{
+    CHECK(ReliefHasHeight(ReliefClass::Stone) && ReliefHasHeight(ReliefClass::Wood) && ReliefHasHeight(ReliefClass::Plaster) &&
+          ReliefHasHeight(ReliefClass::Building) && !ReliefHasHeight(ReliefClass::HeightMap) && !ReliefHasHeight(ReliefClass::None) &&
+          !ReliefHasHeight(ReliefClass::Metal));
+    CHECK(ReliefMethod(ReliefClass::Stone) != ReliefMethod(ReliefClass::HeightMap));
+    const int n = 256;
+    NormalMap map;
+    map.width = map.height = n;
+    map.format = NormalMapFormat::Rg8;
+    for (int w = n; w >= 1; w /= 2)
+        ++map.mip_count;
+    map.rg.assign(NormalMapBytes(n, n), 128);
+    // Left half: deep blocks (0..1); right half: shallow planks (0.45..0.55, a seam every 16 texels).
+    std::vector<float> height(static_cast<size_t>(n) * n);
+    for (int y = 0; y < n; ++y)
+        for (int x = 0; x < n; ++x)
+            height[static_cast<size_t>(y) * n + x] = x < n / 2 ? (((x / 32 + y / 32) & 1) ? 1.0f : 0.0f)
+                                                               : (y % 16 < 2 ? 0.45f : 0.55f);
+    std::vector<uint8_t> gloss(static_cast<size_t>(n) * n, 200);
+    CHECK(AddReliefMaterial(map, ReliefClass::Stone, height, gloss));
+    CHECK(map.material.size() == map.rg.size());
+    const auto r = [&](int x, int y) { return map.material[(static_cast<size_t>(y) * n + x) * 2]; };
+    // The shallow planks' seams are as deep as the blocks' joints are: the region's own range (not a few percent).
+    CHECK(r(3 * n / 4, 64) < 70 && r(3 * n / 4, 72) > 150);
+    CHECK(r(16, 16) < 120 && r(48, 16) > 180 && r(48, 16) - r(16, 16) > 90);
+    CHECK(map.material[1] == 200); // G: the gloss
+    CHECK(Near(map.depth, ReliefDepthTexels(ReliefClass::Stone) * 0.5f, 1e-5f)); // texels of this 256 map
+    // DropTopMips keeps the material with its mips and the depth in texels of the new top.
+    NormalMap half = map;
+    DropTopMips(half, n / 2);
+    CHECK(half.width == n / 2 && half.material.size() == half.rg.size() && Near(half.depth, map.depth * 0.5f, 1e-6f));
+    CHECK(std::equal(half.material.begin(), half.material.end(), map.material.begin() + static_cast<std::ptrdiff_t>(n) * n * 2));
+    // No gloss given: G 0. A flat height, mismatched sizes or a class without height: no material.
+    NormalMap plain = map;
+    CHECK(AddReliefMaterial(plain, ReliefClass::Wood, height, {}) && plain.material[1] == 0 &&
+          Near(plain.depth, ReliefDepthTexels(ReliefClass::Wood) * 0.5f, 1e-5f));
+    const std::vector<float> flat(static_cast<size_t>(n) * n, 0.5f);
+    CHECK(!AddReliefMaterial(plain, ReliefClass::Stone, flat, {}) && plain.material.empty() && plain.depth == 0.0f);
+    CHECK(!AddReliefMaterial(plain, ReliefClass::Stone, std::span(height).first(10), {}));
+    CHECK(!AddReliefMaterial(plain, ReliefClass::HeightMap, height, {}) && plain.material.empty());
 }
 
 void CheckCheapUpgrades()
@@ -1912,7 +1986,8 @@ int main()
     CheckNormalMaps();
     CheckCheapUpgrades();
     CheckHeightMapSizes();
-    CheckDeepBump();
+    CheckReliefModel();
+    CheckReliefMaterial();
     CheckReliefRules();
     CheckAoVolume();
     CheckLampShadows();

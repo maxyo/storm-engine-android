@@ -32,7 +32,10 @@ void main()
         N = -N;
 #ifdef FX_LIGHT_NORMALMAP
     vec3 Ng = N;
-    N = fxPerturbNormal(N, v_vpos, v_uv);
+    vec3 gu;
+    vec3 gv;
+    fxReliefFrame(N, v_vpos, dFdx(v_uv), dFdy(v_uv), gu, gv);
+    N = fxPerturbNormal(N, gu, gv, texture2D(s_fxNormalMap, v_uv).rg);
     if (v_albedo.a < 0.5)
         color *= fxBakedRelief(Ng, N, V);
 #endif

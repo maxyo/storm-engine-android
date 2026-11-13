@@ -59,7 +59,7 @@ import concurrent.futures
 jobs = int(os.environ.get('STORM_CHECK_JOBS', '6'))
 plain = [[str(build / 'renderer_bgfx' / 'storm_texture_tests')], [str(build / 'perf_check')], [str(build / 'backend_select_check')],
          [str(build / 'renderer_bgfx' / 'fx' / 'storm_fx_core_check')], [str(build / 'relief_switch_check')],
-         [str(build / 'relief' / 'storm_relief_check'), (build / 'deepbump_model_path.txt').read_text()]]
+         [str(build / 'relief' / 'storm_relief_check'), (build / 'relief_models_path.txt').read_text()]]
 # The checks that draw, on OpenGL ES.
 gpu_checks = ['skinning_check', 'uniform_commit_check', 'preset_switch_check', 'sea_edge_check', 'program_cache_check',
               'render_thread_check', 'ao_volume_check', 'cutout_caster_check', 'texture_format_check', 'buffer_pool_check',

@@ -3,7 +3,7 @@
 // Renderer::TextureLoad reports each texture's name and game file (SetEffectsTextureSource) right after its levels are
 // filled. While kLightingNormalMap is on, fx::ReliefClassifier decides from the path (and, for "bump" names, the
 // pixels) whether the texture gets relief:
-//   * colour textures of the relief classes (stone, wood, buildings, plaster, ground): their maps are made by DeepBump
+//   * colour textures of the relief classes (stone, wood, buildings, plaster, ground): their maps are made by PBRify's models
 //     in the game process (effects/relief_generator.hpp) the first time the texture is loaded without one, into the
 //     relief directory, and kept there. Until its map is ready the texture has no relief; the "effects relief:" line
 //     says how many wait.
@@ -14,7 +14,9 @@
 // worker from the game file when the relief directory has none (~10 ms: no generator queue), stored there as EAC R11
 // with mips, read and uploaded when a draw first asks (fading in like the relief).
 // Maps are EAC RG11 with mips, read on a texture worker and uploaded when a draw first needs them (a smaller preset
-// drops their top mips); the relief fades in over kReliefFade. Turning the option off releases them. Every texture of
+// drops their top mips); with the parallax, the cavity or the gloss on, the colour textures' material texture (EAC RG11:
+// R height, G gloss; the same mips, in the same file) is uploaded beside them. A texture whose relief class has a height
+// takes its gloss from that material, not from a gloss map of its own. The relief fades in over kReliefFade. Turning the option off releases them. Every texture of
 // a relief class gets its entry when it is loaded, relief on or off: one loaded while it is off is looked up (and
 // requested or derived) when it is switched on, like one loaded then.
 #pragma once
@@ -76,23 +78,30 @@ struct NormalMapEntry
     std::string name;                // normalized texture path, for the logs
     fx::ReliefClass relief = fx::ReliefClass::None;
     fx::GlossClass gloss = fx::GlossClass::None; // a gloss map's class
+    fx::GlossClass material_gloss = fx::GlossClass::None; // a relief map's: the gloss class of its material's G
     uint64_t key = 0;     // fx::ReliefKey
     std::filesystem::path file; // the game file the texture was loaded from (the generator and the derivation read it)
     fx::NormalMap map;    // written by the worker before `state` becomes Derived
     bgfx::TextureHandle handle = BGFX_INVALID_HANDLE;
-    size_t bytes = 0; // of the uploaded texture
+    bgfx::TextureHandle material = BGFX_INVALID_HANDLE; // the uploaded material texture (R height, G gloss)
+    float depth = 0.0f;     // the height's 0..1 span in texels of the uploaded top mip
+    int width = 0, height_texels = 0; // the uploaded top mip
+    size_t bytes = 0; // of the uploaded textures
+    size_t material_bytes = 0; // of them the material's
     std::chrono::steady_clock::time_point uploaded{}; // its relief fades in from here
     bool failure_reported = false;
+    bool no_height_reported = false;
     ~NormalMapEntry();
 };
 
 class NormalMaps
 {
   public:
-    // `max_size`: larger side of the uploaded top mip (Settings::normal_map_size). Turning the option off or changing
-    // the size releases the uploaded maps; they come back from the relief directory when drawn again. Turning it on
+    // `max_size`: larger side of the uploaded top mip (Settings::normal_map_size); `material`: the material textures are
+    // uploaded too (the parallax, the cavity or the gloss reads them). Turning the option off or changing the size or
+    // `material` releases the uploaded maps; they come back from the relief directory when drawn again. Turning it on
     // looks up the textures loaded while it was off.
-    void configure(bool enabled, int max_size);
+    void configure(bool enabled, int max_size, bool material);
     // Main thread, right after the texture's levels were filled. `file`: the game file it was read from.
     void on_texture_loaded(shim::TexStore &store, const char *path, const std::filesystem::path &file);
     // The uploaded map of the texture, or invalid: no relief for it, its map still being made, read or derived (relief
@@ -101,6 +110,9 @@ class NormalMaps
     {
         bgfx::TextureHandle handle = BGFX_INVALID_HANDLE;
         float fade = 0.0f;
+        bgfx::TextureHandle material = BGFX_INVALID_HANDLE; // the material texture, for a class with a height
+        float depth = 0.0f;                                 // its height's span in texels of the top mip
+        int width = 0, height_texels = 0;                 // the top mip
     };
     Relief handle(shim::TexStore &store, fx::Lighting &lighting);
 
@@ -111,7 +123,9 @@ class NormalMaps
     struct Stats
     {
         uint32_t resident = 0;  // uploaded maps
-        size_t bytes = 0;       // their GPU memory
+        size_t bytes = 0;       // their GPU memory (with the materials)
+        uint32_t materials = 0; // of them with a material texture uploaded
+        size_t material_bytes = 0;
         uint32_t unqueued = 0;  // loaded while relief was off, not looked up yet
         uint32_t waiting = 0;   // loaded colour textures of a relief class whose map is being made
         uint32_t missing = 0;   // loaded colour textures of a relief class that get no map (generator unavailable)
@@ -139,6 +153,7 @@ class NormalMaps
 
     bool enabled_ = false;
     int max_size_ = 1024;
+    bool material_ = false;
     fx::ReliefClassifier classifier_;
     bool format_reported_ = false;
     bool directory_reported_ = false;

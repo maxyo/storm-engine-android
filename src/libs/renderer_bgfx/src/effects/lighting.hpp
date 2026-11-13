@@ -21,6 +21,8 @@
 //     texture (stone, wood, plaster, ground), has a derived normal map (effects/normal_maps.hpp) uses the
 //     FX_LIGHT_NORMALMAP variant with the map at stage 14, that stage's sampler flags and texture coordinates
 //     (u_fxFf.y); lit draws perturb the normal, baked ones scale their colour by fxBakedRelief. Characters have none.
+//   * parallax (Settings::parallax): a relief draw whose map follows stage 0 (not projected) and has a height takes the
+//     FX_LIGHT_PARALLAX variant with the height at stage 7 (stage 0's sampler flags) and u_fxParallax.
 //   * sun shadows (Settings::shadows, effects/shadows.hpp): lit draws into the game picture cast (the shim submits
 //     them again into the shadow view: FfDraw::caster) and receive (FX_LIGHT_SHADOW[_SOFT] variants).
 //   * alpha to coverage (RendererState::alpha_to_coverage): alpha-tested (GREATER / GREATEREQUAL), non-blended draws
@@ -109,12 +111,15 @@ struct FfDraw
     std::array<float, 4> coverage{};
     bgfx::TextureHandle normal_map = BGFX_INVALID_HANDLE; // FX_LIGHT_NORMALMAP variant: bound at stage 14
     uint32_t normal_map_flags = 0;
-    // FX_LIGHT_SPECULAR variants: the gloss map of stage 0's texture (stage kGlossMapStage, invalid: none) and u_fxGloss
-    // (ff_fragment.sh: x a map is bound, y how much the texture colour tints the highlight, z debug view, w 1 = the
-    // gloss highlights of the lamps and of baked surfaces are on).
-    bgfx::TextureHandle gloss_map = BGFX_INVALID_HANDLE;
-    uint32_t gloss_map_flags = 0;
+    // The material texture at stage kMaterialStage (invalid: none): the relief's (R height, G gloss) when the draw takes
+    // the parallax or its texture's relief has one, else stage 0's gloss map (R flat). u_fxGloss (ff_fragment.sh: x a
+    // gloss is bound, y how much the texture colour tints the highlight, z debug view, w 1 = the gloss highlights of the
+    // lamps and of baked surfaces are on); u_fxParallax[2] for the FX_LIGHT_PARALLAX variants.
+    bgfx::TextureHandle material = BGFX_INVALID_HANDLE;
+    uint32_t material_flags = 0;
     std::array<float, 4> gloss{};
+    std::array<float, 8> parallax{};
+    bool parallax_variant = false; // the FX_LIGHT_PARALLAX variant: u_fxParallax is set
     bool shadow = false;           // FX_LIGHT_SHADOW variant: submit() binds the map for `view`
     bool caster = false;           // the shim also submits this draw into the shadow view (submit_caster)
     std::array<float, 16> view{};  // the draw's device world -> view (the sun cascade: casters and receivers alike)
@@ -191,11 +196,36 @@ class Lighting
     LampShadows &lamp_shadows() { return lamps_; }
     const LampShadows &lamp_shadows() const { return lamps_; }
     void end_frame();
+    // Why a draw whose stage 0 texture has a height-capable relief class drew without the parallax (census()).
+    enum class ParallaxMiss : uint8_t
+    {
+        Ported,        // a ported vertex or pixel shader of the game's technique
+        Decal,         // a slope-biased decal (projected shadows)
+        Pretransformed, // RHW vertices
+        NoNormals,     // no vertex normals: no per-pixel lighting variant
+        Cube,          // a cube-mapped stage: the legacy path
+        Character,
+        Off,           // relief or parallax switched off
+        Stage1,        // the stage 1 grey height texture's relief took the draw (its own coordinates)
+        NotReady,      // the map not uploaded yet (being made, read, faded in)
+        NoHeight,      // the map has no height (flat)
+        Projected,     // stage 0 with projected coordinates
+        Clamped,       // stage 0 clamp-addressed
+        NoRelief,      // the draw took no relief: a lit material without it (props, hull parts), or fading in at 0
+        Other,
+    };
+    static const char *ParallaxMissName(ParallaxMiss miss);
+    // After prepare() (or instead of it, for a draw prepare() never sees): counts the draw for the census.
+    void census(const shim::Device &device, const shim::LayoutInfo &layout, bool ported, bool decal, uint32_t cube_variant,
+                const FfDraw &draw);
     // Draws of the last presented frame that used a lit / baked / coverage variant (effects profile).
     struct Counts
     {
-        uint32_t lit = 0, baked = 0, coverage = 0, relief = 0, glossy = 0, shadowed = 0, casters = 0, aerial = 0, ao = 0, lamp_lit = 0,
-                 lamp_casters = 0, town_walls = 0;
+        uint32_t lit = 0, baked = 0, coverage = 0, relief = 0, parallax = 0, glossy = 0, shadowed = 0, casters = 0, aerial = 0,
+                 ao = 0, lamp_lit = 0, lamp_casters = 0, town_walls = 0;
+        // Draws whose stage 0 texture is of a class with a height but that drew without the parallax, by the reason
+        // (ParallaxMiss), so a parallax that never reaches the screen shows in the "effects parallax:" line.
+        std::array<uint32_t, 14> parallax_miss{};
     };
     Counts last_frame() const { return last_frame_; }
 
@@ -235,8 +265,9 @@ class Lighting
     void find_shaders();
 
     uint32_t vs_ff_ = 0, vs_lit_ = 0, vs_lit_skin_ = 0, fs_coverage_ = 0;
-    uint32_t fs_lit_[2][2][2][3] = {}; // [specular][normal map][linear][shadow: none, one tap, soft]
-    uint32_t fs_baked_[2][2][2][3] = {}; // [specular][normal map][linear][sun shadow: none, one tap, soft]
+    // [specular][relief: none, normal map, normal map + parallax][linear][shadow: none, one tap, soft]
+    uint32_t fs_lit_[2][3][2][3] = {};
+    uint32_t fs_baked_[2][3][2][3] = {}; // [specular][relief][linear][sun shadow: none, one tap, soft]
     NormalMaps normal_maps_;
     SunShadows shadows_;
     TownLight town_light_;
@@ -271,6 +302,8 @@ class Lighting
     std::array<float, 16> ao_view_to_uvw_{};
     bgfx::UniformHandle u_coverage_ = BGFX_INVALID_HANDLE;
     Counts frame_{}, last_frame_{};
+    uint32_t census_frames_ = 0, logged_parallax_ = 0;
+    std::array<uint32_t, 14> logged_miss_{};
 };
 
 } // namespace storm::effects

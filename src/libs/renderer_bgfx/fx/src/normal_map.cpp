@@ -383,9 +383,12 @@ void DropTopMips(NormalMap &map, int max_size)
         offset += NormalMapLevelBytes(map.format, map.width, map.height);
         map.width = std::max(map.width / 2, 1);
         map.height = std::max(map.height / 2, 1);
+        map.depth *= 0.5f;
         --map.mip_count;
     }
     map.rg.erase(map.rg.begin(), map.rg.begin() + static_cast<std::ptrdiff_t>(offset));
+    if (!map.material.empty())
+        map.material.erase(map.material.begin(), map.material.begin() + static_cast<std::ptrdiff_t>(offset));
 }
 
 std::string NormalizeTexturePath(std::string_view path)

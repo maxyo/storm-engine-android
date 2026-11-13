@@ -1,8 +1,9 @@
 #include "relief.hpp"
 
 #include "formats.hpp"
-#include "storm/fx/deepbump.hpp"
+#include "storm/fx/relief_model.hpp"
 #include "storm/fx/gloss_map.hpp"
+#include "storm/fx/height_map.hpp"
 #include "storm/fx/normal_map.hpp"
 #include "storm/fx/relief_store.hpp"
 
@@ -169,7 +170,7 @@ std::optional<uint64_t> PreparedKey(const Candidate &candidate, const TxFile &tx
     return relief == fx::ReliefClass::None ? std::nullopt : key;
 }
 
-// onnxruntime with the DeepBump model: one session, its threads on each whole texture.
+// onnxruntime with one of the relief models: one session, its threads on each whole texture.
 class Model
 {
   public:
@@ -217,13 +218,13 @@ class Model
         return true;
     }
 
-    // One padded image: grey in, planar normals out.
-    bool Infer(const float *image, int width, int height, float *normals, std::string &error)
+    // One padded image: three colour planes in, three planes out.
+    bool Infer(const float *image, int width, int height, float *planes, std::string &error)
     {
-        const int64_t shape[4] = {1, 1, height, width};
+        const int64_t shape[4] = {1, 3, height, width};
         const size_t texels = static_cast<size_t>(width) * height;
         OrtValue *input = nullptr, *output = nullptr;
-        bool ok = Ok(api_->CreateTensorWithDataAsOrtValue(memory_, const_cast<float *>(image), texels * sizeof(float), shape, 4,
+        bool ok = Ok(api_->CreateTensorWithDataAsOrtValue(memory_, const_cast<float *>(image), texels * 3 * sizeof(float), shape, 4,
                                                           ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &input),
                      error);
         const char *in_names[] = {"input"}, *out_names[] = {"output"};
@@ -231,7 +232,7 @@ class Model
         float *data = nullptr;
         ok = ok && Ok(api_->GetTensorMutableData(output, reinterpret_cast<void **>(&data)), error);
         if (ok)
-            std::memcpy(normals, data, texels * 3 * sizeof(float));
+            std::memcpy(planes, data, texels * 3 * sizeof(float));
         if (input)
             api_->ReleaseValue(input);
         if (output)
@@ -330,7 +331,7 @@ std::vector<std::filesystem::path> List(const std::filesystem::path &textures)
 
 struct Session::Impl
 {
-    Model model;
+    Model normal, height; // PBRify's two networks
     Stats stats;
     std::atomic<bool> cancelled{false};
 };
@@ -340,23 +341,24 @@ Session::Session(std::unique_ptr<Impl> impl) : impl_(std::move(impl))
 }
 Session::~Session() = default;
 
-std::unique_ptr<Session> Session::Open(std::span<const uint8_t> model, int threads, std::string &error)
+std::unique_ptr<Session> Session::Open(const Models &models, int threads, std::string &error)
 {
     auto impl = std::make_unique<Impl>();
     threads = threads > 0 ? threads : static_cast<int>(std::max(1u, std::thread::hardware_concurrency()));
-    if (!impl->model.Open(model, threads, error))
+    if (!impl->normal.Open(models.normal, threads, error) || !impl->height.Open(models.height, threads, error))
     {
         Log("ERROR: %s", error.c_str());
         return nullptr;
     }
-    impl->stats.provider = impl->model.provider();
+    impl->stats.provider = impl->normal.provider();
     return std::unique_ptr<Session>(new Session(std::move(impl)));
 }
 
 void Session::Cancel()
 {
     impl_->cancelled = true;
-    impl_->model.Cancel();
+    impl_->normal.Cancel();
+    impl_->height.Cancel();
 }
 
 const Session::Stats &Session::stats() const
@@ -367,8 +369,9 @@ const Session::Stats &Session::stats() const
 Outcome Session::PrepareFile(const std::filesystem::path &textures, const std::filesystem::path &file,
                              const std::filesystem::path &output, int map_size, std::string &failure)
 {
-    // DeepBump at the map size, its normals as the model gives them (the owner's choice), EAC RG11. Each stage is timed:
-    // the log line of the texture says where the time went.
+    // PBRify's normal and height models at the map size (the owner's choice), the normals as the model gives them, EAC
+    // RG11; the material texture (the height normalised per region, the gloss) beside them. Each stage is timed: the log
+    // line of the texture says where the time went.
     const Clock::time_point start = Clock::now();
     Clock::time_point mark = start;
     const auto lap = [&mark] {
@@ -408,16 +411,21 @@ Outcome Session::PrepareFile(const std::filesystem::path &textures, const std::f
     options.max_size = map_size;
     int mw = 0, mh = 0;
     fx::NormalMapSize(width, height, options, mw, mh);
-    const std::vector<float> grey = fx::DeepBumpInput(rgba, width, height, mw, mh);
+    const std::vector<float> input = fx::ReliefModelInput(rgba, width, height, mw, mh);
     double infer_ms = 0.0;
-    const std::vector<float> normals = fx::DeepBumpNormals(grey, mw, mh, [&](const float *image, int pw, int ph, float *out) {
-        const Clock::time_point infer_start = Clock::now();
-        const bool ok = impl_->model.Infer(image, pw, ph, out, failure);
-        infer_ms = std::chrono::duration<double, std::milli>(Clock::now() - infer_start).count();
-        return ok;
-    });
+    const auto run = [&](Model &model) {
+        return fx::ReliefModelRun(input, mw, mh, [&](const float *image, int pw, int ph, float *out) {
+            const Clock::time_point infer_start = Clock::now();
+            const bool ok = model.Infer(image, pw, ph, out, failure);
+            infer_ms += std::chrono::duration<double, std::milli>(Clock::now() - infer_start).count();
+            return ok;
+        });
+    };
+    const std::vector<float> normal_planes = run(impl_->normal);
+    const bool height_wanted = fx::ReliefHasHeight(relief);
+    const std::vector<float> height_planes = height_wanted && !normal_planes.empty() ? run(impl_->height) : std::vector<float>{};
     impl_->stats.infer_seconds += infer_ms / 1000.0;
-    const double model_ms = lap(); // the input, padding and crop around the inference, and the inference
+    const double model_ms = lap(); // the input, padding and crop around the inferences, and the inferences
     if (impl_->cancelled)
     {
         // onnxruntime's error for a stopped inference varies (and its output, if any, is not the model's).
@@ -425,15 +433,39 @@ Outcome Session::PrepareFile(const std::filesystem::path &textures, const std::f
         Log("relief %s: cancelled", candidate->name.c_str());
         return Outcome::Failed;
     }
-    if (normals.empty())
+    if (normal_planes.empty() || (height_wanted && height_planes.empty()))
     {
         Log("ERROR: no relief map for %s: %s", candidate->name.c_str(), failure.c_str());
         return Outcome::Failed;
     }
-    const fx::NormalMap rg8 = fx::DeepBumpNormalMap(normals, mw, mh);
+    fx::NormalMap rg8 = fx::NormalMapOfNormals(fx::ReliefModelNormals(normal_planes, mw, mh), mw, mh);
     const double mips_ms = lap();
-    const fx::NormalMap map{rg8.width, rg8.height, rg8.mip_count, fx::NormalMapFormat::EacRg11,
-                            texture::encode_eac_chain(texture::EacFormat::Rg11, rg8.rg.data(), rg8.width, rg8.height, rg8.mip_count)};
+    // The material texture: the height and, for a texture of a gloss class, its gloss at the map's size (the gloss map's
+    // own derivation, fx/gloss_map.hpp, its top level stretched over the map).
+    std::vector<uint8_t> gloss;
+    if (height_wanted)
+    {
+        const fx::GlossClass gloss_class = fx::ClassifyGlossName(candidate->name).gloss;
+        const fx::NormalMap g = gloss_class == fx::GlossClass::None ? fx::NormalMap{} : fx::DeriveGlossMap(rgba, width, height, gloss_class);
+        if (!g.rg.empty())
+        {
+            gloss.resize(static_cast<size_t>(mw) * mh);
+            for (int y = 0; y < mh; ++y)
+                for (int x = 0; x < mw; ++x)
+                    gloss[static_cast<size_t>(y) * mw + x] =
+                        g.rg[static_cast<size_t>(y * g.height / mh) * g.width + static_cast<size_t>(x * g.width / mw)];
+        }
+        if (!fx::AddReliefMaterial(rg8, relief, fx::ReliefModelHeight(height_planes, mw, mh), gloss))
+            Log("relief %s: flat, no height", candidate->name.c_str());
+    }
+    const double height_ms = lap();
+    fx::NormalMap map{rg8.width, rg8.height, rg8.mip_count, fx::NormalMapFormat::EacRg11,
+                      texture::encode_eac_chain(texture::EacFormat::Rg11, rg8.rg.data(), rg8.width, rg8.height, rg8.mip_count)};
+    if (!rg8.material.empty())
+    {
+        map.material = texture::encode_eac_chain(texture::EacFormat::Rg11, rg8.material.data(), rg8.width, rg8.height, rg8.mip_count);
+        map.depth = rg8.depth;
+    }
     const double encode_ms = lap();
     if (!fx::WriteReliefMap(output, *key, map))
     {
@@ -445,10 +477,10 @@ Outcome Session::PrepareFile(const std::filesystem::path &textures, const std::f
     const double ms = std::chrono::duration<double, std::milli>(Clock::now() - start).count();
     ++impl_->stats.prepared;
     impl_->stats.max_texture_ms = std::max(impl_->stats.max_texture_ms, ms);
-    Log("relief %s: %dx%d, %.0f ms (read %.0f, decode %.0f, model %.0f of which inference %.0f, "
-        "mips %.0f, encode %.0f, write %.0f)",
-        candidate->name.c_str(), mw, mh, ms, read_ms, decode_ms, model_ms, infer_ms, mips_ms, encode_ms,
-        write_ms);
+    Log("relief %s: %dx%d, %.0f ms (read %.0f, decode %.0f, models %.0f of which inference %.0f, "
+        "mips %.0f, material %.0f (depth %.1f texels), encode %.0f, write %.0f)",
+        candidate->name.c_str(), mw, mh, ms, read_ms, decode_ms, model_ms, infer_ms, mips_ms, height_ms,
+        static_cast<double>(map.depth), encode_ms, write_ms);
     return Outcome::Prepared;
 }
 
@@ -484,7 +516,9 @@ int Prune(const std::filesystem::path &textures, const std::filesystem::path &ou
             fx::NormalizeTexturePath(std::filesystem::relative(it->path(), textures, relative_error).generic_string());
         TxFile tx;
         const fx::GlossClass gloss = fx::ClassifyGlossName(name).gloss;
-        if (relative_error || gloss == fx::GlossClass::None || !tx.Load(it->path()))
+        // A texture of a relief class with a height has its gloss in its relief's material texture.
+        if (relative_error || gloss == fx::GlossClass::None || fx::ReliefHasHeight(fx::ClassifyTextureName(name).relief) ||
+            !tx.Load(it->path()))
             continue;
         const int probe = fx::ReliefProbeLevel(static_cast<int>(tx.width), static_cast<int>(tx.height), static_cast<int>(tx.levels));
         if (probe < 0)
@@ -587,7 +621,7 @@ Result Prepare(const Job &job, const std::function<bool(const Progress &)> &prog
 {
     const Clock::time_point start = Clock::now();
     Result result;
-    std::unique_ptr<Session> session = Session::Open(job.model, job.threads, result.error);
+    std::unique_ptr<Session> session = Session::Open(job.models, job.threads, result.error);
     if (!session)
     {
         result.status = 2;

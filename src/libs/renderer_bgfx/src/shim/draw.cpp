@@ -1183,6 +1183,7 @@ HRESULT Device::draw(const DrawCall &call)
             &sphere_context);
         fx_lighting.prepare(*this, *layout, fs_variant, sphere, fx_draw);
     }
+    fx_lighting.census(*this, *layout, vs_port || ps_port, fs_variant == 4, fs_variant, fx_draw);
     if (layout->skinned && (vs_port || !store_of(s.vertex_texture)))
     {
         skip_draw(vs_port ? "skinned vertices with a vertex shader port"

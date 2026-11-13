@@ -75,12 +75,13 @@ include(cmake/storm_shaders.cmake)
 file(GLOB shader_sources CONFIGURE_DEPENDS shaders/*.sc shaders/ports/*.sc)
 list(FILTER shader_sources EXCLUDE REGEX "varying\\.def\\.sc$")
 # Graphics effects variants of the fixed-function emulator (src/effects/lighting.cpp picks them by name):
-# s = FX_LIGHT_SPECULAR, n = FX_LIGHT_NORMALMAP, l = FX_LIGHT_LINEAR, then the sun shadow:
-# h = FX_LIGHT_SHADOW (one tap), o = FX_LIGHT_SHADOW + FX_LIGHT_SHADOW_SOFT (fs_ff_baked: the town's walls, relit by
-# our sun, src/effects/town_light.hpp; its s variants add the gloss maps' highlights). The base sources fs_ff_lit.sc and
+# s = FX_LIGHT_SPECULAR, n = FX_LIGHT_NORMALMAP, p = FX_LIGHT_PARALLAX (only with n), l = FX_LIGHT_LINEAR, then the sun
+# shadow: h = FX_LIGHT_SHADOW (one tap), o = FX_LIGHT_SHADOW + FX_LIGHT_SHADOW_SOFT (fs_ff_baked: the town's walls, relit
+# by our sun, src/effects/town_light.hpp; its s variants add the gloss maps' highlights). The base sources fs_ff_lit.sc and
 # fs_ff_baked.sc are the variants without a suffix.
 set(ff_fx_variants)
-foreach(suffix _l _s _sl _n _nl _sn _snl _h _lh _sh _slh _nh _nlh _snh _snlh _o _lo _so _slo _no _nlo _sno _snlo)
+foreach(suffix _l _s _sl _n _nl _sn _snl _h _lh _sh _slh _nh _nlh _snh _snlh _o _lo _so _slo _no _nlo _sno _snlo
+               _np _npl _snp _snpl _nph _nplh _snph _snplh _npo _nplo _snpo _snplo)
     set(defines)
     if(suffix MATCHES "s")
         list(APPEND defines FX_LIGHT_SPECULAR)
@@ -90,6 +91,9 @@ foreach(suffix _l _s _sl _n _nl _sn _snl _h _lh _sh _slh _nh _nlh _snh _snlh _o 
     endif()
     if(suffix MATCHES "n")
         list(APPEND defines FX_LIGHT_NORMALMAP)
+    endif()
+    if(suffix MATCHES "p")
+        list(APPEND defines FX_LIGHT_PARALLAX)
     endif()
     if(suffix MATCHES "[ho]")
         list(APPEND defines FX_LIGHT_SHADOW)
@@ -160,7 +164,7 @@ find_package(Threads REQUIRED)
 target_link_libraries(storm_texture_core PUBLIC Threads::Threads)
 set_target_properties(storm_texture_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_link_libraries(storm_bgfx PRIVATE storm_texture_core)
-# The relief generation (src/effects/relief_generator.hpp): DeepBump through onnxruntime (src/libs/relief).
+# The relief generation (src/effects/relief_generator.hpp): PBRify's models through onnxruntime (src/libs/relief).
 target_link_libraries(storm_bgfx PRIVATE storm_relief_core)
 
 # Graphics effects package (fx/README.md): presets «Оригинал / Среднее / Высокое», driven by src/effects.

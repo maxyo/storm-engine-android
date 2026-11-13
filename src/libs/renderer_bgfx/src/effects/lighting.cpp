@@ -1,6 +1,7 @@
 #include "effects/lighting.hpp"
 
 #include "shim/device.hpp"
+#include "storm/fx/height_map.hpp"
 
 #include <bx/math.h>
 
@@ -90,8 +91,10 @@ void Lighting::configure(const fx::Settings &settings, const fx::RendererState &
     town_light_.set_enabled(settings.town_light);
     town_light_.set_debug(settings.town_light_debug);
     lamps_.configure(settings);
-    normal_maps_.configure(lighting_ && (flags_ & fx::kLightingNormalMap), settings.normal_map_size);
     gloss_ = (flags_ & fx::kLightingPerPixel) && (flags_ & fx::kLightingSpecular) && settings.gloss;
+    // The relief's material texture (height and gloss) is uploaded when the parallax, the cavity or the gloss reads it.
+    normal_maps_.configure(lighting_ && (flags_ & fx::kLightingNormalMap), settings.normal_map_size,
+                           settings.parallax != fx::ParallaxQuality::Off || settings.relief_cavity || gloss_);
     normal_maps_.configure_gloss(gloss_, settings.gloss_map_size);
     find_shaders();
 }
@@ -104,28 +107,21 @@ void Lighting::find_shaders()
         vs_lit_ = shim::shader_id_by_name("vs_ff_lit");
         vs_lit_skin_ = shim::shader_id_by_name("vs_ff_lit_skin");
         fs_coverage_ = shim::shader_id_by_name("fs_ff_coverage");
+        // Suffix letters in the order of CMakeLists.txt: s, n, p, l, then h / o.
+        static const char *const relief[3] = {"", "n", "np"};
+        const auto variant = [](const char *base, const std::string &suffix) {
+            return shim::shader_id_by_name((suffix.empty() ? std::string(base) : std::string(base) + "_" + suffix).c_str());
+        };
         for (int s = 0; s < 2; ++s)
-            for (int n = 0; n < 2; ++n)
+            for (int n = 0; n < 3; ++n)
                 for (int l = 0; l < 2; ++l)
                     for (int h = 0; h < 3; ++h)
                     {
-                        // Suffix letters in the order of CMakeLists.txt: s, n, l, then h / o.
-                        std::string name = "fs_ff_lit";
-                        std::string suffix = std::string(s ? "s" : "") + (n ? "n" : "") + (l ? "l" : "") +
-                                             (h == 1 ? "h" : h == 2 ? "o" : "");
-                        if (!suffix.empty())
-                            name += "_" + suffix;
-                        fs_lit_[s][n][l][h] = shim::shader_id_by_name(name.c_str());
-                    }
-        for (int s = 0; s < 2; ++s)
-            for (int n = 0; n < 2; ++n)
-                for (int l = 0; l < 2; ++l)
-                    for (int h = 0; h < 3; ++h)
-                    {
-                        const std::string suffix = std::string(s ? "s" : "") + (n ? "n" : "") + (l ? "l" : "") +
+                        const std::string suffix = std::string(s ? "s" : "") + relief[n] + (l ? "l" : "") +
                                                    (h == 1 ? "h" : h == 2 ? "o" : "");
-                        fs_baked_[s][n][l][h] = shim::shader_id_by_name(("fs_ff_baked" + (suffix.empty() ? "" : "_" + suffix)).c_str());
-                }
+                        fs_lit_[s][n][l][h] = variant("fs_ff_lit", suffix);
+                        fs_baked_[s][n][l][h] = variant("fs_ff_baked", suffix);
+                    }
     }
 }
 
@@ -138,7 +134,9 @@ bool Lighting::prepare_programs(shim::Device &device, const fx::Settings &settin
     const bool per_pixel = (flags & fx::kLightingPerPixel) != 0;
     const int specular = per_pixel && (flags & fx::kLightingSpecular) ? 1 : 0;
     const int linear = (flags & fx::kLightingLinear) ? 1 : 0;
-    const int relief = lighting && (flags & fx::kLightingNormalMap) ? 1 : 0;
+    // 1: the normal maps, 2: and the parallax variants (draws whose map has no height keep the plain relief ones).
+    const bool height = settings.parallax != fx::ParallaxQuality::Off || settings.relief_cavity;
+    const int relief = lighting && (flags & fx::kLightingNormalMap) ? (height ? 2 : 1) : 0;
     const int shadow = per_pixel && settings.shadows != fx::ShadowQuality::Off
                            ? (settings.shadows == fx::ShadowQuality::Soft ? 2 : 1)
                            : 0;
@@ -257,6 +255,7 @@ void Lighting::prepare(const shim::Device &device, const shim::LayoutInfo &layou
     bgfx::TextureHandle normal_map = BGFX_INVALID_HANDLE;
     float relief_fade = 0.0f; // a map just uploaded fades in (effects::kReliefFade)
     int relief_stage = -1;
+    NormalMaps::Relief relief_map;
     if ((flags_ & fx::kLightingNormalMap) && lighting_ && layout.has_normal && device.s.tss[0][D3DTSS_COLOROP] != D3DTOP_DISABLE &&
         !(lit && material_ == Material::Character))
         for (const int stage : {1, 0})
@@ -264,19 +263,33 @@ void Lighting::prepare(const shim::Device &device, const shim::LayoutInfo &layou
             shim::TexStore *store = shim::store_of(device.s.textures[stage]);
             if (!store || !store->normal_map || device.s.tss[stage][D3DTSS_COLOROP] == D3DTOP_DISABLE)
                 continue;
-            const NormalMaps::Relief map = normal_maps_.handle(*store, fx_);
-            normal_map = map.handle;
-            relief_fade = map.fade;
+            relief_map = normal_maps_.handle(*store, fx_);
+            normal_map = relief_map.handle;
+            relief_fade = relief_map.fade;
             relief_stage = stage;
             break;
         }
     baked |= !lit_state && bgfx::isValid(normal_map);
-    // Gloss: the map of stage 0's colour texture (characters stay matte: no map, their material has no highlight).
+    // Gloss: stage 0's colour texture's: the G of its relief's material texture when its relief class has a height
+    // (relief_store.hpp), else its own gloss map (characters stay matte: no map, their material has no highlight).
     NormalMaps::Relief gloss_map;
+    fx::GlossClass gloss_class = fx::GlossClass::None;
     shim::TexStore *gloss_store = shim::store_of(device.s.textures[0]);
-    if (gloss_ && layout.has_normal && gloss_store && gloss_store->gloss_map && device.s.tss[0][D3DTSS_COLOROP] != D3DTOP_DISABLE &&
+    if (gloss_ && layout.has_normal && gloss_store && device.s.tss[0][D3DTSS_COLOROP] != D3DTOP_DISABLE &&
         !(lit && material_ == Material::Character))
-        gloss_map = normal_maps_.gloss(*gloss_store, fx_);
+    {
+        if (gloss_store->normal_map && gloss_store->normal_map->material_gloss != fx::GlossClass::None)
+        {
+            const NormalMaps::Relief material = relief_stage == 0 ? relief_map : normal_maps_.handle(*gloss_store, fx_);
+            gloss_map = {material.material, material.fade};
+            gloss_class = gloss_store->normal_map->material_gloss;
+        }
+        else if (gloss_store->gloss_map)
+        {
+            gloss_map = normal_maps_.gloss(*gloss_store, fx_);
+            gloss_class = gloss_store->gloss_map->gloss;
+        }
+    }
     const bool gloss_debug = gloss_ && settings_.gloss_debug != 0;
     baked |= !lit_state && (bgfx::isValid(gloss_map.handle) || gloss_debug) && target && target == picture;
     // The interior's AO volume darkens what is drawn into the game picture: baked location geometry (which then takes
@@ -458,24 +471,55 @@ void Lighting::prepare(const shim::Device &device, const shim::LayoutInfo &layou
     if (!per_pixel || !(flags_ & fx::kLightingRim))
         u[5][1] = 0.0f;
     u[5][0] *= relief_fade;
-    const bool relief = bgfx::isValid(normal_map) && u[5][0] > 0.0f;
-    draw.ff = {two_sided && u[2][3] > 0.0f ? 1.0f : 0.0f, relief ? static_cast<float>(relief_stage) : 0.0f, 0.0f, 0.0f};
-    if (relief)
+    const bool has_relief = bgfx::isValid(normal_map) && u[5][0] > 0.0f;
+    draw.ff = {two_sided && u[2][3] > 0.0f ? 1.0f : 0.0f, has_relief ? static_cast<float>(relief_stage) : 0.0f, 0.0f, 0.0f};
+    int relief = 0; // the variant: 1 the normal map, 2 with the parallax
+    if (has_relief)
     {
+        relief = 1;
         draw.normal_map = normal_map;
         draw.normal_map_flags = device.sampler_flags(relief_stage, *shim::store_of(device.s.textures[relief_stage]));
         ++frame_.relief;
+        // The parallax: a stage 0 map with its height, on coordinates that are not projected (the variant reads stage 0
+        // where the relief is); its depth fades in with the relief.
+        // A clamp-addressed stage 0 (a texture drawn once over its polygon, not tiled) has none: the shifted reads would
+        // run off its edge into the clamped border.
+        const uint32_t u = draw.normal_map_flags & BGFX_SAMPLER_U_MASK, v = draw.normal_map_flags & BGFX_SAMPLER_V_MASK;
+        const bool clamped = u == BGFX_SAMPLER_U_CLAMP || u == BGFX_SAMPLER_U_BORDER || v == BGFX_SAMPLER_V_CLAMP ||
+                             v == BGFX_SAMPLER_V_BORDER;
+        // The cavity needs no shift: it also draws on a clamped stage 0 or with the parallax off.
+        const bool parallax = settings_.parallax != fx::ParallaxQuality::Off && !clamped;
+        if (bgfx::isValid(relief_map.material) && relief_map.depth > 0.0f && relief_stage == 0 && (parallax || settings_.relief_cavity) &&
+            !(device.s.tss[0][D3DTSS_TEXTURETRANSFORMFLAGS] & D3DTTFF_PROJECTED))
+        {
+            relief = 2;
+            draw.parallax_variant = true;
+            draw.material = relief_map.material;
+            draw.material_flags = draw.normal_map_flags;
+            // The class's own depth (stored with the height, fx::ReliefDepthTexels), the player's strength, the fade-in.
+            const float depth = relief_map.depth * std::clamp(settings_.parallax_strength, 0.0f, 3.0f) * relief_fade;
+            const bool occlusion = parallax && settings_.parallax == fx::ParallaxQuality::Occlusion;
+            // The relief's own shadow towards the sun: occlusion mapping only, not indoors (no sun shines there).
+            const bool self_shadow = occlusion && settings_.parallax_shadow && !lamps_.interior();
+            draw.parallax = {depth / static_cast<float>(relief_map.width), depth / static_cast<float>(relief_map.height_texels),
+                             !parallax ? 0.0f : occlusion ? static_cast<float>(fx::kParallaxSteps) : 1.0f,
+                             std::log2(static_cast<float>(std::max(relief_map.width, relief_map.height_texels))),
+                             self_shadow ? fx::kParallaxShadow : 0.0f, settings_.parallax_debug ? 1.0f : 0.0f,
+                             settings_.relief_cavity ? fx::kReliefCavity : 0.0f, 0.0f};
+            ++frame_.parallax;
+        }
     }
     // Gloss: the map's texels shape the highlight; u_fxGloss.w switches on the lamps' and the baked surfaces'
     // highlights (develop's look without gloss: the lit materials' fixed highlight only).
+    // The parallax's material, when it is bound, is the same texture (stage 0's relief).
     const bool glossy = bgfx::isValid(gloss_map.handle) && gloss_map.fade > 0.0f;
     if (glossy)
     {
-        draw.gloss_map = gloss_map.handle;
-        draw.gloss_map_flags = device.sampler_flags(0, *gloss_store);
+        draw.material = gloss_map.handle;
+        draw.material_flags = device.sampler_flags(0, *gloss_store);
         ++frame_.glossy;
     }
-    draw.gloss = {glossy ? gloss_map.fade : 0.0f, glossy ? fx::GlossMetalTint(gloss_store->gloss_map->gloss) : 0.0f,
+    draw.gloss = {glossy ? gloss_map.fade : 0.0f, glossy ? fx::GlossMetalTint(gloss_class) : 0.0f,
                   gloss_ ? static_cast<float>(settings_.gloss_debug) : 0.0f, gloss_ ? settings_.gloss_strength : 0.0f};
     const bool baked_specular = specular && gloss_ && (glossy || gloss_debug);
 
@@ -553,6 +597,58 @@ void Lighting::prepare(const shim::Device &device, const shim::LayoutInfo &layou
     }
 }
 
+const char *Lighting::ParallaxMissName(ParallaxMiss miss)
+{
+    static const char *const names[] = {"ported shader", "decal", "pretransformed", "no vertex normals", "cube map",
+                                        "character", "switched off", "stage 1 height texture", "map not ready",
+                                        "map without height", "projected coordinates", "clamp-addressed",
+                                        "no relief on the draw", "other"};
+    return names[static_cast<int>(miss)];
+}
+
+void Lighting::census(const shim::Device &device, const shim::LayoutInfo &layout, bool ported, bool decal,
+                      uint32_t cube_variant, const FfDraw &draw)
+{
+    const shim::TexStore *s0 = shim::store_of(device.s.textures[0]);
+    if (!s0 || !s0->normal_map || !fx::ReliefHasHeight(s0->normal_map->relief) ||
+        device.s.tss[0][D3DTSS_COLOROP] == D3DTOP_DISABLE)
+        return;
+    if (draw.parallax_variant)
+        return; // counted as frame_.parallax
+    const shim::TexStore *s1 = shim::store_of(device.s.textures[1]);
+    const uint32_t flags = device.sampler_flags(0, *s0);
+    const uint32_t u = flags & BGFX_SAMPLER_U_MASK, v = flags & BGFX_SAMPLER_V_MASK;
+    ParallaxMiss miss = ParallaxMiss::Other;
+    if (ported)
+        miss = ParallaxMiss::Ported;
+    else if (decal)
+        miss = ParallaxMiss::Decal;
+    else if (layout.rhw)
+        miss = ParallaxMiss::Pretransformed;
+    else if (!layout.has_normal)
+        miss = ParallaxMiss::NoNormals;
+    else if (cube_variant != 0)
+        miss = ParallaxMiss::Cube;
+    else if (device.s.rs[D3DRS_LIGHTING] && material_ == Material::Character)
+        miss = ParallaxMiss::Character;
+    else if (!lighting_ || !(flags_ & fx::kLightingNormalMap) ||
+             (settings_.parallax == fx::ParallaxQuality::Off && !settings_.relief_cavity))
+        miss = ParallaxMiss::Off;
+    else if (s1 && s1->normal_map && device.s.tss[1][D3DTSS_COLOROP] != D3DTOP_DISABLE)
+        miss = ParallaxMiss::Stage1;
+    else if (s0->normal_map->state != NormalMapEntry::Uploaded)
+        miss = ParallaxMiss::NotReady;
+    else if (!bgfx::isValid(s0->normal_map->material) || s0->normal_map->depth <= 0.0f)
+        miss = ParallaxMiss::NoHeight;
+    else if (device.s.tss[0][D3DTSS_TEXTURETRANSFORMFLAGS] & D3DTTFF_PROJECTED)
+        miss = ParallaxMiss::Projected;
+    else if (u == BGFX_SAMPLER_U_CLAMP || u == BGFX_SAMPLER_U_BORDER || v == BGFX_SAMPLER_V_CLAMP || v == BGFX_SAMPLER_V_BORDER)
+        miss = ParallaxMiss::Clamped;
+    else if (!bgfx::isValid(draw.normal_map))
+        miss = ParallaxMiss::NoRelief;
+    ++frame_.parallax_miss[static_cast<size_t>(miss)];
+}
+
 void Lighting::submit(const FfDraw &draw)
 {
     caster_ = draw;
@@ -572,8 +668,10 @@ void Lighting::submit(const FfDraw &draw)
     if (!bgfx::isValid(u_gloss_))
         u_gloss_ = bgfx::createUniform("u_fxGloss", bgfx::UniformType::Vec4);
     bgfx::setUniform(u_gloss_, draw.gloss.data());
-    if (bgfx::isValid(draw.gloss_map))
-        fx_.BindGlossMap(draw.gloss_map, draw.gloss_map_flags);
+    if (bgfx::isValid(draw.material))
+        fx_.BindMaterial(draw.material, draw.material_flags);
+    if (draw.parallax_variant)
+        fx_.SetParallax(draw.parallax);
     if (draw.shadow)
         shadows_.bind(draw.view);
     bind_ao_volume(draw);
@@ -733,6 +831,27 @@ void Lighting::end_frame()
 {
     last_frame_ = frame_;
     frame_ = {};
+    // Every 30 frames, when it changed: the parallax census of the last frame.
+    if (++census_frames_ >= 30)
+    {
+        census_frames_ = 0;
+        uint32_t missed = 0;
+        for (const uint32_t n : last_frame_.parallax_miss)
+            missed += n;
+        if ((last_frame_.parallax != logged_parallax_ || last_frame_.parallax_miss != logged_miss_) &&
+            (last_frame_.parallax || missed))
+        {
+            logged_parallax_ = last_frame_.parallax;
+            logged_miss_ = last_frame_.parallax_miss;
+            std::string without;
+            for (size_t i = 0; i < last_frame_.parallax_miss.size(); ++i)
+                if (last_frame_.parallax_miss[i])
+                    without += std::string(without.empty() ? "" : ", ") + ParallaxMissName(static_cast<ParallaxMiss>(i)) +
+                               " " + std::to_string(last_frame_.parallax_miss[i]);
+            shim::logf("effects parallax: %u draws of a class with a height drew with it, %u without (%s)",
+                       last_frame_.parallax, missed, without.empty() ? "none" : without.c_str());
+        }
+    }
     town_light_.end_frame();
     shadows_.end_frame();
     normal_maps_.end_frame();
