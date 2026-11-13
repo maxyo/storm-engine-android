@@ -849,7 +849,7 @@ int main(int argc, char *argv[])
                 STORM_PROFILE_ZONE("HUD command: shortcut");
                 const auto *control = storm::android::shortcutControl(*shortcut);
                 const auto *screen = storm::android::shortcutScreen(*shortcut);
-                const std::string_view shortcutName = control ? control : screen;
+                [[maybe_unused]] const std::string_view shortcutName = control ? control : screen; // Tracy only
                 STORM_PROFILE_ZONE_TEXT(shortcutName.data(), shortcutName.size());
                 if (shortcutLogBudget > 0)
                 {
