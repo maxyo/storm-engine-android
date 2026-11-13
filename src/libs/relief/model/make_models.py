@@ -1,28 +1,29 @@
 #!/usr/bin/env python3
-"""Builds pbrify-normal-int8.onnx, pbrify-height-int8.onnx and pbrify-roughness-int8.onnx (this folder) from PBRify's
-models (README.md).
+"""Builds pbrify-normal-int8.onnx, pbrify-height-int8.onnx and pbrify-roughness-int8.onnx from PBRify's models
+(README.md). The build runs it (src/libs/relief/CMakeLists.txt, make_models.cmake): the models are not in the repository.
 
 1. The ONNX exports of PBRify_Remix's 1x-PBRify_NormalV3, 1x-PBRify_Height and 1x-PBRify_RoughnessV2
    (Kim2091/PBRify_Remix, CC0-1.0;
-   exported by fernandotonon/QtMeshEditor-models at revision b35b7f4c, CC0-1.0), checked by sha256. Input and output
+   exported by fernandotonon/QtMeshEditor-models at revision b35b7f4c, CC0-1.0), fetched by the build (`--sources`),
+   checked here by sha256. Input and output
    1x3xHxW, 0..1, free size.
 2. Static int8 quantisation, QDQ, per-channel weights (onnxruntime.quantization), calibrated on deterministic
    procedural colour textures (noise, bricks, planks, cobbles) at 256 px with the game's 48 px wrap padding: no game
    data goes into the models. What no node uses is dropped.
 
-Needs: pip install onnx==1.23.2 onnxruntime==1.31.1 numpy==2.5.4. Deterministic for the same versions.
+Needs the packages of requirements.txt (the build's own venv). Deterministic for the same versions: the build checks
+the results against the digests in relief_model.hpp.
 """
 import argparse
 import hashlib
-import urllib.request
 from pathlib import Path
 
 import numpy as np
 import onnx
 from onnxruntime.quantization import CalibrationDataReader, QuantFormat, QuantType, quantize_static
 
-REVISION = 'b35b7f4c924936803bf79e868302d7f8f643d302'
-SOURCE = f'https://huggingface.co/fernandotonon/QtMeshEditor-models/resolve/{REVISION}/'
+# The float models (fernandotonon/QtMeshEditor-models at b35b7f4c924936803bf79e868302d7f8f643d302) and their pins; the
+# build fetches the same files by the same digests (src/libs/relief/CMakeLists.txt).
 MODELS = {
     'pbrify-normal-int8.onnx': ('1x-PBRify_NormalV3.onnx', '19d78f555f994219e2692876ab0fb6c3e4382503952dbe72d74db89d24870ba4'),
     'pbrify-height-int8.onnx': ('1x-PBRify_Height.onnx', '2b14afd583148cb5b0a554bf86a009b6a898aadc00d213aa3ec2544e17c835f5'),
@@ -31,10 +32,13 @@ MODELS = {
 PAD = 48  # fx::kReliefModelPad
 
 
-def original(name, sha256):
-    data = urllib.request.urlopen(SOURCE + name).read()
+def original(sources, name, sha256):
+    found = [folder / name for folder in sources if (folder / name).is_file()]
+    if not found:
+        raise SystemExit(f'{name} is in none of {", ".join(map(str, sources))}')
+    data = found[0].read_bytes()
     if hashlib.sha256(data).hexdigest() != sha256:
-        raise SystemExit(f'{name} does not match its pin')
+        raise SystemExit(f'{found[0]} does not match its pin {sha256}')
     return data
 
 
@@ -116,11 +120,13 @@ class Procedural(CalibrationDataReader):
 
 def main():
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument('--output', type=Path, default=Path(__file__).parent)
+    p.add_argument('--sources', type=Path, nargs='+', required=True, help='the folders with the float models')
+    p.add_argument('--output', type=Path, required=True)
     a = p.parse_args()
+    a.output.mkdir(parents=True, exist_ok=True)
     for target, (name, sha256) in MODELS.items():
         staged = a.output / (target + '.float.onnx')
-        staged.write_bytes(original(name, sha256))
+        staged.write_bytes(original(a.sources, name, sha256))
         out = a.output / target
         quantize_static(str(staged), str(out), Procedural(), quant_format=QuantFormat.QDQ,
                         activation_type=QuantType.QUInt8, weight_type=QuantType.QInt8, per_channel=True)

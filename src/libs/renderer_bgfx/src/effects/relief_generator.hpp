@@ -42,7 +42,7 @@ struct ReliefSetup
 {
     std::filesystem::path directory; // the relief directory
     std::filesystem::path textures;  // the game's RESOURCE/Textures
-    // Reads a model file by its name (src/libs/relief/model): the APK assets on Android, engine.ini relief_models on the
+    // Reads a model file by its name (src/libs/relief/model/README.md): the APK assets on Android, engine.ini relief_models on the
     // host. Null: no maps are made (logged at the first request); the textures without a map get no relief.
     std::function<std::vector<uint8_t>(const char *file)> model;
 };

@@ -29,19 +29,19 @@ models of which inference, mips, material (depth), encode, write)`).
 
 `storm_relief_cli <RESOURCE/Textures> <relief dir> <model dir> [map size] [threads]` makes a whole game at once:
 host renders with every map in place (engine.ini `relief_dir = <relief dir>`). A host engine makes maps itself only
-with engine.ini `relief_models = <the directory with the two model files, e.g. this model/>`; without it, it logs that
-no maps are made.
+with engine.ini `relief_models = <the directory with the three model files>`; without it, it logs that no maps are
+made. The build makes that directory (below); its path is in `<build>/relief_models_path.txt` of a host build.
 
 ## Models and runtime
 
-- Models: `model/pbrify-normal-int8.onnx`, `model/pbrify-height-int8.onnx` and `model/pbrify-roughness-int8.onnx`
-  (CC0-1.0), int8 versions of Kim2091/PBRify_Remix's 1x-PBRify_NormalV3, 1x-PBRify_Height and 1x-PBRify_RoughnessV2
-  made by `model/make_models.py` (`model/README.md`; provenance in `third_party/licenses/PBRify-PROVENANCE.txt`). The
-  CMake build checks the files against `fx::kReliefNormalModelDigest`, `fx::kReliefHeightModelDigest` and
+- Models: `pbrify-normal-int8.onnx`, `pbrify-height-int8.onnx` and `pbrify-roughness-int8.onnx` (CC0-1.0), int8
+  versions of Kim2091/PBRify_Remix's 1x-PBRify_NormalV3, 1x-PBRify_Height and 1x-PBRify_RoughnessV2, not kept in the
+  repository: the build fetches the float models by their pins and runs `model/make_models.py` once per machine
+  (`model/README.md`; provenance in `third_party/licenses/PBRify-PROVENANCE.txt`). Their digests are pinned in this
+  folder's CMakeLists.txt and match `fx::kReliefNormalModelDigest`, `fx::kReliefHeightModelDigest` and
   `fx::kReliefRoughnessModelDigest`. Per texture: one decode, then one inference of each
   model on the whole image at the map's size, wrap-padded by `fx::kReliefModelPad` (48 px, beyond the networks'
-  receptive field: no seam where the texture tiles). Metal (and other classes without a height) runs the normal model
-  only.
+  receptive field: no seam where the texture tiles); the roughness model at the gloss map's size.
 - Height (`fx/height_map.hpp`): the height model's output, each atlas region normalised against its own neighbourhood
   (`fx::kHeightRegionTexels`), then its 2 % / 98 % become 0 and 1; the class's depth (`fx::ReliefDepthTexels`) is stored
   with it. Gloss (`fx/gloss_map.hpp`): the roughness model at 256² (`fx::kGlossMapSize`), corrected by

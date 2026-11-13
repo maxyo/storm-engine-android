@@ -269,7 +269,7 @@ struct ReliefConfig
 {
     std::filesystem::path directory;
     std::filesystem::path textures; // the game's RESOURCE/Textures (the generator reads the texture files)
-    // Reads a model file by its name (src/libs/relief/model: pbrify-normal-int8.onnx, pbrify-height-int8.onnx). Null:
+    // Reads a model file by its name (src/libs/relief/model/README.md: pbrify-{normal,height,roughness}-int8.onnx). Null:
     // no maps are made (logged); textures without one get no relief.
     std::function<std::vector<uint8_t>(const char *file)> model;
 };

@@ -1,6 +1,6 @@
 // Host tool: prepares the relief maps of a game copy (what the game makes lazily while it runs, at once:
 // host renders with every map in place).
-//   storm_relief_cli <game RESOURCE/Textures> <relief dir> <model dir (src/libs/relief/model)> [map size, default fx::kReliefMapSize] [threads]
+//   storm_relief_cli <game RESOURCE/Textures> <relief dir> <model dir (the build's, src/libs/relief/model/README.md)> [map size, default fx::kReliefMapSize] [threads]
 #include "relief.hpp"
 #include "storm/fx/relief_store.hpp"
 

@@ -782,7 +782,7 @@ bool Renderer::Init()
         // shipped; derived data, so in the engine's cache root (fs::GetCachePath: on Android the app's cache) + "relief":
         // «Очистить кэш» or the system's eviction removes them and the game makes them again.
         // engine.ini relief_dir overrides (host checks with prepared maps). The models: APK assets on Android, the files
-        // in engine.ini relief_models (src/libs/relief/model) on the host (none: no maps are made, logged).
+        // in engine.ini relief_models (the folder the build makes them in: src/libs/relief/model/README.md) on the host (none: no maps are made, logged).
         storm::render::ReliefConfig relief;
         ini->ReadString(nullptr, "relief_dir", str, sizeof(str), "");
         relief.directory = std::filesystem::u8path(str);
