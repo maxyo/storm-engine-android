@@ -122,6 +122,11 @@ struct AudioGate
             soundService->SetActiveWithFade(active);
             applied = active;
         }
+#ifdef __ANDROID__
+        // A sound that stays paused (a lost "audiofocus:gain") must be visible in the log.
+        __android_log_print(ANDROID_LOG_INFO, "StormAudio", "sound %s, duck %.2f (foreground %d, window focus %d, audio focus %d)",
+                            active ? "active" : "paused", duck, foreground, windowFocused, audioFocus);
+#endif
     }
 } audioGate;
 
@@ -786,6 +791,7 @@ int main(int argc, char *argv[])
                 if (state == "gain") { audioGate.audioFocus = true; audioGate.duck = 1.0f; }
                 else if (state == "duck") { audioGate.audioFocus = true; audioGate.duck = 0.25f; }
                 else if (state == "loss") { audioGate.audioFocus = false; audioGate.duck = 1.0f; }
+                else __android_log_print(ANDROID_LOG_ERROR, "StormAudio", "unknown audio focus state '%s'", command.c_str());
             }
             else if (command == "back" && !storm::android::mobileScreen.empty())
                 core_private->Event("exitCancel");
