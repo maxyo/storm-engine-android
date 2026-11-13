@@ -486,6 +486,12 @@ void Router::SetState(const std::string &channel, const Json &state)
         surface_.Error("state channel " + channel + " has no consumer");
 }
 
+void Router::RebuildActive()
+{
+    if (screen_)
+        Build();
+}
+
 void Router::ReportError(const std::string &line)
 {
     surface_.Error(line);

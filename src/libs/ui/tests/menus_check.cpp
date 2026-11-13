@@ -499,7 +499,7 @@ static void Title(const std::string &models)
     Expect(surface.commands.size() == 1 && surface.Last() == "widget:save_load\tCONFIRM_YES\t-1\tpress", "and answers the load question");
     SetFromTitle(false);
     {
-        // The host's «Продолжить» (titleIntent, the app's Test Lab Game Loop): once, at the next title build.
+        // The host's «Продолжить» (titleIntent, the app's Test Lab Game Loop): once, at the next title build or at once.
         surface.commands.clear();
         router.SetState("titleIntent", Json{{"intent", "Continue"}});
         router.SetInterface(Load(models, "title.json"));
@@ -508,14 +508,23 @@ static void Title(const std::string &models)
         SetContinueRequested(false);
         router.SetInterface(Load(models, "title.json"));
         Expect(surface.commands.size() == 1, "only once");
-        router.SetState("titleIntent", Json{{"intent", "Continue"}});
         InterfaceModel none = Load(models, "title.json");
         Without(none, "ANDROID_CONTINUE");
-        const size_t errors = surface.errors.size();
+        none.revision = 11;
         router.SetInterface(none);
+        const size_t errors = surface.errors.size();
+        router.SetState("titleIntent", Json{{"intent", "Continue"}});
         Expect(surface.commands.size() == 1 && surface.errors.size() == errors + 1, "without a record it is an error, nothing is sent");
+        surface.errors.clear();
+        router.SetInterface(Load(models, "title.json"));
+        surface.commands.clear();
+        router.SetState("titleIntent", Json{{"intent", "Continue"}});
+        Expect(surface.commands.size() == 1 && surface.Last() == "main:Load" && ContinueRequested(),
+               "titleIntent while the title is up acts at once");
+        SetContinueRequested(false);
+        const size_t errors2 = surface.errors.size();
         router.SetState("titleIntent", Json{{"intent", "New"}});
-        Expect(surface.errors.size() == errors + 2, "an unknown intent is an error");
+        Expect(surface.errors.size() == errors2 + 1, "an unknown intent is an error (title up)");
         surface.errors.clear();
         SetFromTitle(false);
     }
