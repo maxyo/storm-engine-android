@@ -2,6 +2,9 @@
 #include "effects/effects.hpp"
 #include "perf.hpp"
 #include "util.hpp"
+#include "../texture/core/formats.hpp"
+
+#include <bx/allocator.h>
 
 #include <SDL2/SDL.h>
 
@@ -1113,22 +1116,15 @@ HRESULT Device::GetRenderTargetData(Surface *target, Surface *dest)
     bgfx::destroy(staging);
     uint32_t pitch = 0;
     uint8_t *out = to->store->lock(to->face, to->level, &pitch, nullptr, false);
-    const D3DFORMAT format = to->store->format;
-    for (uint32_t y = 0; y < h; ++y)
-    {
-        const uint8_t *row = pixels.data() + static_cast<size_t>(y) * w * 4;
-        uint8_t *d = out + static_cast<size_t>(y) * pitch;
-        if (format == D3DFMT_A8R8G8B8 || format == D3DFMT_X8R8G8B8)
-            for (uint32_t x = 0; x < w; ++x, row += 4, d += 4)
-                d[0] = row[2], d[1] = row[1], d[2] = row[0], d[3] = row[3];
-        else if (format == D3DFMT_R5G6B5)
-            for (uint32_t x = 0; x < w; ++x, row += 4, d += 2)
-            {
-                const uint16_t v = static_cast<uint16_t>(((row[0] >> 3) << 11) | ((row[1] >> 2) << 5) | (row[2] >> 3));
-                d[0] = static_cast<uint8_t>(v);
-                d[1] = static_cast<uint8_t>(v >> 8);
-            }
-    }
+    // RGBA8 into the surface's own texels (texture/core d3d_format): A8R8G8B8/X8R8G8B8 are BGRA8, R5G6B5 is B5G6R5.
+    static bx::DefaultAllocator allocator;
+    const auto texels = texture::d3d_format(static_cast<uint32_t>(to->store->format)).format;
+    if (bimg::isCompressed(texels) || texels == bimg::TextureFormat::Unknown)
+        trap("Device::GetRenderTargetData into an unsupported destination format (left unchanged)");
+    else
+        for (uint32_t y = 0; y < h; ++y) // row by row: the surface's pitch
+            bimg::imageConvert(&allocator, out + static_cast<size_t>(y) * pitch, texels,
+                               pixels.data() + static_cast<size_t>(y) * w * 4, bimg::TextureFormat::RGBA8, w, 1, 1);
     to->store->unlock(to->face, to->level);
     return D3D_OK;
 }
