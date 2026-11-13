@@ -19,12 +19,15 @@ target_compile_definitions(storm_bgfx PRIVATE SDL_VIDEO_DRIVER_X11=1)
 
 # perf_check drives the shim on bgfx's Noop backend; the shim calls a few SDL window functions,
 # so it links the host's SDL2 runtime like the other SDL host checks.
+# storm_check_sdl carries both: the pinned headers (the host has no SDL development package in CI)
+# and the runtime, so every check that includes <SDL2/SDL.h> links it instead of the bare runtime.
 find_library(STORM_SDL_RUNTIME NAMES SDL2-2.0 SDL2 libSDL2-2.0.so.0 REQUIRED)
+target_link_libraries(storm_check_sdl INTERFACE "${STORM_SDL_RUNTIME}")
 add_executable(perf_check perf_check.cpp)
 target_include_directories(perf_check PRIVATE "${CMAKE_CURRENT_LIST_DIR}/../../src/libs/renderer_bgfx/src/shim")
 target_compile_definitions(perf_check PRIVATE NOMINMAX)
 target_compile_options(perf_check PRIVATE -fsigned-char)
-target_link_libraries(perf_check PRIVATE storm_bgfx "${STORM_SDL_RUNTIME}")
+target_link_libraries(perf_check PRIVATE storm_bgfx storm_check_sdl)
 
 # skinning_check renders through OpenGL ES in an SDL window (an X display: xvfb-run in CI) and
 # compares GPU skinning with the CPU kernel of src/libs/model.
@@ -33,7 +36,7 @@ target_include_directories(skinning_check PRIVATE "${CMAKE_CURRENT_LIST_DIR}/../
     "${CMAKE_CURRENT_LIST_DIR}/../../src/libs/model/src" "${CMAKE_CURRENT_LIST_DIR}/../../src/libs/model/include")
 target_compile_definitions(skinning_check PRIVATE NOMINMAX)
 target_compile_options(skinning_check PRIVATE -fsigned-char)
-target_link_libraries(skinning_check PRIVATE storm_bgfx "${STORM_SDL_RUNTIME}")
+target_link_libraries(skinning_check PRIVATE storm_bgfx storm_check_sdl)
 
 # preset_switch_check: a live graphics preset switch through the shim on OpenGL ES (an X display, like
 # skinning_check): the previous settings draw until the new ones are prepared, no black frame after it.
@@ -42,7 +45,7 @@ target_include_directories(preset_switch_check PRIVATE "${CMAKE_CURRENT_LIST_DIR
     "${CMAKE_CURRENT_LIST_DIR}/../../src/libs/renderer_bgfx/src")
 target_compile_definitions(preset_switch_check PRIVATE NOMINMAX)
 target_compile_options(preset_switch_check PRIVATE -fsigned-char)
-target_link_libraries(preset_switch_check PRIVATE storm_bgfx "${STORM_SDL_RUNTIME}")
+target_link_libraries(preset_switch_check PRIVATE storm_bgfx storm_check_sdl)
 
 # program_cache_check: program binaries between renderer starts (src/shim/program_cache.hpp) on OpenGL ES (an X
 # display, like skinning_check): stored, loaded, corrupt / rejected entries relinked, the size limit.
@@ -51,7 +54,7 @@ target_include_directories(program_cache_check PRIVATE "${CMAKE_CURRENT_LIST_DIR
     "${CMAKE_CURRENT_LIST_DIR}/../../src/libs/renderer_bgfx/src")
 target_compile_definitions(program_cache_check PRIVATE NOMINMAX)
 target_compile_options(program_cache_check PRIVATE -fsigned-char)
-target_link_libraries(program_cache_check PRIVATE storm_bgfx "${STORM_SDL_RUNTIME}")
+target_link_libraries(program_cache_check PRIVATE storm_bgfx storm_check_sdl)
 
 # ao_volume_check: the interior AO volume end to end on OpenGL ES (an X display, like skinning_check): baked floor
 # under a table top, «Низкая» untouched, the baked variant without the volume unchanged, levels 1..3 darker under it.
@@ -59,7 +62,7 @@ add_executable(ao_volume_check ao_volume_check.cpp)
 target_include_directories(ao_volume_check PRIVATE "${CMAKE_CURRENT_LIST_DIR}/../../src/libs/renderer_bgfx/src/shim")
 target_compile_definitions(ao_volume_check PRIVATE NOMINMAX)
 target_compile_options(ao_volume_check PRIVATE -fsigned-char)
-target_link_libraries(ao_volume_check PRIVATE storm_bgfx "${STORM_SDL_RUNTIME}")
+target_link_libraries(ao_volume_check PRIVATE storm_bgfx storm_check_sdl)
 
 # cutout_caster_check: a material whose texture alpha cuts holes casts with them in the lamp atlases (still geometry,
 # characters) and the sun cascade; blended materials without depth write cast nothing (src/effects/casters.hpp).
@@ -67,4 +70,4 @@ add_executable(cutout_caster_check cutout_caster_check.cpp)
 target_include_directories(cutout_caster_check PRIVATE "${CMAKE_CURRENT_LIST_DIR}/../../src/libs/renderer_bgfx/src/shim")
 target_compile_definitions(cutout_caster_check PRIVATE NOMINMAX)
 target_compile_options(cutout_caster_check PRIVATE -fsigned-char)
-target_link_libraries(cutout_caster_check PRIVATE storm_bgfx "${STORM_SDL_RUNTIME}")
+target_link_libraries(cutout_caster_check PRIVATE storm_bgfx storm_check_sdl)
