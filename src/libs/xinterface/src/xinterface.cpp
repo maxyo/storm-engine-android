@@ -1033,6 +1033,7 @@ uint64_t XINTERFACE::ProcessMessage(MESSAGE &message)
 
     case MSG_INTERFACE_RELEASE: {
 #ifdef __ANDROID__
+        storm::ScriptStateForget(); // no interface, no cached facts: gameplay writes are not looked at
         storm::android::showMobileScreen("");
         inventoryEquipCapability.invalidate();
         storm::mobile::ResetImages();

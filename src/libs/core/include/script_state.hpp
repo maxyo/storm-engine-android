@@ -14,8 +14,11 @@ namespace storm
 // do not count: the game rewrites some every frame (weather.c Whr_OnWindChange moves Weather.Wind
 // on every "frame" event, an open interface included) and no adapter reads them. Writes made while
 // an adapter runs do not count either: they are its own output (GameInterface.AndroidFacts), never
-// game state (the adapters change no game rules). Before the first ScriptStateReads every change
-// counts. Attributes are read and written on the game thread only.
+// game state (the adapters change no game rules). Between a ScriptStateForget (an interface opened
+// or was released) and the end of the next ScriptStateReads no attribute change counts: no cached
+// facts exist then (the caches are keyed by the interface opening), and gameplay without an open
+// interface pays one flag test per attribute write. Attributes are read and written on the game
+// thread only.
 uint64_t ScriptStateGeneration() noexcept;
 void ScriptStateChanged() noexcept;
 
@@ -31,6 +34,7 @@ class ScriptStateReads
     ScriptStateReads &operator=(const ScriptStateReads &) = delete;
 };
 
-// A new interface opened: the trees read so far stop counting until an adapter reads them again.
+// An interface opened or was released: the trees read so far stop counting until an adapter reads
+// them again.
 void ScriptStateForget();
 } // namespace storm

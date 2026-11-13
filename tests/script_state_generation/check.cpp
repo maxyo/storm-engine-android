@@ -62,6 +62,12 @@ int main()
     Codec codec;
     ATTRIBUTES root(codec);
     ATTRIBUTES *chr = nullptr;
+    // No adapter has run: nothing is cached, no change is looked at (gameplay without an interface).
+    Expect(false, "a change before any adapter ran", [&] { root.SetAttribute("before", "1"); });
+    {
+        const storm::ScriptStateReads reads; // an adapter reads root
+        (void)root.GetAttributesNum();
+    }
     Expect(true, "create", [&] { chr = root.CreateSubAClass(&root, "chr.ship"); });
     Expect(true, "set a new attribute", [&] { chr->SetAttribute("type", "12"); });
     Expect(false, "set the same value", [&] { chr->SetAttribute("type", "12"); });
