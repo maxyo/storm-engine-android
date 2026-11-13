@@ -97,9 +97,13 @@ with tempfile.TemporaryDirectory(prefix='sweep-links-') as directory:
     assert (game / 'RESOURCE' / 'techniques' / 'engine.fx').read_text() == 'engine\n'
     assert not (game / 'RESOURCE' / 'techniques' / 'game.fx').exists()
     assert 'screen_x = 640' in (game / 'engine.ini').read_text()
+    # Every file prepare() wrote is its own inode: unlinked first, never edited through a hard link
+    # (the read-only source would refuse it with EACCES, a writable one would be changed).
+    for written in ('engine.ini', 'options', 'PROGRAM/scene_sweep.c', 'RESOURCE/techniques/engine.fx'):
+        assert os.stat(game / written).st_nlink == 1, f'{written} is still a hard link into another folder'
     assert tree(readonly) == before, 'the read-only game folder was changed'
     assert all(not os.stat(p).st_mode & stat.S_IWUSR for p in [readonly, *readonly.rglob('*')]), 'a source mode was changed'
     for path in [readonly, *readonly.rglob('*')]:
         path.chmod(path.stat().st_mode | stat.S_IWUSR)
-    print('PASS a read-only game folder: swept from a writable copy, the source unchanged')
+    print('PASS a read-only game folder: swept from a writable copy, every written file its own inode, the source unchanged')
 print('PASS scene sweep: no delete or write through a link, read-only game folders')
