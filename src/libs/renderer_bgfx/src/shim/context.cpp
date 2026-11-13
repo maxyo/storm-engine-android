@@ -335,6 +335,7 @@ void Context::shutdown()
         entry.client->OnDeviceLost();
     dump_traps();
     effects::Host::instance().shutdown();
+    bone_palettes_.shutdown();
     bgfx::shutdown();
     FramePacing::instance().shutdown();
     ProgramCache::instance().detach_device();
@@ -450,6 +451,8 @@ bool Context::run_frame(uint32_t flags, uint32_t *frame_number)
         // Never on a surface that is gone or going (background, surfaceDestroyed, read-backs in between).
         in_frame_ = surface_in_use_ && !release_requested_;
     }
+    // The frame's bone palettes go up in one update, before the draws that read them are rendered.
+    bone_palettes_.flush();
     if (!in_frame_)
     {
         surface_lost();

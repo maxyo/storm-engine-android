@@ -1,5 +1,6 @@
 #pragma once
 
+#include "bone_palettes.hpp"
 #include "shim.hpp"
 #include "storm/render/frame_owner.hpp"
 
@@ -28,6 +29,8 @@ class Context final : public render::FrameOwner
 {
   public:
     static Context &instance();
+
+    BonePalettes &bone_palettes() { return bone_palettes_; }
 
     bool init(SDL_Window *window, uint32_t width, uint32_t height, bool vsync);
     // Host checks without a display (tests/renderer_bgfx): bgfx's Noop renderer, no window, no surface events.
@@ -126,6 +129,7 @@ class Context final : public render::FrameOwner
     bool in_frame_ = false; // guarded by release_mutex_
     std::mutex release_mutex_;
     std::condition_variable release_done_;
+    BonePalettes bone_palettes_;
     bool flip_y_ = false;
     bool border_clamp_ = false;
     const char *timer_queries_ = "none (no GL context)";
