@@ -20,8 +20,7 @@ constexpr auto kErrorLoggerName = "error";
 namespace storm::logging
 {
 
-logger_ptr getOrCreateLogger(const std::string &name, const spdlog::level::level_enum level,
-                                                  const bool truncate)
+logger_ptr getOrCreateLogger(const std::string &name, const spdlog::level::level_enum level, const bool logcat)
 {
     auto logger = spdlog::get(name);
     if (logger)
@@ -32,7 +31,7 @@ logger_ptr getOrCreateLogger(const std::string &name, const spdlog::level::level
     auto path = fs::GetLogsPath() / name;
     path += kLogExtension;
 
-    logger = spdlog::create<sinks::syncable_sink>(name, path.string(), truncate);
+    logger = spdlog::create<sinks::syncable_sink>(name, path.string(), true);
     logger->set_level(level);
     if (name != kErrorLoggerName)
     {
@@ -44,12 +43,15 @@ logger_ptr getOrCreateLogger(const std::string &name, const spdlog::level::level
         logger->sinks().push_back(std::move(errors));
     }
 #ifdef __ANDROID__
-    logger->sinks().push_back(std::make_shared<spdlog::sinks::android_sink_mt>("StormEngine"));
+    if (logcat)
+        logger->sinks().push_back(std::make_shared<spdlog::sinks::android_sink_mt>("StormEngine"));
     // Flushing on info wrote the file on every Trace() of the game thread.
     // Warnings and errors are still flushed immediately; everything else is
     // flushed periodically by LifecycleDiagnosticsService::notifyAfterRun, when
     // the app goes to the background, on a fatal error and by the crash handler.
     logger->flush_on(spdlog::level::warn);
+#else
+    (void)logcat; // stdout/stderr carry nothing of these loggers off Android
 #endif
 
     return logger;

@@ -66,6 +66,13 @@ struct TextRequest
 
 class RenderBackend; // render_backend.h
 
+enum class LogLevel
+{
+    Info,
+    Warning,
+    Error,
+};
+
 struct Config
 {
     FileSource *files = nullptr; // must outlive the host
@@ -88,6 +95,10 @@ struct Config
     bool verify_unchanged = false;
     // Optional clock in seconds, for deterministic captures.
     std::function<double()> clock;
+    // Also gets every line the host logs: its errors, RmlUi's messages and every text it puts on the screen
+    // (toast, alert, game log line; errors at Error). The engine process writes them to its log files. The lines
+    // go to logcat (tag StormUi) or stderr either way.
+    std::function<void(LogLevel level, const std::string &line)> on_log;
 };
 
 // What one Host::Frame did. A steady frame (nothing changed) rebuilds, lays out, compiles

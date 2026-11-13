@@ -12,6 +12,7 @@
 #include "game_message_target.hpp"
 #include "controls.h"
 #include "core.h"
+#include <spdlog/spdlog.h>
 #include "message.h"
 #include "string_compare.hpp"
 #include "shared/battle_interface/log_msg.h"
@@ -534,6 +535,8 @@ void ILogAndActions::SetString(const char *str, bool immortal)
     // Return if such a line already exists and it is last
     if (last != nullptr && last->str != nullptr && storm::iEquals(last->str, str))
         return;
+    // The line this legacy log draws (the portable UI logs the lines it shows itself).
+    spdlog::info("shown {} (game log, legacy HUD): {}", immortal ? "lasting" : "info", str);
 
     // create a new line descriptor
     auto *newDescr = new STRING_DESCR;

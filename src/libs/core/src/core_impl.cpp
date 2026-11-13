@@ -368,6 +368,8 @@ void CoreImpl::ProcessEngineIniFile()
 
             if (iScriptVersion != ENGINE_SCRIPT_VERSION)
             {
+                spdlog::error("dialog \"Error\": Wrong script version (scripts {}, engine {})", iScriptVersion,
+                              ENGINE_SCRIPT_VERSION);
                 SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Error", "Wrong script version", nullptr);
                 Compiler->ExitProgram();
             }
