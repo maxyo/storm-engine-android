@@ -1462,18 +1462,18 @@ HRESULT Device::draw(const DrawCall &call)
         // The frame's palettes share one texture (bone_palettes.hpp): this palette's rows at an offset.
         TexStore *palette = store_of(s.vertex_texture);
         BonePalettes &palettes = Context::instance().bone_palettes();
-        const uint32_t row = palettes.place(*palette);
+        const BonePalettes::Slot slot = palettes.place(*palette);
         bgfx::TextureHandle texture = palettes.texture();
-        if (row == UINT32_MAX)
+        if (!slot.valid())
         {
             // The frame's atlas is full (logged once): the palette's own texture, uploaded as before.
             palette->any_dirty = palette->sub(0, 0).dirty = true;
             palette->sync();
             texture = palette->handle;
         }
-        // The first row as instance data of one instance (ff_skin.sh i_data0): a uniform here re-committed the
-        // program's whole uniform block for every skinned draw (bgfx GL commits all of a program's uniforms on a
-        // change). Kept for the casters submitted after this draw (BGFX_DISCARD_NONE).
+        // The first row and the column as instance data of one instance (ff_skin.sh i_data0): a uniform here
+        // re-committed the program's whole uniform block for every skinned draw (bgfx GL commits all of a program's
+        // uniforms on a change). Kept for the casters submitted after this draw (BGFX_DISCARD_NONE).
         if (bgfx::getAvailInstanceDataBuffer(1, 16) < 1)
         {
             skip_draw("transient budget exhausted for a skinned draw's palette row");
@@ -1481,7 +1481,9 @@ HRESULT Device::draw(const DrawCall &call)
         }
         bgfx::InstanceDataBuffer instance;
         bgfx::allocInstanceDataBuffer(&instance, 1, 16);
-        const float base[4] = {row == UINT32_MAX ? 0.0f : static_cast<float>(row), 0.0f, 0.0f, 0.0f};
+        const float base[4] = {slot.valid() ? static_cast<float>(slot.row) : 0.0f,
+                               slot.valid() ? static_cast<float>(slot.column * BonePalettes::kTexelsPerBone) : 0.0f, 0.0f,
+                               0.0f};
         memcpy(instance.data, base, sizeof(base));
         bgfx::setInstanceDataBuffer(&instance);
         bgfx::setTexture(static_cast<uint8_t>(kBonePaletteUnit), Context::instance().sampler(kBonePaletteUnit), texture,

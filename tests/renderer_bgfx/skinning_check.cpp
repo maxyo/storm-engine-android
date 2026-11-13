@@ -102,7 +102,9 @@ class Harness
         back_->Release();
     }
 
-    std::vector<uint8_t> render(const Mesh &mesh, bool gpu, bool lit)
+    // crowded: a palette of 4095 bones is placed first, so the mesh's palette lands in the atlas' second column
+    // (bone_palettes.hpp), as in a town full of characters.
+    std::vector<uint8_t> render(const Mesh &mesh, bool gpu, bool lit, bool crowded = false)
     {
         check(d_.BeginScene(), "BeginScene");
         check(d_.SetRenderTarget(0, target_), "SetRenderTarget");
@@ -131,6 +133,28 @@ class Harness
             d_.LightEnable(0, TRUE);
         }
         const UINT triangles = static_cast<UINT>(mesh.source.size() / 3);
+        if (gpu && crowded)
+        {
+            constexpr UINT kFillerBones = 4095; // with the mesh's 3 bones more than a column (4096 rows)
+            storm::shim::Texture2D *filler = nullptr;
+            check(d_.CreateTexture(model::kPaletteTexelsPerBone, kFillerBones, 1, D3DUSAGE_DYNAMIC, D3DFMT_A32B32G32R32F,
+                                   D3DPOOL_DEFAULT, &filler, nullptr),
+                  "CreateTexture(filler palette)");
+            D3DLOCKED_RECT locked;
+            check(filler->LockRect(0, &locked, nullptr, D3DLOCK_DISCARD), "LockRect(filler palette)");
+            for (UINT i = 0; i < kFillerBones; ++i)
+                std::memset(static_cast<uint8_t *>(locked.pBits) + i * locked.Pitch, 0, model::kPaletteTexelsPerBone * 16);
+            filler->UnlockRect(0);
+            d_.SetTexture(D3DVERTEXTEXTURESAMPLER0, filler);
+            d_.SetFVF(model::kSkinnedSourceFvf);
+            // One degenerate triangle: places the palette, draws nothing.
+            std::vector<uint8_t> point(3 * model::kSkinnedSourceStride);
+            for (int v = 0; v < 3; ++v)
+                std::memcpy(point.data() + v * model::kSkinnedSourceStride, mesh.source.data(), model::kSkinnedSourceStride);
+            check(d_.DrawPrimitiveUP(D3DPT_TRIANGLELIST, 1, point.data(), model::kSkinnedSourceStride), "draw (filler)");
+            d_.SetTexture(D3DVERTEXTEXTURESAMPLER0, nullptr);
+            filler->Release();
+        }
         if (gpu)
         {
             storm::shim::Texture2D *palette = nullptr;
@@ -228,6 +252,8 @@ int main()
                 const auto cpu = harness.render(mesh, false, lit);
                 const auto gpu = harness.render(mesh, true, lit);
                 ok &= compare(lit ? "lit" : "unlit", cpu, gpu);
+                ok &= compare(lit ? "lit, second atlas column" : "unlit, second atlas column", cpu,
+                              harness.render(mesh, true, lit, true));
                 if (lit)
                     vertex_lit = cpu;
             }
