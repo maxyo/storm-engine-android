@@ -331,6 +331,8 @@ struct Device final : Object
     TexStorePtr scaled_color, scaled_depth, held_color, held_depth;
     // The picture presented again while a pause menu holds the game (render::HoldGamePicture).
     TexStorePtr paused_picture;
+    uint32_t frame_surface_generation = 0; // the surface generation when the previous frame was presented
+    bool backbuffer_recreated = false;     // create_backbuffer ran since the previous Present
     void keep_paused_picture();
     void release_paused_picture();
     bool scaled_next = false;          // the next frame starts on the scaled stores (this one had a 3D scene)

@@ -189,6 +189,7 @@ void Device::create_backbuffer(uint32_t width, uint32_t height)
     held_color.reset(); // parked stores of the old surfaces
     held_depth.reset();
     release_paused_picture();
+    backbuffer_recreated = true;
     create_scene_stores(width, height);
     rt = back_color;
     rt->AddRef();
@@ -511,15 +512,22 @@ HRESULT Device::Present()
     // render::HoldGamePicture (a pause menu over the game): the first 3D frame presented after the hold was asked for
     // is kept and presented in place of the following frames, which draw no scene (GamePictureHeld). A kept picture
     // of another size than the game picture (the display or the window changed) is dropped: the next frame is drawn
-    // in full and kept again.
-    if (paused_picture && (!context.hold_requested() || paused_picture->width != back_color->store->width ||
+    // in full and kept again; so is one the context stopped trusting (a lost or restored surface: Context::picture_held
+    // went false and the engine drew this frame in full).
+    if (paused_picture && (!context.picture_held() || paused_picture->width != back_color->store->width ||
                            paused_picture->height != back_color->store->height))
         release_paused_picture();
     const TexStore &shown = paused_picture ? *paused_picture : *back_color->store;
     const uint32_t presented = context.last_frame();
     context.present(shown.handle, shown.width, shown.height);
-    if (context.hold_requested() && !paused_picture && scene_frame && context.last_frame() != presented)
+    // A frame in which the surface or the back buffer changed is not kept: drawn across a surface re-creation or a
+    // resize its picture can be lost with the old surface (a black picture behind the menu after a rotation). The
+    // engine draws the next one in full as well (nothing is held yet), and that one is kept.
+    const bool stable = context.Surface().generation == frame_surface_generation && !backbuffer_recreated;
+    if (context.hold_requested() && !paused_picture && scene_frame && stable && context.last_frame() != presented)
         keep_paused_picture();
+    frame_surface_generation = context.Surface().generation;
+    backbuffer_recreated = false;
     effects.end_frame(scene_frame, context.last_frame());
     // The render scale applies to 3D frames: the next frame starts on the scaled scene stores after a 3D frame, on the
     // display-size picture otherwise (menus, loading screens).

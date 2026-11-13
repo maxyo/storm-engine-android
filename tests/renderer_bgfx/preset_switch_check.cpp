@@ -14,9 +14,10 @@
 //     switch draws settings that are valid for the support they are checked against (effects::Host::support());
 //     the narrower support once arrived before its settings, and the old MSAA target was judged by it.
 //   * the pause hold (render::HoldGamePicture): the first 3D frame after the hold was asked for is kept and
-//     presented again by the frames after it, which draw no scene; a preset switch and a back buffer resize while
-//     it lasts drop the kept picture, the next 3D frame is kept in its turn; releasing the hold presents the game's
-//     own picture at once.
+//     presented again by the frames after it, which draw no scene; a preset switch, a back buffer resize and a lost
+//     or restored surface while it lasts drop the kept picture; the frame in which the surface or the back buffer
+//     changed is not kept (its picture can be lost with the old surface), the next 3D frame is; releasing the hold
+//     presents the game's own picture at once.
 #include "device.hpp"
 #include "effects/effects.hpp"
 #include "storm/fx/capabilities.hpp"
@@ -387,14 +388,30 @@ int main()
             render::HoldGamePicture(true);
             frames.render();
             ok &= expect(render::GamePictureHeld(), "held again");
+            // A surface lost and restored while held (Android: rotation, background): the kept picture is not
+            // trusted any more, the next frame is drawn in full and kept, and it is that one that is presented.
+            const uint16_t before_surface = presented();
+            render::NotifySurfaceLost();
+            ok &= expect(!render::GamePictureHeld(), "a lost surface while held drops the kept picture");
+            render::NotifySurfaceRestored();
+            ok &= expect(!render::GamePictureHeld(), "... and so does its restore");
+            frames.render();
+            ok &= expect(!render::GamePictureHeld(), "the frame presented on the restored surface is not kept");
+            frames.render();
+            const uint16_t after_surface = presented();
+            frames.interface_only();
+            ok &= expect(render::GamePictureHeld() && presented() == after_surface && after_surface != before_surface,
+                         "... the next 3D frame is kept and presented");
         }
         check(device->ResizeBackBuffer(kWidth, kHeight), "ResizeBackBuffer"); // new back buffer stores
         ok &= expect(!render::GamePictureHeld(), "a back buffer resize while held drops the kept picture");
         {
             Frames frames(*device);
             frames.render();
+            ok &= expect(!render::GamePictureHeld(), "the frame drawn on the new back buffer is not kept");
+            frames.render();
             frames.interface_only();
-            ok &= expect(render::GamePictureHeld(), "... the next 3D frame on the new back buffer is kept");
+            ok &= expect(render::GamePictureHeld(), "... the next 3D frame is kept");
         }
         render::HoldGamePicture(false);
         device->Release();

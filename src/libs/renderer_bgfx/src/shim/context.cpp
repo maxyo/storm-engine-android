@@ -370,6 +370,7 @@ void Context::resize(uint32_t width, uint32_t height)
     chain.height = height;
     chain.formatDepthStencil = bgfx::TextureFormat::D24S8; // the UI views use stencil clip masks
     bgfx::reset(reset_flags(), &chain);
+    picture_held_ = false; // see surface_lost
     // A display change (fold, split screen, wm size/density) usually changes the density as well.
     read_density();
     logf("surface resized to %ux%u, density %.2f", width, height, surface_.density);
@@ -387,6 +388,7 @@ void Context::refresh_reset_flags()
     chain.height = surface_.height_px;
     chain.formatDepthStencil = bgfx::TextureFormat::D24S8; // the UI views use stencil clip masks
     bgfx::reset(reset_flags(), &chain);
+    picture_held_ = false; // see surface_lost
 }
 
 bool Context::read_density()
@@ -431,6 +433,7 @@ void Context::surface_lost()
         surface_.valid = false;
         ++surface_.generation;
         frame_aborted_ = frame_open_;
+        picture_held_ = false; // the kept pause picture may not survive the surface: drawn again and kept anew
         logf("surface lost: presentation suspended");
     }
     FramePacing::instance().set_window(nullptr); // Swappy lets go of the window Android destroys
@@ -552,6 +555,7 @@ void Context::try_restore()
     }
     surface_.valid = true;
     ++surface_.generation;
+    picture_held_ = false; // render targets drawn before the restore are not trusted: see surface_lost
     logf("surface restored %ux%u", surface_.width_px, surface_.height_px);
     for (auto &entry : clients_)
         entry.client->OnSurfaceChanged(surface_);
