@@ -1,5 +1,6 @@
 #include "logging.hpp"
 
+#include <spdlog/sinks/dist_sink.h>
 #include <spdlog/spdlog.h>
 #ifdef __ANDROID__
 #include <spdlog/sinks/android_sink.h>
@@ -12,13 +13,13 @@ namespace
 {
 
 constexpr auto kLogExtension = ".log";
+constexpr auto kErrorLoggerName = "error";
 
 }
 
 namespace storm::logging
 {
 
-// TODO: loggers with periodic flush shall be thread safe; we should measure performance diff and decide what to do
 logger_ptr getOrCreateLogger(const std::string &name, const spdlog::level::level_enum level,
                                                   const bool truncate)
 {
@@ -33,6 +34,15 @@ logger_ptr getOrCreateLogger(const std::string &name, const spdlog::level::level
 
     logger = spdlog::create<sinks::syncable_sink>(name, path.string(), truncate);
     logger->set_level(level);
+    if (name != kErrorLoggerName)
+    {
+        // Every logger's errors also go to error.log (only its file: logcat has them from this logger already), so
+        // the one file a player is asked for holds every error, with the logger that wrote it.
+        auto errors = std::make_shared<spdlog::sinks::dist_sink_st>(
+            std::vector<spdlog::sink_ptr>{getOrCreateLogger(kErrorLoggerName)->sinks().front()});
+        errors->set_level(spdlog::level::err);
+        logger->sinks().push_back(std::move(errors));
+    }
 #ifdef __ANDROID__
     logger->sinks().push_back(std::make_shared<spdlog::sinks::android_sink_mt>("StormEngine"));
     // Flushing on info wrote the file on every Trace() of the game thread.
