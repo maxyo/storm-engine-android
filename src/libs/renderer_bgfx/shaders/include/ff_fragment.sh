@@ -3,7 +3,7 @@
 //
 // Graphics effects variants (src/effects/lighting.cpp picks them; none is used by the «Оригинал» preset):
 //   FX_FF_LIT       per-pixel lighting of a lit draw (vs_ff_lit): the diffuse colour the stages read is
-//                   re-lit per pixel with fx_lighting.sh (sun, hemisphere, point / spot lights, rim, translucency,
+//                   re-lit per pixel with fx_lighting.sh (sun, hemisphere, point / spot lights, rim, sunlight through sails,
 //                   specular with FX_LIGHT_SPECULAR); features the settings leave off arrive with zero strength.
 //   FX_FF_BAKED     geometry with baked vertex colours (lighting off, vs_ff_lit): dynamic point lights are added,
 //                   as texture * light.
@@ -359,7 +359,7 @@ vec4 ffCombine(float op, vec4 a1, vec4 a2, vec4 a0, vec4 current, vec4 tex)
     } \
     else { running = false; }
 
-#ifdef FX_FF_BAKED
+#ifdef FX_FF_PIXEL_LIGHTING
 #define FF_KEEP_TEX(i, tex) if (i == 0) tex0 = tex;
 #else
 #define FF_KEEP_TEX(i, tex)
@@ -429,8 +429,8 @@ void main()
                                  v_matAmbient.rgb, ambient * aoVolume), 0.0, 1.0), v_color0.a);
 #else
     ffDiffuse = v_color0;
-    vec4 tex0 = vec4_splat(0.0);
 #endif
+    vec4 tex0 = vec4_splat(0.0);
 #endif
     vec4 current = FF_DIFFUSE;
     vec4 temp = vec4_splat(0.0);
@@ -443,6 +443,14 @@ void main()
 #ifdef FX_FF_LIT
     // Highlights (white: the fixed-function material has no usable specular colour) and the rim light.
     current.rgb = fxAddSpecular(current.rgb, fxSunSpecular(N, V) * sunShadow + fxPointSpecular(N, P, V) + fxRim(N, V));
+#ifdef FX_LIGHT_TRANSLUCENT
+    // Sails and flags with the sun behind them: its light comes through the canvas (fx_lighting.sh). The visibility
+    // is the sun's on the sail's sunlit side, so a sail does not shadow itself; a sail behind another one still gets
+    // part of it (canvas passes light on, the shadow map cannot tell canvas from wood).
+    if (u_fxLight[2].w > 0.0)
+        current.rgb = fxAddSpecular(current.rgb, fxSunTransmission(Ng, V, dot(tex0.rgb, vec3(0.299, 0.587, 0.114))) *
+                                                     mix(0.4, 1.0, fxSunShadow(P, -Ng)));
+#endif
 #endif
 #ifdef FX_FF_BAKED
 #ifdef FX_LIGHT_NORMALMAP

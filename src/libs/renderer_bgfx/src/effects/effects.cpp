@@ -102,6 +102,8 @@ const Option kOptions[] = {
     {"fx_light_hemisphere", "0 off, 1 on", [](fx::Settings &s, int v) { set_flag(s, fx::kLightingHemisphere, v); }},
     {"fx_light_specular", "0 off, 1 on", [](fx::Settings &s, int v) { set_flag(s, fx::kLightingSpecular, v); }},
     {"fx_light_translucent", "0 off, 1 on", [](fx::Settings &s, int v) { set_flag(s, fx::kLightingTranslucent, v); }},
+    {"fx_sail_light", "0..300 % sunlight through sails",
+     [](fx::Settings &s, int v) { s.sail_light = static_cast<float>(std::clamp(v, 0, 300)) / 100.0f; }},
     {"fx_light_point", "0 off, 1 on", [](fx::Settings &s, int v) { set_flag(s, fx::kLightingPoint, v); }},
     {"fx_light_normal_map", "0 off, 1 on", [](fx::Settings &s, int v) { set_flag(s, fx::kLightingNormalMap, v); }},
     {"fx_normal_map_strength", "0..100 % relief strength",

@@ -50,7 +50,8 @@ Settings Settings::FromPreset(QualityPreset preset)
         s.bloom_levels = 3;
         s.sea_band_limit = true;
         s.anisotropy = 4;
-        s.lighting_flags = kLightingPerPixel | kLightingPoint | kLightingNormalMap | kLightingRim | kLightingAerial;
+        s.lighting_flags = kLightingPerPixel | kLightingTranslucent | kLightingPoint | kLightingNormalMap | kLightingRim |
+                           kLightingAerial;
         s.point_lights = 4;
         s.normal_map_size = 256; // the prepared 512 maps from their second mip: a quarter of High's memory
         s.shadows = ShadowQuality::Low;

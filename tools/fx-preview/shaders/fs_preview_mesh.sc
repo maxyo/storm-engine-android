@@ -46,6 +46,9 @@ void main()
         diffuse = fxSunDiffuse(N, V) * shadow;
         ambient = fxAmbient(N);
         specular = fxSunSpecular(N, V) * shadow + fxRim(N, V);
+#ifdef FX_LIGHT_TRANSLUCENT
+        specular += fxSunTransmission(N, V, dot(base.rgb, vec3(0.299, 0.587, 0.114))) * mix(0.4, 1.0, fxSunShadow(v_vpos, -N));
+#endif
     }
 #endif
 #ifdef FX_LIGHT_POINT

@@ -279,6 +279,12 @@ void CheckLighting()
     const LightingUniforms rotated = ComputeLighting(input, LightingMaterial::Sail(), nullptr, Settings{});
     CHECK(Near(rotated.u_fxLight[0][2], 0.6f, 1e-6f) && Near(rotated.u_fxLight[0][1], 0.8f, 1e-6f));
     CHECK(rotated.u_fxLight[2][3] == LightingMaterial::Sail().translucency);
+    // The sunlight through sails scales with Settings::sail_light (fx_sail_light) and only lights sails.
+    Settings brighter;
+    brighter.sail_light = 2.0f;
+    CHECK(Near(ComputeLighting(input, LightingMaterial::Sail(), nullptr, brighter).u_fxLight[2][3],
+               2.0f * LightingMaterial::Sail().translucency, 1e-6f));
+    CHECK(ComputeLighting(input, LightingMaterial::Hull(), nullptr, brighter).u_fxLight[2][3] == 0.0f);
 
     // With a sky the upper hemisphere takes its hue (bluer than the lower one).
     SkyState sky;
@@ -300,7 +306,8 @@ void CheckLighting()
     s.lighting_flags = kLightingPoint; // baked geometry: dynamic point lights only
     CHECK(LightingDefines(s) == "FX_LIGHT_POINT;FX_LIGHT_POINT_MAX=4" && PointLightBudget(s) == 4);
     CHECK(LightingDefines(Settings::FromPreset(QualityPreset::Medium)) ==
-          "FX_LIGHT_PER_PIXEL;FX_LIGHT_SHADOW;FX_LIGHT_RIM;FX_LIGHT_POINT;FX_LIGHT_POINT_MAX=4;FX_LIGHT_NORMALMAP;FX_AERIAL");
+          "FX_LIGHT_PER_PIXEL;FX_LIGHT_TRANSLUCENT;FX_LIGHT_SHADOW;FX_LIGHT_RIM;FX_LIGHT_POINT;FX_LIGHT_POINT_MAX=4;"
+          "FX_LIGHT_NORMALMAP;FX_AERIAL");
     CHECK(LightingDefines(Settings::FromPreset(QualityPreset::High)) ==
           "FX_LIGHT_PER_PIXEL;FX_LIGHT_SPECULAR;FX_LIGHT_TRANSLUCENT;FX_LIGHT_SHADOW;FX_LIGHT_SHADOW_SOFT;"
           "FX_LIGHT_RIM;FX_LIGHT_POINT;FX_LIGHT_POINT_MAX=8;FX_LIGHT_NORMALMAP;FX_AERIAL");

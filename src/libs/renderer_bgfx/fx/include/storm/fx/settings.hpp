@@ -140,6 +140,8 @@ struct Settings
     // keep their ratios), the same on Средняя and Высокая. 1.0: the owner's choice, DeepBump's maps at the full strength
     // of our own derivation (relief_store.hpp).
     float normal_map_strength = 1.0f;
+    // With kLightingTranslucent: strength of the sunlight through sails and flags (scales LightingMaterial::translucency).
+    float sail_light = 1.0f;
     uint16_t normal_map_size = 512;   // with kLightingNormalMap: larger side of the resident normal maps (EAC RG11 + mips)
     ShadowQuality shadows = ShadowQuality::Off; // sun shadows on per-pixel lit surfaces (needs kLightingPerPixel)
     // Ambient-occlusion volume of interiors (ao_volume.hpp): 0 off, else one of the strengths AoVolumeLevel names.
