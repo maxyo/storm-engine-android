@@ -17,6 +17,7 @@
 #include "logging.hpp"
 #include "platform/path_fingerprint.hpp"
 #include "save_file.hpp"
+#include "save_references.hpp"
 #include "script_cache.h"
 #include "script_cache_files.hpp"
 #include "storm_assert.h"
@@ -6020,7 +6021,8 @@ void COMPILER::SaveData(const void *data_PTR, uint32_t data_size)
         const uint32_t dwNewAllocate = (1 + (dwCurPointer + data_size) / (1024 * 1024)) * (1024 * 1024);
         // pBuffer = (char*)RESIZE(pBuffer, dwNewAllocate);
         auto *const newPtr = new char[dwNewAllocate];
-        memcpy(newPtr, pBuffer, dwMaxSize);
+        if (dwMaxSize != 0) // the first block: there is no buffer to copy from
+            memcpy(newPtr, pBuffer, dwMaxSize);
         delete[] pBuffer;
         pBuffer = newPtr;
 
@@ -6073,122 +6075,6 @@ bool COMPILER::ReadData(void *data_PTR, uint32_t data_size)
     dwCurPointer += data_size;
 
     return true;
-}
-
-bool COMPILER::FindReferencedVariable(DATA *pRef, uint32_t &var_index, uint32_t &array_index)
-{
-    const uint32_t nVarNum = VarTab.GetVarNum();
-    for (uint32_t n = 0; n < nVarNum; n++)
-    {
-        const auto *real_var = VarTab.GetVarX(n);
-        if (real_var == nullptr)
-        {
-            SetError("Invalid var code");
-            continue;
-        }
-
-        const auto &vi = *real_var;
-        if (!vi.value->IsArray())
-        {
-            if (pRef == vi.value.get())
-            {
-                var_index = n;
-                array_index = 0xffffffff;
-                return true;
-            }
-        }
-        else
-        {
-            for (uint32_t i = 0; i < vi.elements; i++)
-            {
-                if (pRef == vi.value->GetArrayElement(i))
-                {
-                    var_index = n;
-                    array_index = i;
-                    return true;
-                }
-            }
-        }
-    }
-    return false;
-}
-
-bool COMPILER::FindReferencedVariableByRootA(ATTRIBUTES *pA, uint32_t &var_index, uint32_t &array_index)
-{
-    VarInfo vi;
-
-    const uint32_t nVarNum = VarTab.GetVarNum();
-    for (uint32_t n = 0; n < nVarNum; n++)
-    {
-        const auto *real_var = VarTab.GetVarX(n);
-        if (real_var == nullptr)
-        {
-            SetError("Invalid var code");
-            continue;
-        }
-
-        const auto &vi = *real_var;
-        if (vi.type != VAR_OBJECT)
-            continue;
-        if (!vi.value->IsArray())
-        {
-            if (pA == vi.value->AttributesClass)
-            {
-                var_index = n;
-                array_index = 0xffffffff; // ***
-                return true;
-            }
-        }
-        else
-        {
-            for (uint32_t i = 0; i < vi.elements; i++)
-            {
-                if (pA == vi.value->GetArrayElement(i)->AttributesClass)
-                {
-                    var_index = n;
-                    array_index = i;
-                    return true;
-                }
-            }
-        }
-    }
-    return false;
-}
-
-ATTRIBUTES *COMPILER::TraceARoot(ATTRIBUTES *pA, const char *&pAccess)
-{
-    if (pA == nullptr)
-        return nullptr; // error or invalid argument
-    if (pA->GetParent() == nullptr)
-        return pA; // root found
-    if (pA->GetThisNameCode() == 0)
-        return nullptr; // fix crash at NewGame start
-
-    const int32_t slen = strlen(pA->GetThisName()) + 1;
-
-    char *pAS = new char[slen];
-
-    memcpy(pAS, pA->GetThisName(), slen);
-
-    if (pAccess == nullptr)
-    {
-        pAccess = pAS;
-    }
-    else
-    {
-        const auto len = slen + strlen(pAccess) + 1;
-        // pAS = (char *)RESIZE(pAS, len);
-        auto *const newPtr = new char[len];
-        memcpy(newPtr, pAS, slen);
-        delete[] pAS;
-        pAS = newPtr;
-        strcat_s(pAS, len, ".");
-        strcat_s(pAS, len, pAccess);
-        delete[] pAccess;
-        pAccess = pAS;
-    }
-
-    return TraceARoot(pA->GetParent(), pAccess);
 }
 
 void COMPILER::WriteVDword(uint32_t v)
@@ -6497,10 +6383,7 @@ void COMPILER::SaveVariable(DATA *pV, bool bdim)
     uintptr_t ptrValue;
     float fFloatValue;
     const char *pString;
-    uint32_t var_index;
-    uint32_t array_index;
     uint32_t n;
-    ATTRIBUTES *pA;
     S_TOKEN_TYPE eType;
     entid_t eid;
 
@@ -6561,56 +6444,53 @@ void COMPILER::SaveVariable(DATA *pV, bool bdim)
         SaveData(&eid, sizeof(eid));
         SaveAttributesData(pV->AttributesClass);
         break;
-    case VAR_REFERENCE:
-
+    case VAR_REFERENCE: {
         if (pV->GetReference() == nullptr)
         {
             // uninitialized reference
             WriteVDword(0xffffffff);
             return;
         }
-        if (!FindReferencedVariable(pV->GetVarPointer(), var_index, array_index))
+        // The chain is resolved by address, never followed through memory that may be freed
+        // (save_references.hpp).
+        const auto place = save_references_->Variable(pV);
+        if (!place)
         {
-            SetError("Ghost reference");
+            SetError("Ghost reference: '%s' names no global variable and is saved empty", save_variable_name_);
             // reference to none
             WriteVDword(0xffffffff);
             return;
         }
 
-        WriteVDword(var_index);
-        WriteVDword(array_index);
-
+        WriteVDword(place->variable);
+        WriteVDword(place->element);
         break;
-    case VAR_AREFERENCE:
-        pString = nullptr;
-        try
+    }
+    case VAR_AREFERENCE: {
+        if (pV->AttributesClass == nullptr)
         {
-            pA = TraceARoot(pV->AttributesClass, pString);
-        }
-        catch (...)
-        {
-            SetError("Save - ARef to non existing attributes branch");
             WriteVDword(0xffffffff);
             break;
         }
-        if (pA == nullptr)
+        const storm::save::AttributePlace *place = save_references_->Attribute(pV->AttributesClass);
+        if (place == nullptr)
         {
+            // A deleted attribute, or one of a local object or an entity.
+            SetError("Ghost A reference: '%s' names no attribute of a global object and is saved empty",
+                     save_variable_name_);
             WriteVDword(0xffffffff);
-            delete[] pString;
             break;
         }
-        if (!FindReferencedVariableByRootA(pA, var_index, array_index))
+        if (place->nameless)
         {
-            SetError("Ghost A reference");
             WriteVDword(0xffffffff);
-            delete[] pString;
             break;
         }
-        WriteVDword(var_index);
-        WriteVDword(array_index);
-        SaveString(pString);
-        delete[] pString;
+        WriteVDword(place->owner.variable);
+        WriteVDword(place->owner.element);
+        SaveString(place->path.empty() ? nullptr : place->path.c_str());
         break;
+    }
     }
 }
 
@@ -6679,6 +6559,9 @@ bool COMPILER::SaveState(std::vector<char> &image)
     const uint32_t nVarNum = VarTab.GetVarNum();
     WriteVDword(nVarNum);
 
+    // Built after OnSave has run: the script may still delete attributes there.
+    const storm::save::ReferenceIndex references(VarTab);
+    save_references_ = &references;
     const VarInfo *last_var{nullptr};
     for (n = 0; n < nVarNum; n++)
     {
@@ -6693,8 +6576,11 @@ bool COMPILER::SaveState(std::vector<char> &image)
         }
 
         SaveString(real_var->name.c_str()); // ***
+        save_variable_name_ = real_var->name.c_str();
         SaveVariable(real_var->value.get());
     }
+    save_references_ = nullptr;
+    save_variable_name_ = "";
 
     std::string error;
     const bool built = storm::save::buildState(save_info.c_str(), pBuffer, dwCurPointer, image, error);
