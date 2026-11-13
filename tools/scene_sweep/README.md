@@ -16,7 +16,8 @@ without editing the tool:
 - the sea around every island of `PROGRAM/islands/islands_init.c`;
 - special scenes: the main menu with its 3D back scene, the new-game intro, one location of
   every type at midnight, land fights (jungle, town, cave, deck), the sea surface seen from below
-  (the first underwater location with a sea, camera looking up), the open sea at sunset (19:00) and at sunrise (7:00, the low sun in view), heading towards the sun, a sea battle, a boarding,
+  (the first underwater location with a sea, camera looking up), the open sea at sunset (19:00) and at sunrise (7:00, the low sun in view), heading towards the sun, the hero's ship
+  at midnight seen close from above (rigging against the water, bow wave, waterline), a sea battle, a boarding,
   the world map and a storm entered from the world map.
   The sea battle waits until the enemy ship has fired its cannons (`CANNON_FIRE` from that
   captain) and fails when it has not within 90 s of game time at sea.
