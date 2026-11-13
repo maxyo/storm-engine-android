@@ -15,6 +15,7 @@
 #include <GLES2/gl2.h>
 
 #include <algorithm>
+#include <iterator>
 #include <cctype>
 #include <cmath>
 #include <cstring>
@@ -826,13 +827,31 @@ void ShutdownRelief()
     effects::ReliefGenerator::instance().shutdown();
 }
 
-void RemoveOldReliefStores(const std::vector<std::filesystem::path> &directories)
+void RemoveOldReliefStores(const std::vector<std::filesystem::path> &directories, const std::filesystem::path &live)
 {
+    std::error_code error;
+    const std::filesystem::path current = std::filesystem::weakly_canonical(live, error);
+    // `a` is `b` or one of its ancestors (lexically, after resolving links and dots).
+    const auto within = [](const std::filesystem::path &a, const std::filesystem::path &b) {
+        auto ai = a.begin(), bi = b.begin();
+        for (; ai != a.end() && bi != b.end(); ++ai, ++bi)
+            if (*ai != *bi)
+                return false;
+        return ai == a.end() || (ai->empty() && std::next(ai) == a.end());
+    };
     for (const std::filesystem::path &old : directories)
     {
-        std::error_code error;
+        error.clear();
         if (!std::filesystem::is_directory(old, error))
             continue;
+        const std::filesystem::path resolved = std::filesystem::weakly_canonical(old, error);
+        if (!live.empty() && (within(resolved, current) || within(current, resolved)))
+        {
+            shim::logf("ERROR: effects: %s is not removed as an old relief store: it is or holds the relief directory in "
+                       "use (%s)",
+                       old.string().c_str(), current.string().c_str());
+            continue;
+        }
         uintmax_t bytes = 0, files = 0;
         for (const auto &entry : std::filesystem::recursive_directory_iterator(old, error))
             if (entry.is_regular_file(error))

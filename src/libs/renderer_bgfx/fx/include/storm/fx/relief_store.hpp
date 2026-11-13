@@ -1,5 +1,5 @@
-// The relief maps on the device: one file per texture in the relief directory (Android: the app's cache + "/relief",
-// cleared with it; desktop: the stash + "/relief"; engine.ini relief_dir overrides).
+// The relief maps on the device: one file per texture in the relief directory (the engine's cache root,
+// fs::GetCachePath(), + "/relief": on Android the app's cache, cleared with it; engine.ini relief_dir overrides).
 // The game makes them from its files with DeepBump while it runs (src/libs/relief, renderer_bgfx
 // effects/relief_generator.hpp) and reads them. Derived from the player's files: never ship or commit them.
 //

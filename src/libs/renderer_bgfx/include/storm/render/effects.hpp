@@ -239,8 +239,9 @@ void ConfigureRelief(const ReliefConfig &config);
 void ShutdownRelief();
 // Main thread, at start: removes the stores of normal maps earlier builds kept elsewhere (the files directory's
 // "relief" before the relief maps moved to the cache, the "NormalMaps" cache before the relief directory), each if it
-// is still there (logged with what it held).
-void RemoveOldReliefStores(const std::vector<std::filesystem::path> &directories);
+// is still there (logged with what it held). Never `live` (the relief directory in use), anything inside it or anything
+// that holds it: such a location is refused and logged as an error.
+void RemoveOldReliefStores(const std::vector<std::filesystem::path> &directories, const std::filesystem::path &live);
 
 // ---- World passes: contact shadows ----
 // The consumer entities (shadow, SUNGLOW) ask which parts are on and then either call the fx pass below

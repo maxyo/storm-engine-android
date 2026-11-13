@@ -19,7 +19,8 @@ change never reuses a map made before it; a pass that starts without a matching 
 methods. The maps are a cache: on Android the relief directory is in the app's cache, so «Очистить кэш» (or the
 system evicting it) removes them and the game makes them again lazily; a complete pass whose maps went missing
 since is resumed (logged with their count). At start the stores of earlier builds are removed (logged): the files
-directory's `relief`, kept across «Очистить кэш», and the `NormalMaps` cache before it. Each texture logs the key and method of its map when it is
+directory's `relief`, kept across «Очистить кэш» (the app removes the old locations in its caches, GameCache); the
+store in use is never removed as an old one. Each texture logs the key and method of its map when it is
 looked up (`effects: relief <name> (<class>): map <key> of method <method>`). The model
 is loaded at the first job and released after 10 s with no work left. The "effects relief:" log line counts the
 textures waiting and the rest still to make; each map logs its stages (`relief <name>: WxH, N ms (read, decode,
@@ -47,4 +48,5 @@ with engine.ini `relief_model = <path of model/deepbump256-int8.onnx>`; without 
 The engine build puts `libonnxruntime.so` (libengine.so links it) and `assets/deepbump256-int8.onnx` into
 `<build>/game`. The app packages the library next to libengine.so, the model as the asset `deepbump256-int8.onnx`
 (the engine reads it through SDL_RWFromFile), and the four licence files above on its licences screen. The relief
-directory: the app's cache (`Context.getCacheDir()`, the engine's cache root) + `/relief` (engine `Renderer`).
+directory: the engine's cache root (`fs::GetCachePath()`: the app's `(getExternalCacheDir() ?: getCacheDir())/engine`)
++ `/relief` (engine `Renderer`).

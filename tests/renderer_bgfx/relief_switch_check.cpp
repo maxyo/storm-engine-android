@@ -18,6 +18,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <iterator>
 #include <fstream>
 #include <thread>
 #include <vector>
@@ -169,10 +170,19 @@ int main()
     std::ofstream(cache / "NormalMaps" / "ab" / "0123.bin") << "old";
     std::filesystem::create_directories(files / "relief");
     std::ofstream(files / "relief" / "0123456789abcdef.relief") << "old";
-    render::RemoveOldReliefStores({files / "relief", cache / "NormalMaps", root / "absent"});
+    render::RemoveOldReliefStores({files / "relief", cache / "NormalMaps", root / "absent"}, relief);
     expect(!std::filesystem::exists(cache / "NormalMaps") && !std::filesystem::exists(files / "relief") &&
                std::filesystem::exists(cache) && std::filesystem::exists(files),
            "the relief stores of earlier builds are removed");
+    // The store in use is never one of them: not itself (also spelt with a link or dots), nothing that holds it,
+    // nothing inside it.
+    const size_t maps_before = static_cast<size_t>(std::distance(std::filesystem::directory_iterator(relief), {}));
+    std::filesystem::create_directories(relief / "inner");
+    std::filesystem::create_symlink(relief, root / "relief-link");
+    render::RemoveOldReliefStores({relief, root / "relief-link", relief / ".." / "relief", root, relief / "inner"}, relief);
+    expect(std::filesystem::exists(relief / "inner") && std::filesystem::exists(root / "relief-link") &&
+               static_cast<size_t>(std::distance(std::filesystem::directory_iterator(relief), {})) == maps_before + 1,
+           "the relief directory in use, what holds it and what it holds are never removed as old stores");
 
     effects::ReliefGenerator::instance().shutdown();
     std::filesystem::remove_all(root);
