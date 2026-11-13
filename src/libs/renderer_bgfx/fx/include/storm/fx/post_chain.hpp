@@ -7,7 +7,7 @@
 //   depth ─────────────┴► ambient occlusion (half) ───┘  + shafts)  weights,    → target   size)
 //                                                                   blend       size)
 // Everything before EASU runs at the scene's (internal) size; EASU runs when the scene is smaller than the target
-// (Settings::render_scale), RCAS and the lens flare at the target size.
+// (Settings::render_height), RCAS and the lens flare at the target size.
 //
 // With Settings::PostIsIdentity() the chain is a single copy (or the wobble alone). Passes that are
 // switched off cost nothing. Requests it cannot honour (ValidateSettings() in
@@ -35,7 +35,7 @@ class PostChain
     struct Frame
     {
         bgfx::TextureHandle scene_color = BGFX_INVALID_HANDLE; // RGBA8, gamma encoded, the game's offscreen target
-        uint16_t scene_width = 0;                              // its size: smaller than the target with Settings::render_scale < 1
+        uint16_t scene_width = 0;                              // its size: smaller than the target with Settings::render_height
         uint16_t scene_height = 0;
         bgfx::FrameBufferHandle target = BGFX_INVALID_HANDLE;  // invalid = back buffer
         uint16_t target_width = 0;

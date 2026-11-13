@@ -60,7 +60,7 @@ class SelfTest
     bgfx::TextureHandle pattern_ = BGFX_INVALID_HANDLE;
     bgfx::FrameBufferHandle scene_ = BGFX_INVALID_HANDLE;
     uint64_t scene_flags_ = 0;
-    uint16_t scene_size_ = 0; // kSize * render_scale: the upscale (FSR 1 EASU) is tested too
+    uint16_t scene_size_ = 0; // smaller than kSize with an internal scene height: the upscale (FSR 1 EASU) is tested too
     bgfx::FrameBufferHandle output_ = BGFX_INVALID_HANDLE;
     bgfx::TextureHandle readback_scene_ = BGFX_INVALID_HANDLE;
     bgfx::TextureHandle readback_output_ = BGFX_INVALID_HANDLE;

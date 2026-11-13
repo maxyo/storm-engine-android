@@ -2,10 +2,12 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstring>
 
 #include "math_inlines.h"
 #include "shared/messages.h"
 #include "ship.h"
+#include "storm/render/effects.hpp"
 
 VRenderer *ShipLights::pRS = nullptr;
 COLLIDE *ShipLights::pCollide = nullptr;
@@ -588,6 +590,125 @@ void ShipLights::Execute(uint32_t dwDeltaTime)
             L.Light.Diffuse.g = L.pLT->cLightColor.g * fIntensity;
             L.Light.Diffuse.b = L.pLT->cLightColor.b * fIntensity;
         }
+    }
+
+    ReportToEffects();
+}
+
+namespace
+{
+// A node is drawn when it is visible and every node above it shows its tree (NODER::Draw).
+bool Drawn(const NODE *node)
+{
+    if (!(node->flags & NODE::VISIBLE))
+        return false;
+    for (const NODE *up = node->parent; up; up = up->parent)
+        if (!(up->flags & NODE::VISIBLE_TREE))
+            return false;
+    return true;
+}
+} // namespace
+
+// Graphics effects: the lanterns that are lit (not the cannons' flashes, not the lights that are only a flare) cast
+// shadows on their ships; the nearest to the camera get the lamp slots of the lights that move. A lantern stands still
+// on its ship, so the ship's own shadow is drawn once, from the ship's geometry in the ship's space (the root node's):
+// reported when the effects ask for it, again when the drawn nodes change (a mast falls, the day and night lanterns
+// swap).
+void ShipLights::ReportToEffects()
+{
+    std::vector<storm::render::EffectsShip> ships;
+    std::vector<storm::render::EffectsShipLight> lanterns;
+    std::vector<MODEL *> models;
+    for (const ShipLight &L : aLights)
+    {
+        if (L.bOff || L.bLightOff || L.bCoronaOnly || L.bDynamicLight || !L.pObject)
+            continue;
+        MODEL *model = L.pObject->GetModel();
+        NODE *root = model ? model->GetNode(0) : nullptr;
+        if (!root)
+            continue;
+        const auto id = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(L.pObject));
+        if (std::none_of(ships.begin(), ships.end(), [&](const storm::render::EffectsShip &s) { return s.id == id; }))
+        {
+            storm::render::EffectsShip ship;
+            ship.id = id;
+            std::memcpy(ship.world.data(), &root->glob_mtx[0][0], sizeof(ship.world));
+            ship.signature = 1469598103934665603ull;
+            for (int32_t n = 0;; ++n)
+            {
+                const NODE *node = model->GetNode(n);
+                if (!node)
+                    break;
+                if (node->geo && Drawn(node))
+                    for (const uintptr_t part : {reinterpret_cast<uintptr_t>(node), reinterpret_cast<uintptr_t>(node->geo)})
+                        ship.signature = (ship.signature ^ part) * 1099511628211ull;
+            }
+            ships.push_back(ship);
+            models.push_back(model);
+        }
+        // Where the lantern is on its ship: the same every frame, whatever the ship does.
+        const glm::vec3 local = L.pNode ? storm::math::transformPoint(glm::inverse(root->glob_mtx),
+                                                                      storm::math::transformPoint(L.pNode->glob_mtx, L.vPos))
+                                        : storm::math::transformPoint(glm::inverse(root->loc_mtx), L.vPos);
+        const glm::vec3 world = storm::math::transformPoint(root->glob_mtx, local);
+        lanterns.push_back({{{world.x, world.y, world.z},
+                             {L.Light.Diffuse.r, L.Light.Diffuse.g, L.Light.Diffuse.b},
+                             L.Light.Range, L.Light.Attenuation0, L.Light.Attenuation1, L.Light.Attenuation2},
+                            id,
+                            {local.x, local.y, local.z}});
+    }
+    storm::render::SetEffectsShipLights(ships, lanterns);
+
+    for (size_t i = 0; i < ships.size(); ++i)
+    {
+        if (!storm::render::EffectsShipGeometryWanted(ships[i].id, ships[i].signature))
+            continue;
+        std::vector<std::array<float, 3>> positions;
+        std::vector<std::array<float, 2>> uvs;
+        std::vector<uint32_t> indices;
+        std::vector<storm::render::EffectsLocationGeometry::Surface> surfaces;
+        std::vector<glm::vec3> local;
+        std::vector<uint32_t> local_indices;
+        GEOS::SurfaceData local_surface;
+        const glm::mat4 to_ship = glm::inverse(models[i]->GetNode(0)->glob_mtx);
+        bool whole = true;
+        for (int32_t n = 0; whole; ++n)
+        {
+            NODE *node = models[i]->GetNode(n);
+            if (!node)
+                break;
+            if (!node->geo || !Drawn(node))
+                continue;
+            local.clear();
+            local_indices.clear();
+            local_surface = {};
+            if (!node->geo->AppendTriangles(local, local_indices, &local_surface))
+            {
+                whole = false;
+                break;
+            }
+            const auto base = static_cast<uint32_t>(positions.size());
+            const auto first_index = static_cast<uint32_t>(indices.size());
+            for (const glm::vec3 &p : local)
+            {
+                const glm::vec3 s = storm::math::transformPoint(to_ship, storm::math::transformPoint(node->glob_mtx, p));
+                positions.push_back({s.x, s.y, s.z});
+            }
+            for (const glm::vec2 &uv : local_surface.uvs)
+                uvs.push_back({uv.x, uv.y});
+            for (const uint32_t index : local_indices)
+                indices.push_back(base + index);
+            for (const GEOS::TextureRun &run : local_surface.runs)
+                surfaces.push_back({first_index + run.first_index, run.index_count, pRS->GetTextureFromID(run.texture)});
+        }
+        if (!whole)
+        {
+            core.Trace("ERROR: ShipLights: the buffers of a ship's model cannot be read: the ship casts no shadows of its own "
+                       "lanterns (its crew and sails do)");
+            storm::render::SetEffectsShipGeometry(ships[i].id, ships[i].signature, {});
+        }
+        else
+            storm::render::SetEffectsShipGeometry(ships[i].id, ships[i].signature, {positions, uvs, indices, surfaces});
     }
 }
 

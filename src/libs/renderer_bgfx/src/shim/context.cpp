@@ -18,6 +18,7 @@
 #include <map>
 #include <mutex>
 #include <string>
+#include <vector>
 #include <thread>
 #ifdef STORM_TRACY
 #include <unistd.h>
@@ -170,6 +171,16 @@ PictureRect GamePictureRect()
 {
     return shim::Context::instance().picture_rect();
 }
+
+void HoldGamePicture(bool hold)
+{
+    shim::Context::instance().hold_picture(hold);
+}
+
+bool GamePictureHeld()
+{
+    return shim::Context::instance().picture_held();
+}
 } // namespace storm::render
 
 namespace storm::shim
@@ -273,6 +284,9 @@ bool Context::start(SDL_Window *window, uint32_t width, uint32_t height, bool vs
         border_clamp_ = extensions.find("GL_EXT_texture_border_clamp") != std::string::npos ||
                         extensions.find("GL_OES_texture_border_clamp") != std::string::npos ||
                         extensions.find("GL_NV_texture_border_clamp") != std::string::npos;
+        // GPU timers (effects profile gpu_*_ms, Tracy): GLES offers them only through this extension
+        // (patches/bgfx-gles-timer-queries.patch imports its entry points).
+        timer_queries_ = extensions.find("GL_EXT_disjoint_timer_query") != std::string::npos ? "EXT_disjoint_timer_query" : "none";
     }
     initialised_ = true;
     surface_.width_px = width;
@@ -283,13 +297,13 @@ bool Context::start(SDL_Window *window, uint32_t width, uint32_t height, bool vs
         read_density();
     ++surface_.generation;
     logf("bgfx renderer=%s %ux%u originBottomLeft=%d homogeneousDepth=%d maxTextureSize=%u BC1=%d BC3=%d ETC2=%d BGRA8=%d "
-         "border_clamp=%d",
+         "border_clamp=%d timer_queries=%s",
          bgfx::getRendererName(bgfx::getRendererType()), width, height, caps_->originBottomLeft,
          caps_->homogeneousDepth, caps_->limits.maxTextureSize,
          (caps_->formats[bgfx::TextureFormat::BC1] & BGFX_CAPS_FORMAT_TEXTURE_2D) != 0,
          (caps_->formats[bgfx::TextureFormat::BC3] & BGFX_CAPS_FORMAT_TEXTURE_2D) != 0,
          (caps_->formats[bgfx::TextureFormat::ETC2] & BGFX_CAPS_FORMAT_TEXTURE_2D) != 0,
-         (caps_->formats[bgfx::TextureFormat::BGRA8] & BGFX_CAPS_FORMAT_TEXTURE_2D) != 0, border_clamp_);
+         (caps_->formats[bgfx::TextureFormat::BGRA8] & BGFX_CAPS_FORMAT_TEXTURE_2D) != 0, border_clamp_, timer_queries_);
     create_resources();
     effects::Host::instance().on_device_created();
     for (auto &entry : clients_)
@@ -331,6 +345,7 @@ void Context::shutdown()
         entry.client->OnDeviceLost();
     dump_traps();
     effects::Host::instance().shutdown();
+    bone_palettes_.shutdown();
     bgfx::shutdown();
     FramePacing::instance().shutdown();
     ProgramCache::instance().detach_device();
@@ -446,6 +461,8 @@ bool Context::run_frame(uint32_t flags, uint32_t *frame_number)
         // Never on a surface that is gone or going (background, surfaceDestroyed, read-backs in between).
         in_frame_ = surface_in_use_ && !release_requested_;
     }
+    // The frame's bone palettes go up in one update, before the draws that read them are rendered.
+    bone_palettes_.flush();
     if (!in_frame_)
     {
         surface_lost();
@@ -604,6 +621,7 @@ void Context::present(bgfx::TextureHandle game_color, uint32_t game_width, uint3
     if (!initialised_)
         return;
     begin_frame_if_needed();
+    presented_game_color_ = game_color;
     if (surface_.valid)
     {
         const uint16_t w = static_cast<uint16_t>(surface_.width_px), h = static_cast<uint16_t>(surface_.height_px);
@@ -856,6 +874,22 @@ uint32_t shader_id_by_name(const char *name)
             return i;
     logf("missing embedded shader %s", name);
     return UINT32_MAX;
+}
+
+uint32_t opaque_twin(uint32_t fs_id)
+{
+    static const std::vector<uint32_t> twins = [] {
+        std::vector<uint32_t> result(std::size(embedded), UINT32_MAX);
+        for (uint32_t i = 0; i < std::size(embedded); ++i)
+        {
+            const std::string twin = std::string(embedded[i].name) + "_opaque";
+            for (uint32_t j = 0; j < std::size(embedded); ++j)
+                if (twin == embedded[j].name)
+                    result[i] = j;
+        }
+        return result;
+    }();
+    return fs_id < twins.size() ? twins[fs_id] : UINT32_MAX;
 }
 
 bgfx::ShaderHandle create_embedded_shader(uint32_t id)

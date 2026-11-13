@@ -375,7 +375,7 @@ struct Expected
     uint64_t value; // per two frames (the rewritten buffer alternates)
 };
 
-// Counters of frames 3 and 4 together. Lower them when an optimisation lands.
+// Counters of frames 7 and 8 together. Lower them when an optimisation lands.
 const Expected kExpected[] = {
     {"draws", &render::PerfCounters::draws, 194},
     {"skipped_draws", &render::PerfCounters::skipped_draws, 0},
@@ -391,8 +391,10 @@ const Expected kExpected[] = {
     {"transient_vb_bytes", &render::PerfCounters::transient_vb_bytes, 144192},
     {"transient_ib_bytes", &render::PerfCounters::transient_ib_bytes, 828},
     {"fan_draws", &render::PerfCounters::fan_draws, 12},
+    // The rewritten buffer, drawn in frame 7 from what frame 6 wrote: updated in place, no new bgfx buffer.
     {"buffer_uploads", &render::PerfCounters::buffer_uploads, 1},
     {"buffer_upload_bytes", &render::PerfCounters::buffer_upload_bytes, 3072},
+    {"buffer_creates", &render::PerfCounters::buffer_creates, 0},
     {"texture_uploads", &render::PerfCounters::texture_uploads, 0},
 };
 
@@ -421,19 +423,20 @@ int main(int argc, char **argv)
         auto *device = new Device(nullptr, params);
         {
             Scene scene(*device);
-            // Frames 1-2 create programs, layouts, buffers and textures.
-            scene.frame(1);
-            scene.frame(2);
+            // Frames 1-6 create programs, layouts, buffers and textures; the rewritten buffer becomes a dynamic buffer
+            // at its first draw from its own storage after a rewrite (frame 5).
+            for (uint32_t frame = 1; frame <= 6; ++frame)
+                scene.frame(frame);
             const render::PerfCounters start = render::PerfTotals();
-            scene.frame(3);
-            scene.frame(4);
+            scene.frame(7);
+            scene.frame(8);
             const render::PerfCounters window = render::PerfTotals().Since(start);
             if (bench_frames)
             {
                 const render::PerfCounters bench_start = render::PerfTotals();
                 const auto begin = std::chrono::steady_clock::now();
                 for (uint32_t i = 0; i < bench_frames; ++i)
-                    scene.frame(5 + i);
+                    scene.frame(9 + i);
                 const double total_ms =
                     std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - begin).count();
                 const render::PerfCounters bench = render::PerfTotals().Since(bench_start);
@@ -441,7 +444,7 @@ int main(int argc, char **argv)
                             bench_frames, scene.draws_per_frame(), 1000.0 * total_ms / bench_frames,
                             1000.0 * bench.shim_ms / bench_frames, 1e6 * bench.shim_ms / static_cast<double>(bench.draws));
             }
-            std::printf("frames 3-4: %s\n", window.Summary().c_str());
+            std::printf("frames 7-8: %s\n", window.Summary().c_str());
             for (const Expected &entry : kExpected)
             {
                 const uint64_t actual = window.*entry.field;

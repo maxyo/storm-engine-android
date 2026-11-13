@@ -16,7 +16,8 @@ without editing the tool:
 - the sea around every island of `PROGRAM/islands/islands_init.c`;
 - special scenes: the main menu with its 3D back scene, the new-game intro, one location of
   every type at midnight, land fights (jungle, town, cave, deck), the sea surface seen from below
-  (the first underwater location with a sea, camera looking up), the open sea at sunset (19:00) and at sunrise (7:00, the low sun in view), heading towards the sun, a sea battle, a boarding,
+  (the first underwater location with a sea, camera looking up), the open sea at sunset (19:00) and at sunrise (7:00, the low sun in view), heading towards the sun, the hero's ship
+  at midnight seen close from above (rigging against the water, bow wave, waterline), a sea battle, a boarding,
   the world map and a storm entered from the world map.
   The sea battle waits until the enemy ship has fired its cannons (`CANNON_FIRE` from that
   captain) and fails when it has not within 90 s of game time at sea.
@@ -44,6 +45,11 @@ the sweep fails (`inventory:tables`) when they differ from what `inventory.py` p
   techniques laid over the game's, as the APK build does). Every engine boots once per shard
   and then loads its scenes back to back. A crashed or hung engine fails
   its current scene and the shard restarts with the remaining ones.
+- Every file of a copy that the sweep or the game writes (`engine.ini`, `options`, the
+  `PROGRAM/scene_sweep.c` script, the `engine` link) is unlinked before it is written, so the
+  write never goes through the hard link into the player's game or another sweep's copy. After
+  every engine run the sweep checks that no file of `--game` changed (inode, size, modification
+  time) and stops with a harness error naming the files if one did.
 
 A scene fails on: a crash or fatal engine error, a timeout, a failed teleport to the entry locator, script errors (`error.log`),
 missing textures or models, engine/renderer errors in the logs, a fader that never goes,

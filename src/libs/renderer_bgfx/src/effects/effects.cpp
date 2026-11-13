@@ -1,4 +1,5 @@
 #include "effects/effects.hpp"
+#include "effects/relief_generator.hpp"
 
 #include "effects/casters.hpp"
 #include "effects/texture_pixels.hpp"
@@ -61,8 +62,8 @@ const Option kOptions[] = {
     {"fx_bloom", "0 off, 1 on", [](fx::Settings &s, int v) { s.bloom = on(v); }},
     {"fx_sun_shafts", "0 off, 1 on", [](fx::Settings &s, int v) { s.sun_shafts = on(v); }},
     {"fx_smaa", "0 off, 1 on", [](fx::Settings &s, int v) { s.smaa = on(v); }},
-    {"fx_render_scale", "50..100: the 3D scene at this % of the display size, upscaled by FSR 1 (100 = native)",
-     [](fx::Settings &s, int v) { s.render_scale = static_cast<float>(std::clamp(v, 50, 100)) / 100.0f; }},
+    {"fx_render_height", "the 3D scene's height in pixels on taller displays, upscaled by FSR 1: 360..4320, 0 = native",
+     [](fx::Settings &s, int v) { s.render_height = static_cast<uint16_t>(std::clamp(v, 0, 4320)); }},
     {"fx_sharpen", "0 off, 1 on (FSR 1 RCAS)", [](fx::Settings &s, int v) { s.sharpen = on(v); }},
     {"fx_sharpness", "0..100 % RCAS strength (100 = the reference's maximum)",
      [](fx::Settings &s, int v) { s.sharpness = static_cast<float>(std::clamp(v, 0, 100)) / 100.0f; }},
@@ -82,6 +83,8 @@ const Option kOptions[] = {
     {"fx_lamp_shadows", "lamps that relight a location with their shadows, 0, 8 or 16",
      [](fx::Settings &s, int v) { s.lamp_shadows = static_cast<uint8_t>(std::clamp(v, 0, 16)); }},
     {"fx_lamp_soft", "0 3x3, 1 5x5 filter of the lamp shadows", [](fx::Settings &s, int v) { s.lamp_soft = on(v); }},
+    {"fx_lamp_moving", "0, 1, 2: lamp slots for carried lanterns and torches (their shadows move with them)",
+     [](fx::Settings &s, int v) { s.lamp_moving = static_cast<uint8_t>(std::clamp(v, 0, 2)); }},
     {"fx_lamp_gain", "0..300 % of the lamps' strength on baked surfaces",
      [](fx::Settings &s, int v) { s.lamp_gain = static_cast<float>(std::clamp(v, 0, 300)) / 100.0f; }},
     {"fx_lamp_baked", "0..100 %: the part of the lamp light the baked colours already hold",
@@ -137,10 +140,10 @@ std::string describe(const fx::Settings &s)
 {
     char text[512];
     snprintf(text, sizeof(text),
-             "tonemap=%d bloom=%d(1/%u,%u) shafts=%d smaa=%d scale=%.2f sharpen=%d(%.2f) ssao=%d dither=%d flare=%d scene_grading=%d "
+             "tonemap=%d bloom=%d(1/%u,%u) shafts=%d smaa=%d scene_height=%u sharpen=%d(%.2f) ssao=%d dither=%d flare=%d scene_grading=%d "
              "grade=%d msaa=%u a2c=%d aniso=%u sea=%d%d%d shadows=%d "
              "lighting=0x%x contact=%d",
-             s.tonemap, s.bloom, s.bloom_downscale, s.bloom_levels, s.sun_shafts, s.smaa, static_cast<double>(s.render_scale), s.sharpen,
+             s.tonemap, s.bloom, s.bloom_downscale, s.bloom_levels, s.sun_shafts, s.smaa, s.render_height, s.sharpen,
              static_cast<double>(s.sharpness), s.ssao, s.dither,
              s.lens_flare, s.scene_grading, static_cast<int>(s.grade), s.msaa,
              s.alpha_to_coverage, s.anisotropy, s.sea_band_limit, s.sea_soft_edges, s.sea_specular,
@@ -185,9 +188,10 @@ void Host::on_device_created()
     }
     support_device_ = fx::DetectSupport(facts);
     device_ready_ = true;
-    // Nothing is drawn yet: the device starts on the legacy path («Низкая», no effect, no MSAA) and switches to
-    // the request like any later change (advance_switch), once its programs exist and the self-test passed.
-    activate(fx::Settings::FromPreset(fx::QualityPreset::Low), fx::Support{}); // needs nothing
+    // Nothing is drawn yet: the device starts on the plain legacy path (no effect, no MSAA, not even «Низкая»'s
+    // upscale) and switches to the request like any later change (advance_switch), once its programs exist and the
+    // self-test passed.
+    activate(fx::Settings{}, fx::Support{});
     apply();
     renderer_state_changed_ = false; // the scene target is created after this, with the active state
 }
@@ -199,6 +203,7 @@ void Host::on_device_lost()
     lighting_.on_device_lost();
     sky_.OnDeviceLost();
     sea_depth_.OnDeviceLost();
+    depth_copy_.OnDeviceLost();
     u_sea_fx_ = s_sea_depth_ = BGFX_INVALID_HANDLE;
     sea_depth_frame_ = UINT32_MAX;
     contact_.OnDeviceLost();
@@ -215,6 +220,7 @@ void Host::shutdown()
     lighting_.shutdown();
     sky_.Shutdown();
     sea_depth_.Shutdown();
+    depth_copy_.Shutdown();
     for (bgfx::UniformHandle *uniform : {&u_sea_fx_, &s_sea_depth_})
         if (bgfx::isValid(*uniform))
         {
@@ -299,9 +305,11 @@ void Host::apply()
             report_.disabled.push_back("fx_ssao");
         if (!possible.smaa && !possible.PostIsIdentity())
             report_.disabled.push_back("fx_smaa");
+        if (possible.render_height == 0) // no post chain: no upscale, no RCAS
+            for (const char *name : {"fx_render_height", "fx_sharpen", "fx_sharpness"})
+                report_.disabled.push_back(name);
         if (possible.PostIsIdentity())
-            for (const char *name : {"fx_tonemap", "fx_bloom", "fx_sun_shafts", "fx_smaa", "fx_render_scale", "fx_sharpen",
-                                     "fx_sharpness", "fx_dither", "fx_lens_flare", "fx_scene_grading", "fx_grade"})
+            for (const char *name : {"fx_tonemap", "fx_bloom", "fx_sun_shafts", "fx_smaa", "fx_dither", "fx_lens_flare", "fx_scene_grading", "fx_grade"})
                 report_.disabled.push_back(name);
     }
     for (const Pending &pending : kPending)
@@ -356,7 +364,7 @@ void Host::activate(const fx::Settings &settings, const fx::Support &support)
     const bool depth_read = scene_depth_read();
     renderer_state_changed_ = renderer_state_changed_ ||
                               (device_ready_ && (state.msaa_samples != renderer_state_.msaa_samples ||
-                                                 state.render_scale != renderer_state_.render_scale ||
+                                                 state.render_height != renderer_state_.render_height ||
                                                  state.max_anisotropy != renderer_state_.max_anisotropy ||
                                                  depth_read != depth_read_));
     depth_read_ = depth_read;
@@ -368,7 +376,7 @@ void Host::activate(const fx::Settings &settings, const fx::Support &support)
 
 bool Host::needs_self_test(const fx::Settings &settings)
 {
-    return !settings.PostIsIdentity() || fx::RendererStateFor(settings).msaa_samples > 1;
+    return !settings.PostIsIdentity() || settings.render_height > 0 || fx::RendererStateFor(settings).msaa_samples > 1;
 }
 
 void Host::set_weather(const render::EffectsWeather &weather)
@@ -481,6 +489,7 @@ void Host::advance_switch()
     int budget = per_frame;
     // The post chain's programs also on «Низкая»: the underwater wobble runs on every preset.
     const bool ready = post_.Prepare(target_, budget) && (!target_.sea_soft_edges || sea_depth_.Prepare(budget)) &&
+                       (target_.render_height == 0 || depth_copy_.Prepare(budget)) &&
                        contact_.Prepare(target_, budget) &&
                        lighting_.prepare_programs(*device, target_, budget);
     switch_programs_ += per_frame - budget;
@@ -749,20 +758,61 @@ void SetEffectsDynamicLights(std::span<const EffectsPointLight> lights)
                         .att2 = l.att2};
     }
     effects::Host::instance().lighting().set_dynamic_lights(std::span(converted, count));
+    // The same lights for the lamps: the nearest to the camera take a moving slot and cast shadows.
+    std::vector<fx::Lamp> moving;
+    moving.reserve(lights.size());
+    for (const EffectsPointLight &l : lights)
+        moving.push_back({l.position, l.color, l.range, l.att0, l.att1, l.att2});
+    effects::Host::instance().lighting().lamp_shadows().set_moving(std::move(moving));
 }
 
-void SetEffectsTextureSource(storm::shim::BaseTexture *texture, const char *path)
+void SetEffectsShipLights(std::span<const EffectsShip> ships, std::span<const EffectsShipLight> lights)
+{
+    std::vector<effects::LampShadows::ShipLight> converted;
+    converted.reserve(lights.size());
+    for (const EffectsShipLight &l : lights)
+        converted.push_back({{l.light.position, l.light.color, l.light.range, l.light.att0, l.light.att1, l.light.att2},
+                             l.ship, l.local});
+    effects::Host::instance().lighting().lamp_shadows().set_ship_lights({ships.begin(), ships.end()}, std::move(converted));
+}
+
+bool EffectsShipGeometryWanted(uint64_t ship, uint64_t signature)
+{
+    return effects::Host::instance().lighting().lamp_shadows().ship_geometry_wanted(ship, signature);
+}
+
+void SetEffectsShipGeometry(uint64_t ship, uint64_t signature, const EffectsShipGeometry &geometry)
+{
+    effects::Host::instance().lighting().lamp_shadows().set_ship_geometry(ship, signature, geometry);
+}
+
+EffectsShipDraw::EffectsShipDraw(uint64_t ship)
+{
+    effects::Host::instance().lighting().lamp_shadows().set_drawn_ship(ship);
+}
+
+EffectsShipDraw::~EffectsShipDraw()
+{
+    effects::Host::instance().lighting().lamp_shadows().set_drawn_ship(0);
+}
+
+void SetEffectsTextureSource(storm::shim::BaseTexture *texture, const char *path, const std::filesystem::path &file)
 {
     if (shim::TexStore *store = shim::store_of(texture))
     {
         store->cutout = effects::texture_cutout(*store);
-        effects::Host::instance().lighting().normal_maps().on_texture_loaded(*store, path);
+        effects::Host::instance().lighting().normal_maps().on_texture_loaded(*store, path, file);
     }
 }
 
-void ConfigureReliefDirectory(const std::filesystem::path &directory)
+void ConfigureRelief(const ReliefConfig &config)
 {
-    effects::ConfigureReliefDirectory(directory);
+    effects::ConfigureRelief({config.directory, config.textures, config.model});
+}
+
+void ShutdownRelief()
+{
+    effects::ReliefGenerator::instance().shutdown();
 }
 
 std::string TakeEffectsNotice()

@@ -22,6 +22,15 @@ namespace
 {
 using namespace detail;
 
+// The composite pass changes the picture (bloom, tone curve, grades, occlusion, dither): otherwise the scene goes
+// straight to SMAA / the upscale («Низкая» with FSR 1).
+bool NeedsComposite(const Settings &s)
+{
+    Settings rest = s;
+    rest.smaa = rest.lens_flare = false;
+    return !rest.PostIsIdentity();
+}
+
 enum ProgramIndex
 {
     kCopy,
@@ -169,9 +178,14 @@ bool PostChain::Prepare(const Settings &settings, int &budget)
     int needed[13];
     int count = 0;
     needed[count++] = kWobble; // underwater, on every preset
-    if (settings.PostIsIdentity() || !SupportsLut3d())
-        needed[count++] = kCopy;
-    else
+    needed[count++] = kCopy;   // a frame at the display size without post effects (or a scale that is 1 there)
+    if (settings.render_height && SupportsLut3d())
+    {
+        needed[count++] = kEasu;
+        if (settings.sharpen)
+            needed[count++] = kRcas;
+    }
+    if (!settings.PostIsIdentity() && SupportsLut3d())
     {
         if (settings.ssao)
             needed[count++] = kSsao;
@@ -183,17 +197,14 @@ bool PostChain::Prepare(const Settings &settings, int &budget)
             if (settings.sun_shafts)
                 needed[count++] = kShafts;
         }
-        needed[count++] = kComposite + (settings.bloom ? 1 : 0) + (settings.tonemap ? 2 : 0) + (settings.ssao ? 4 : 0);
+        if (NeedsComposite(settings))
+            needed[count++] = kComposite + (settings.bloom ? 1 : 0) + (settings.tonemap ? 2 : 0) + (settings.ssao ? 4 : 0);
         if (settings.smaa)
         {
             needed[count++] = kSmaaEdges;
             needed[count++] = kSmaaWeights;
             needed[count++] = kSmaaBlend;
         }
-        if (settings.render_scale < 1.0f)
-            needed[count++] = kEasu;
-        if (settings.sharpen)
-            needed[count++] = kRcas;
         if (settings.lens_flare)
             needed[count++] = kFlare;
     }
@@ -285,9 +296,11 @@ uint16_t PostChain::Submit(const Settings &settings, const Frame &input)
 
     // Everything past a plain copy goes through the 3D grading table.
     const bool usable = SupportsLut3d();
-    if (!usable && !settings.PostIsIdentity())
-        STORM_FX_ERROR_ONCE(reported_lut_, "post effects are on but the device has no 3D textures (Support::lut_3d): frame copied unprocessed");
-    const bool copy_only = settings.PostIsIdentity() || !usable;
+    if (!usable && (!settings.PostIsIdentity() || !same_size))
+        STORM_FX_ERROR_ONCE(reported_lut_, "post effects or the upscale are on but the device has no 3D textures (Support::lut_3d): "
+                                           "frame copied unprocessed");
+    // A scene smaller than the target (Settings::render_height) is upscaled by EASU even without any post effect.
+    const bool copy_only = (settings.PostIsIdentity() && same_size) || !usable;
 
     // ---- underwater wobble: replaces the copy, or feeds the wobbled picture to the passes below ----
     if (frame.wobble.on)
@@ -407,15 +420,19 @@ uint16_t PostChain::Submit(const Settings &settings, const Frame &input)
     }
 
     // ---- composite: bloom, tone curve, grade ----
-    // Different sizes: the scene is the internal picture of Settings::render_scale, EASU brings it to the target.
+    // Different sizes: the scene is the internal picture of Settings::render_height, EASU brings it to the target and
+    // RCAS sharpens it there (only after an upscale).
     const bool upscale = !same_size;
     const bool then_smaa = settings.smaa;
-    const bool then_sharpen = settings.sharpen;
-    const bool composite_is_final = !then_smaa && !upscale && !then_sharpen;
-    if (!composite_is_final)
+    const bool then_sharpen = settings.sharpen && upscale;
+    const bool composite_is_final = !then_smaa && !upscale;
+    // When it would change nothing it is skipped, unless it is the pass that writes the target (lens flare alone).
+    const bool run_composite = NeedsComposite(settings) || composite_is_final;
+    if (run_composite && !composite_is_final)
         EnsureTarget(graded_, frame.scene_width, frame.scene_height);
-    EnsureLut(settings, frame.scene_grade, frame.scene_cut);
+    if (run_composite)
     {
+        EnsureLut(settings, frame.scene_grade, frame.scene_cut);
         const bgfx::FrameBufferHandle out = composite_is_final ? frame.target : graded_.fb;
         SetupView(view, "fx composite", out, composite_is_final ? frame.target_width : frame.scene_width,
                   composite_is_final ? frame.target_height : frame.scene_height, true);
@@ -441,8 +458,8 @@ uint16_t PostChain::Submit(const Settings &settings, const Frame &input)
         }
         SubmitScreenTriangle(view++, composite, kWriteColor, composite_is_final && frame.flip_v);
     }
-    bgfx::TextureHandle current = BGFX_INVALID_HANDLE;
-    if (!composite_is_final)
+    bgfx::TextureHandle current = frame.scene_color;
+    if (run_composite && !composite_is_final)
         current = bgfx::getTexture(graded_.fb);
 
     // ---- SMAA 1x at the scene size: edges, blending weights, neighbourhood blend ----

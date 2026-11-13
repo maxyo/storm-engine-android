@@ -1,4 +1,4 @@
-$input a_position, a_weight, a_indices, a_texcoord0, a_texcoord1, a_texcoord2
+$input a_position, a_weight, a_indices, a_texcoord0, a_texcoord1, a_texcoord2, i_data0
 $output v_texcoord0, v_texcoord1, v_texcoord2
 // vs_ff_caster_cut for GPU-skinned draws (as vs_ff_caster_skin).
 #include "storm_common.sh"

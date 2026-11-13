@@ -12,6 +12,7 @@
 #include "storm/fx/settings.hpp"
 #include "storm/fx/sky.hpp"
 #include "storm/fx/sky_model.hpp"
+#include "storm/fx/depth_copy.hpp"
 #include "storm/fx/sea_depth.hpp"
 #include "storm/render/effects.hpp"
 #include "storm/render/program_cache.hpp"
@@ -54,8 +55,16 @@ class Host
     // The post chain runs: an effect is on, or the game's underwater wobble (on every preset) is.
     bool post_active() const { return device_ready_ && (!settings_.PostIsIdentity() || wobble_.on); }
     void set_wobble(const render::EffectsWobble &wobble) { wobble_ = wobble; }
-    // An effect samples the scene depth (ambient occlusion, the sea's soft edges).
-    bool scene_depth_read() const { return settings_.ssao || settings_.sea_soft_edges; }
+    // The scene depth is sampled: by an effect (ambient occlusion, the sea's soft edges), or carried to the
+    // display-size picture for the 3D drawn after the scene boundary when the scene may draw at a lower height.
+    bool scene_depth_read() const { return settings_.ssao || settings_.sea_soft_edges || settings_.render_height > 0; }
+    // Render scale: the scene depth (`source`, internal size) into the depth of the display-size picture (`target`)
+    // in `view`, after the post chain upscaled the scene (Device::scene_complete).
+    void copy_scene_depth(bgfx::ViewId view, bgfx::TextureHandle source, bgfx::FrameBufferHandle target, uint16_t width,
+                          uint16_t height)
+    {
+        depth_copy_.Submit(view, source, target, width, height);
+    }
     // True once after a settings switch made MSAA, anisotropy or the scene depth read change (the shim rebuilds
     // what of the scene target differs, between frames).
     bool take_renderer_state_change()
@@ -82,7 +91,7 @@ class Host
     {
         bgfx::TextureHandle scene_color = BGFX_INVALID_HANDLE;
         bgfx::TextureHandle scene_depth = BGFX_INVALID_HANDLE; // invalid when not sampleable (MSAA)
-        uint16_t width = 0, height = 0;               // the scene: the internal size with Settings::render_scale < 1
+        uint16_t width = 0, height = 0;               // the scene: the internal size with Settings::render_height
         bgfx::FrameBufferHandle target = BGFX_INVALID_HANDLE;
         uint16_t target_width = 0, target_height = 0; // the display-size picture the interfaces draw on
         bgfx::ViewId first_view = 0;
@@ -178,6 +187,7 @@ class Host
     Lighting lighting_;
     fx::Sky sky_;
     fx::SeaDepth sea_depth_;
+    fx::DepthCopy depth_copy_;
     fx::ContactShadows contact_;
     AoVolumes ao_;
     const AoVolumes::Bound *ao_bound_ = nullptr;

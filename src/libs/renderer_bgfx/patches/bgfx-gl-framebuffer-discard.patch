@@ -1,0 +1,80 @@
+Framebuffer discard (BGFX_CLEAR_DISCARD_*) on GL, three bugs that made it never work on a phone:
+- setFrameBuffer applied, when leaving a framebuffer, the flags stored when it was entered (the view before its
+  first view): one framebuffer late. Now the flags of the view just finished, the last one drawn into it.
+- FrameBufferGL::discard invalidated whatever framebuffer was bound (after an MSAA resolve: the back buffer); it now
+  binds its own fbo[0] (for MSAA the multisampled attachments, already resolved into fbo[1]).
+- On GLES depth together with stencil matched no branch; GL_DEPTH_STENCIL_ATTACHMENT exists in GLES 3.
+The engine sets the flags only on views after which the attachments are not read again (shim scene_complete).
+
+diff --git a/src/renderer_gl.cpp b/src/renderer_gl.cpp
+index 165ef14..6f15243 100644
+--- a/src/renderer_gl.cpp
++++ b/src/renderer_gl.cpp
+@@ -2271,7 +2271,6 @@ namespace bgfx { namespace gl
+ 		RendererContextGL()
+ 			: m_numWindows(1)
+ 			, m_rtMsaa(false)
+-			, m_fbDiscard(BGFX_CLEAR_NONE)
+ 			, m_capture(NULL)
+ 			, m_captureSize(0)
+ 			, m_maxAnisotropy(0.0f)
+@@ -4158,10 +4157,13 @@ namespace bgfx { namespace gl
+ 			{
+ 				FrameBufferGL& frameBuffer = m_frameBuffers[m_fbh.idx];
+ 
+-				if (BGFX_CLEAR_NONE != m_fbDiscard)
++				// Storm Engine patch (bgfx-gl-framebuffer-discard.patch): `_discard` holds the discard flags of the
++				// view just finished, the last one drawn into the framebuffer being left (after its resolve above).
++				// bgfx applied the flags stored when that framebuffer was entered instead, those of the view before
++				// it: one framebuffer late, on the wrong target.
++				if (BGFX_CLEAR_NONE != _discard)
+ 				{
+-					frameBuffer.discard(m_fbDiscard);
+-					m_fbDiscard = BGFX_CLEAR_NONE;
++					frameBuffer.discard(_discard);
+ 				}
+ 			}
+ 
+@@ -4232,7 +4234,6 @@ namespace bgfx { namespace gl
+ 			GL_CHECK(glBindFramebuffer(GL_FRAMEBUFFER, m_currentFbo) );
+ 
+ 			m_fbh       = _fbh;
+-			m_fbDiscard = _discard;
+ 			m_rtMsaa    = _msaa;
+ 
+ 			return _height;
+@@ -5421,7 +5422,6 @@ namespace bgfx { namespace gl
+ 		bool m_rtMsaa;
+ 
+ 		FrameBufferHandle m_fbh;
+-		uint16_t m_fbDiscard;
+ 
+ 		SwapChain m_mainSwapChain;
+ 		uint32_t  m_reset;
+@@ -8316,8 +8316,9 @@ namespace bgfx { namespace gl
+ 		uint32_t dsFlags = _flags & (BGFX_CLEAR_DISCARD_DEPTH|BGFX_CLEAR_DISCARD_STENCIL);
+ 		if (BGFX_CLEAR_NONE != dsFlags)
+ 		{
+-			if (BX_ENABLED(BGFX_CONFIG_RENDERER_OPENGL)
+-			&&  (BGFX_CLEAR_DISCARD_DEPTH|BGFX_CLEAR_DISCARD_STENCIL) == dsFlags)
++			// Storm Engine patch: GLES 3 has GL_DEPTH_STENCIL_ATTACHMENT too; depth and stencil together matched no
++			// branch there and were never invalidated.
++			if ( (BGFX_CLEAR_DISCARD_DEPTH|BGFX_CLEAR_DISCARD_STENCIL) == dsFlags)
+ 			{
+ 				buffers[idx++] = GL_DEPTH_STENCIL_ATTACHMENT;
+ 			}
+@@ -8331,7 +8332,13 @@ namespace bgfx { namespace gl
+ 			}
+ 		}
+ 
+-		GL_CHECK(glInvalidateFramebuffer(GL_FRAMEBUFFER, idx, buffers) );
++		// Storm Engine patch: the attachments are this framebuffer's (the multisampled ones of fbo[0] for MSAA,
++		// whose resolve into fbo[1] came first); the invalidation acted on whatever framebuffer was bound.
++		if (0 != idx)
++		{
++			GL_CHECK(glBindFramebuffer(GL_FRAMEBUFFER, m_fbo[0]) );
++			GL_CHECK(glInvalidateFramebuffer(GL_FRAMEBUFFER, idx, buffers) );
++		}
+ 	}
+ 
+ 	// OpenGL ES only supports boolean occlusion queries.

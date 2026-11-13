@@ -26,15 +26,29 @@ class Shadow : public Entity
         float perspective = 0.0f, radius = 0.0f;
         glm::vec3 dir, cen, objPos, ObjPos, lightPos, camPos;
         PLANE planes[4];
+        glm::mat4 proj; // the light's projection of the TEXTURE_SIZE map
         int32_t shade = 0;
+        int32_t tile = 0; // this frame's tile in the shadow atlases
     };
     Prepared prepared_;
-    int32_t blurTex_ = -1; // renderer texture id: this shadow's blurred map, read by project()
+    // The occlusion rays of the last frames (prepare): recast when the character, the light or the model size moved,
+    // and at least every kRayRefresh frames for moving occluders. headRay < 0: not cast yet; minVal < 0: the body rays
+    // were not cast (the shadow was out of view).
+    struct Rays
+    {
+        glm::vec3 objPos{0.0f}, lightPos{0.0f};
+        float radius = -1.0f;
+        float headRay = -1.0f, minVal = -1.0f;
+        uint32_t age = 0;
+    };
+    Rays rays_;
     uint32_t lastEpoch_ = UINT32_MAX;
     static std::vector<Shadow *> instances_;
     static uint32_t epoch_, preparedEpoch_;
+    static float fogDensity_; // EWhr_GetFogDensity of this frame (prepareAll)
     void prepareAll(uint32_t deltaTime);
-    void prepare(uint32_t deltaTime, const glm::mat4 &view, const glm::mat4 &proj, bool &sceneOpen);
+    void prepare(uint32_t deltaTime, const glm::mat4 &view, const glm::mat4 &proj);
+    void renderModel();
     void project();
 
   public:

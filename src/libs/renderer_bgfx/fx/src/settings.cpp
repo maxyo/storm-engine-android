@@ -1,6 +1,9 @@
 #include "storm/fx/settings.hpp"
+
+#include <algorithm>
 #include "storm/fx/capabilities.hpp"
 
+#include <algorithm>
 #include <iterator>
 
 namespace storm::fx
@@ -9,8 +12,16 @@ namespace storm::fx
 Settings Settings::FromPreset(QualityPreset preset)
 {
     Settings s;
+    // FSR 1 on every preset: the 3D scene at an internal height on displays taller than it (the 3200x1440 panels of
+    // current phones), EASU up to the display, RCAS after it; the interfaces at the display size. A height instead
+    // of a factor: a display no taller is not scaled for nothing. «Низкая» stays the original look otherwise.
+    s.sharpen = true;
+    s.sharpness = 0.75f; // 0.5 stops below the reference's maximum
     if (preset == QualityPreset::Low)
+    {
+        s.render_height = kLowRenderHeight;
         return s;
+    }
 
     // «Средняя» and «Высокая» keep the legacy palette and exposure under a restrained colour grade; the effects add
     // depth and atmosphere. «Средняя» takes the cheap ones (a tone curve, the grade of the place and hour, aerial
@@ -30,14 +41,11 @@ Settings Settings::FromPreset(QualityPreset preset)
     // full «Карибы» grade: no visible saturation boost).
     s.grade = GradePreset::Caribbean;
     s.grade_strength = 0.35f;
-    // FSR 1: the 3D scene at a lower internal resolution, EASU up to the display, RCAS there; the interfaces stay at
-    // the display resolution. MSAA (and SMAA where it replaces it) antialiases the internal picture before EASU.
-    s.sharpen = true;
-    s.sharpness = 0.75f; // 0.5 stops below the reference's maximum
+    // MSAA (and SMAA where it replaces it) antialiases the internal picture before EASU.
 
     if (preset == QualityPreset::Medium)
     {
-        s.render_scale = 0.67f; // FSR 1 "Quality": 2144x965 of a 3200x1440 display
+        s.render_height = kMediumRenderHeight;
         s.bloom_downscale = 4;
         s.bloom_levels = 3;
         s.sea_band_limit = true;
@@ -48,9 +56,10 @@ Settings Settings::FromPreset(QualityPreset preset)
         s.shadows = ShadowQuality::Low;
         s.ao_volume = 2;
         s.lamp_shadows = 8;
+        s.lamp_moving = 1;
         return s;
     }
-    s.render_scale = 0.77f; // FSR 1 "Ultra Quality": 2464x1109 of a 3200x1440 display
+    s.render_height = kHighRenderHeight;
     s.bloom_downscale = 2;
     s.bloom_levels = 4;
     s.anisotropy = 8;
@@ -66,6 +75,7 @@ Settings Settings::FromPreset(QualityPreset preset)
     s.shadows = ShadowQuality::Soft;
     s.ao_volume = 3;
     s.lamp_shadows = 16;
+    s.lamp_moving = 2;
     s.lamp_soft = true;
     s.ssao = true;
     s.ssao_intensity = 0.35f;
@@ -75,7 +85,14 @@ Settings Settings::FromPreset(QualityPreset preset)
 bool Settings::PostIsIdentity() const
 {
     const bool graded = grade != GradePreset::Original && grade_strength > 0.0f;
-    return !tonemap && !graded && !bloom && !smaa && !sharpen && render_scale >= 1.0f && !sun_shafts && !ssao && !dither && !lens_flare && !scene_grading;
+    return !tonemap && !graded && !bloom && !smaa && !sun_shafts && !ssao && !dither && !lens_flare && !scene_grading;
+}
+
+float RenderScale(uint16_t render_height, uint32_t display_height)
+{
+    if (render_height == 0 || display_height <= render_height)
+        return 1.0f;
+    return std::max(kMinRenderScale, static_cast<float>(render_height) / static_cast<float>(display_height));
 }
 
 std::string Support::Describe() const
@@ -113,15 +130,16 @@ struct Rule
 };
 
 constexpr Rule kRules[] = {
-    {[](const Settings &s, const Support &c) { return !c.lut_3d && !s.PostIsIdentity(); },
+    {[](const Settings &s, const Support &c) { return !c.lut_3d && (!s.PostIsIdentity() || s.render_height); },
      [](Settings &s) {
          s.tonemap = s.bloom = s.ssao = s.sun_shafts = s.scene_grading = s.dither = s.lens_flare = s.smaa = s.sharpen = false;
          s.grade = GradePreset::Original;
-         s.render_scale = 1.0f;
+         s.render_height = 0;
      },
      "the post-processing chain needs 3D textures: every post effect switched off, the scene at native resolution (no FSR)"},
-    {[](const Settings &s, const Support &) { return !(s.render_scale >= 0.5f && s.render_scale <= 1.0f); },
-     [](Settings &s) { s.render_scale = s.render_scale > 1.0f ? 1.0f : 0.5f; }, "render scale must be 0.5..1 (the FSR 1 range): clamped"},
+    {[](const Settings &s, const Support &) { return s.render_height && (s.render_height < 360 || s.render_height > 4320); },
+     [](Settings &s) { s.render_height = std::clamp<uint16_t>(s.render_height, 360, 4320); },
+     "the scene's internal height must be 360..4320 pixels (or 0, native): clamped"},
     {[](const Settings &s, const Support &) { return s.msaa != 1 && s.msaa != 2 && s.msaa != 4; }, [](Settings &s) { s.msaa = s.msaa > 2 ? 4 : 1; },
      "MSAA sample count must be 1, 2 or 4: rounded"},
     // A requested MSAA (Средняя / Высокая) that the device cannot give (no multisampled targets: caps, a GPU-family
@@ -143,6 +161,13 @@ constexpr Rule kRules[] = {
      "anisotropic filtering is not available: switched off"},
     {[](const Settings &s, const Support &c) { return s.msaa > 1 && !c.msaa_depth && s.ssao; }, [](Settings &s) { s.ssao = false; },
      "ambient occlusion cannot read the depth of a multisampled scene on this renderer: switched off (or turn MSAA off)"},
+    // At a render scale the scene depth is carried to the display-size picture for the 3D drawn after the scene
+    // (DepthCopy): it must be readable.
+    {[](const Settings &s, const Support &c) { return s.msaa > 1 && !c.msaa_depth && s.render_height > 0; },
+     [](Settings &s) { s.render_height = 0; },
+     "render scale cannot carry the depth of a multisampled scene on this renderer: the scene at native resolution (or turn MSAA off)"},
+    {[](const Settings &s, const Support &c) { return s.render_height > 0 && !c.scene_depth; }, [](Settings &s) { s.render_height = 0; },
+     "render scale needs a sampleable scene depth texture: the scene at native resolution"},
     {[](const Settings &s, const Support &c) { return s.msaa > 1 && !c.msaa_depth && s.sea_soft_edges; },
      [](Settings &s) { s.sea_soft_edges = false; },
      "soft sea edges cannot read the depth of a multisampled scene on this renderer: switched off (or turn MSAA off)"},
@@ -186,6 +211,9 @@ constexpr Rule kRules[] = {
      "the ambient occlusion volume of interiors needs per-pixel lighting or per-pixel point lights: switched off"},
     {[](const Settings &s, const Support &) { return s.lamp_shadows != 0 && s.lamp_shadows != 8 && s.lamp_shadows != 16; },
      [](Settings &s) { s.lamp_shadows = s.lamp_shadows > 8 ? 16 : 8; }, "8 or 16 lamps relight an interior: rounded"},
+    {[](const Settings &s, const Support &) { return s.lamp_moving > 2 || (s.lamp_shadows && s.lamp_moving > s.lamp_shadows); },
+     [](Settings &s) { s.lamp_moving = static_cast<uint8_t>(std::min<int>({s.lamp_moving, 2, s.lamp_shadows ? s.lamp_shadows : 2})); },
+     "at most 2 of the lamp slots are for moving lights: lowered"},
     {[](const Settings &s, const Support &c) { return s.lamp_shadows && !c.shadow_map; }, [](Settings &s) { s.lamp_shadows = 0; },
      "lamp shadows need a D16 depth render target: switched off"},
     {[](const Settings &s, const Support &c) { return s.lamp_shadows && !c.ao_volume; }, [](Settings &s) { s.lamp_shadows = 0; },
@@ -230,7 +258,7 @@ RendererState RendererStateFor(const Settings &settings)
     state.msaa_samples = settings.msaa;
     state.alpha_to_coverage = settings.alpha_to_coverage && settings.msaa > 1;
     state.max_anisotropy = settings.anisotropy;
-    state.render_scale = settings.render_scale;
+    state.render_height = settings.render_height;
     return state;
 }
 

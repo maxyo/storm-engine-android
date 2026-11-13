@@ -173,7 +173,7 @@ void Lighting::set_technique(const char *name)
 }
 
 void Lighting::prepare(const shim::Device &device, const shim::LayoutInfo &layout, uint32_t cube_variant,
-                       const DrawSphere &sphere, FfDraw &draw)
+                       const DrawSphereSource &sphere_source, FfDraw &draw)
 {
     if (layout.rhw)
         return;
@@ -191,10 +191,23 @@ void Lighting::prepare(const shim::Device &device, const shim::LayoutInfo &layou
     const bool lit_state = rs[D3DRS_LIGHTING] != 0;
     const bool per_pixel = (flags_ & fx::kLightingPerPixel) != 0;
     bool lit = lighting_ && layout.has_normal && lit_state;
+    // The room's lamps relight what is drawn into the game picture, each with its shadow (effects/lamp_shadows.hpp):
+    // baked location geometry (which then takes the baked variant) and lit models. The first receiver of a frame
+    // gives the lamps around its camera their slots.
+    const shim::TexStore *picture = device.back_color ? device.back_color->store.get() : nullptr;
+    bool lamp_on = false;
+    if (lamps_.enabled() && lighting_ && layout.has_normal && target && target == picture)
+    {
+        const D3DMATRIX &v = device.s.view;
+        std::array<float, 3> eye{}; // absolute, like the lamps
+        for (int j = 0; j < 3; ++j)
+            eye[j] = origin_[j] - (v.m[3][0] * v.m[j][0] + v.m[3][1] * v.m[j][1] + v.m[3][2] * v.m[j][2]);
+        lamp_on = lamps_.prepare(const_cast<shim::Device &>(device), eye, casters_);
+    }
     // Baked colours: dynamic lights only (the lighter tool put the location's own lights into the colours).
     fx::LightSelection baked_lights;
     uint8_t unused = 0;
-    bool baked = false;
+    bool baked = !lit_state && lamp_on;
     if (lighting_ && layout.has_normal && !lit_state && budget_ > 0 && !dynamic_lights_.empty())
     {
         // The dynamic lights are absolute; the draw's sphere and view are in the device's camera-relative world.
@@ -206,11 +219,18 @@ void Lighting::prepare(const shim::Device &device, const shim::LayoutInfo &layou
                     l.position[k] -= origin_[k];
             device_lights_origin_valid_ = true;
         }
+        // The candidates of this draw: a carried lantern that has a lamp slot is lit by the lamps, with its shadow
+        // (where the lamps light this draw), so it is not added a second time.
+        candidate_lights_.clear();
+        for (size_t i = 0; i < dynamic_lights_.size(); ++i)
+            if (!lamp_on || !lamps_.relit(dynamic_lights_[i].position))
+                candidate_lights_.push_back(device_dynamic_lights_[i]);
         // Ranked at the draw's own vertices: a torch lights the wall next to it wherever the camera is.
-        if (sphere.valid)
+        if (const DrawSphere &sphere = sphere_source.get(); sphere.valid)
         {
-            baked_lights = select(device_dynamic_lights_, sphere.center, sphere.radius, budget_, true, &unused);
-            baked = baked_lights.count > 0;
+            if (!candidate_lights_.empty())
+                baked_lights = select(candidate_lights_, sphere.center, sphere.radius, budget_, true, &unused);
+            baked |= baked_lights.count > 0;
         }
         else if (!bounds_reported_)
         {
@@ -221,6 +241,7 @@ void Lighting::prepare(const shim::Device &device, const shim::LayoutInfo &layou
     // Relief: the normal map of stage 1's texture (a grey height texture: the game's 2x detail layer, on the second UV
     // set) or else of stage 0's (the colour texture of stone, wood, plaster, ground).
     bgfx::TextureHandle normal_map = BGFX_INVALID_HANDLE;
+    float relief_fade = 0.0f; // a map just uploaded fades in (effects::kReliefFade)
     int relief_stage = -1;
     if ((flags_ & fx::kLightingNormalMap) && lighting_ && layout.has_normal && device.s.tss[0][D3DTSS_COLOROP] != D3DTOP_DISABLE &&
         !(lit && material_ == Material::Character))
@@ -229,29 +250,17 @@ void Lighting::prepare(const shim::Device &device, const shim::LayoutInfo &layou
             shim::TexStore *store = shim::store_of(device.s.textures[stage]);
             if (!store || !store->normal_map || device.s.tss[stage][D3DTSS_COLOROP] == D3DTOP_DISABLE)
                 continue;
-            normal_map = normal_maps_.handle(*store, fx_);
+            const NormalMaps::Relief map = normal_maps_.handle(*store, fx_);
+            normal_map = map.handle;
+            relief_fade = map.fade;
             relief_stage = stage;
             break;
         }
     baked |= !lit_state && bgfx::isValid(normal_map);
     // The interior's AO volume darkens what is drawn into the game picture: baked location geometry (which then takes
     // the baked variant) and lit models (characters, props). Reflections and other targets keep their look.
-    const shim::TexStore *picture = device.back_color ? device.back_color->store.get() : nullptr;
     const bool ao = ao_volume_ && lighting_ && layout.has_normal && target && target == picture;
     baked |= !lit_state && ao;
-    // The room's lamps relight what is drawn into the game picture, each with its shadow (effects/lamp_shadows.hpp):
-    // baked location geometry (which then takes the baked variant) and lit models. The first receiver of a frame
-    // gives the lamps around its camera their slots.
-    bool lamp_on = false;
-    if (lamps_.enabled() && lighting_ && layout.has_normal && target && target == picture)
-    {
-        const D3DMATRIX &v = device.s.view;
-        std::array<float, 3> eye{}; // absolute, like the lamps
-        for (int j = 0; j < 3; ++j)
-            eye[j] = origin_[j] - (v.m[3][0] * v.m[j][0] + v.m[3][1] * v.m[j][1] + v.m[3][2] * v.m[j][2]);
-        lamp_on = lamps_.prepare(const_cast<shim::Device &>(device), eye, casters_);
-    }
-    baked |= !lit_state && lamp_on;
     if (!lit && !baked && !coverage)
         return;
     if (cube_variant != 0)
@@ -289,13 +298,18 @@ void Lighting::prepare(const shim::Device &device, const shim::LayoutInfo &layou
     {
         draw.lamps = true;
         ++frame_.lamp_lit;
-        // Characters cast into the lamp faces their sphere reaches.
-        if (lit && material_ == Material::Character && sphere.valid)
+        // Lit draws are what is not in the still geometry (characters, props, a ship's hull, masts and sails): they
+        // cast into the faces of the lamps their sphere reaches.
+        if (lit && sphere_source.get().valid)
         {
-            draw.lamp_caster = draw.caster = true;
-            draw.sphere = sphere; // absolute, like the lamp faces
+            DrawSphere absolute = sphere_source.get(); // like the lamp faces
             for (int k = 0; k < 3; ++k)
-                draw.sphere.center[k] += origin_[k];
+                absolute.center[k] += origin_[k];
+            if (lamps_.reaches(absolute.center, absolute.radius))
+            {
+                draw.lamp_caster = draw.caster = true;
+                draw.sphere = absolute;
+            }
         }
     }
     if (ao || lamp_on)
@@ -406,6 +420,7 @@ void Lighting::prepare(const shim::Device &device, const shim::LayoutInfo &layou
         u[2][3] = 0.0f;
     if (!per_pixel || !(flags_ & fx::kLightingRim))
         u[5][1] = 0.0f;
+    u[5][0] *= relief_fade;
     const bool relief = bgfx::isValid(normal_map) && u[5][0] > 0.0f;
     draw.ff = {two_sided && u[2][3] > 0.0f ? 1.0f : 0.0f, relief ? static_cast<float>(relief_stage) : 0.0f, 0.0f, 0.0f};
     if (relief)
@@ -424,6 +439,7 @@ void Lighting::prepare(const shim::Device &device, const shim::LayoutInfo &layou
             // Lights left out stay in the vertex sum, so the choice is not faded; it depends only on where the
             // draw's vertices and the lights are. Without positions the model origin stands for the draw.
             const D3DMATRIX &w = device.s.world;
+            const DrawSphere &sphere = sphere_source.get();
             const fx::Vec3 center = sphere.valid ? sphere.center : fx::Vec3{w.m[3][0], w.m[3][1], w.m[3][2]};
             if (!sphere.valid && !bounds_reported_)
             {
@@ -448,9 +464,12 @@ void Lighting::prepare(const shim::Device &device, const shim::LayoutInfo &layou
             memcpy(draw.view.data(), &device.s.view.m[0][0], sizeof(float) * 16);
             draw.shadow = draw.sun_caster = shadows_.prepare(draw.view);
             draw.caster |= draw.sun_caster;
-            if (draw.shadow && sphere.valid && shadows_.has_ground())
+            if (draw.shadow && shadows_.has_ground() && sphere_source.get().valid)
+            {
+                const DrawSphere &sphere = sphere_source.get();
                 draw.ground_sun = shadows_.ground_sun({sphere.center[0] + origin_[0], sphere.center[1] + origin_[1],
                                                        sphere.center[2] + origin_[2]}); // the lightmaps are absolute
+            }
         }
         // How the draw's material casts (effects/casters.hpp): cut where the colour pass's alpha test discards,
         // nothing for a blended material that writes no depth.

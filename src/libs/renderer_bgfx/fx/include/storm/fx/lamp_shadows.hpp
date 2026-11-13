@@ -79,10 +79,27 @@ struct RoomLight
 RoomLight BuildRoomLight(std::span<const Vec3> positions, std::span<const uint32_t> colors, std::span<const uint32_t> indices,
                          Vec3 lo, Vec3 hi, float cell, float cell_y, int max_cells_xz, int max_cells_y);
 
-// The triangles (index triples of `indices`) that can cast a shadow of a lamp at `center` lighting `radius` metres:
-// those whose bounding sphere touches that sphere. Returned as an index list of its own.
-std::vector<uint32_t> TrianglesInSphere(std::span<const Vec3> positions, std::span<const uint32_t> indices, Vec3 center,
-                                        float radius);
+// The triangles of a place by where they are, so the ones around a lamp are found without walking all of them (a lamp
+// that takes a slot, a carried lantern every frame it moves): a grid of cells of `cell` metres over the triangles'
+// bounds (at most kTriangleGridCells per axis; larger places get larger cells), each listing the triangles whose
+// bounding box touches it.
+inline constexpr int kTriangleGridCells = 48;
+struct TriangleGrid
+{
+    std::array<int, 3> size{0, 0, 0};
+    Vec3 lo{0.0f, 0.0f, 0.0f};
+    Vec3 cell{1.0f, 1.0f, 1.0f};
+    std::vector<uint32_t> first;     // per cell (x fastest, then y, then z): where its list starts in `triangles`; one extra at the end
+    std::vector<uint32_t> triangles; // triangle numbers (index triple t is indices[3 t .. 3 t + 2])
+    std::vector<std::array<Vec3, 2>> box; // per triangle: its bounding box (lo > hi: a triangle with a bad index)
+    size_t count = 0;                // triangles
+};
+TriangleGrid BuildTriangleGrid(std::span<const Vec3> positions, std::span<const uint32_t> indices, float cell);
+// The triangles (as index triples of `indices`, in the order of `indices`) that can cast a shadow of a lamp at
+// `center` lighting `radius` metres: those whose bounding box touches that sphere. Appended to `out`; `seen` is
+// scratch memory the caller keeps between calls.
+void TrianglesInSphere(const TriangleGrid &grid, std::span<const uint32_t> indices, Vec3 center, float radius,
+                       std::vector<uint32_t> &out, std::vector<uint32_t> &seen);
 
 struct CubeFace
 {

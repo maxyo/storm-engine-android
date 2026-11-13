@@ -240,6 +240,86 @@ void Device::set_uniform(UniformId id, const float *data, uint16_t count)
     uniforms_changed = true;
 }
 
+// Buffers drawn in a later frame than they were written in. Written once so far: an immutable static buffer. Written
+// again: a dedicated dynamic buffer (own GL buffer, so the layouts the game draws it with keep their offsets; bgfx
+// pools other dynamic buffers at offsets of the creation stride), and every later rewrite updates the written range in
+// place. Re-creating a static buffer for each rewrite made a new bgfx handle, a GL buffer and its allocation each time.
+namespace
+{
+// A dedicated GL buffer: bgfx gives buffers with a compute flag their own (bgfx_p.h allocVertexBuffer); the GL
+// backend creates such a buffer exactly like any other.
+constexpr uint16_t kDedicated = BGFX_BUFFER_COMPUTE_READ;
+} // namespace
+
+void Device::upload_buffer(VertexBuffer &vb)
+{
+    const bool fresh = !bgfx::isValid(vb.handle) && !bgfx::isValid(vb.dynamic);
+    if (!fresh && vb.dirty_begin >= vb.dirty_end)
+        return;
+    const uint32_t size = static_cast<uint32_t>(vb.shadow.size());
+    if (fresh)
+    {
+        vb.handle = bgfx::createVertexBuffer(bgfx::copy(vb.shadow.data(), size), byte_layout);
+        ++perf().buffer_creates;
+        perf().buffer_upload_bytes += size;
+    }
+    else if (bgfx::isValid(vb.handle))
+    {
+        bgfx::destroy(vb.handle);
+        vb.handle = BGFX_INVALID_HANDLE;
+        vb.dynamic = bgfx::createDynamicVertexBuffer(bgfx::copy(vb.shadow.data(), size), byte_layout, kDedicated);
+        ++perf().buffer_creates;
+        perf().buffer_upload_bytes += size;
+    }
+    else
+    {
+        const uint32_t begin = vb.dirty_begin, end = std::min(vb.dirty_end, size);
+        bgfx::update(vb.dynamic, begin, bgfx::copy(vb.shadow.data() + begin, end - begin)); // byte layout: vertex = byte
+        perf().buffer_upload_bytes += end - begin;
+    }
+    ++perf().buffer_uploads;
+    perf_resize(&render::PerfCounters::buffer_gpu_bytes, vb.gpu_bytes, size);
+    vb.gpu_bytes = size;
+    vb.dirty_begin = UINT32_MAX;
+    vb.dirty_end = 0;
+}
+
+void Device::upload_buffer(IndexBuffer &ib, bool index32)
+{
+    const bool fresh = !bgfx::isValid(ib.handle) && !bgfx::isValid(ib.dynamic);
+    if (!fresh && ib.dirty_begin >= ib.dirty_end)
+        return;
+    const uint32_t size = static_cast<uint32_t>(ib.shadow.size());
+    const uint16_t format = index32 ? BGFX_BUFFER_INDEX32 : BGFX_BUFFER_NONE;
+    if (fresh)
+    {
+        ib.handle = bgfx::createIndexBuffer(bgfx::copy(ib.shadow.data(), size), format);
+        ++perf().buffer_creates;
+        perf().buffer_upload_bytes += size;
+    }
+    else if (bgfx::isValid(ib.handle))
+    {
+        bgfx::destroy(ib.handle);
+        ib.handle = BGFX_INVALID_HANDLE;
+        ib.dynamic = bgfx::createDynamicIndexBuffer(bgfx::copy(ib.shadow.data(), size), format | kDedicated);
+        ++perf().buffer_creates;
+        perf().buffer_upload_bytes += size;
+    }
+    else
+    {
+        const uint32_t index_size = index32 ? 4 : 2;
+        const uint32_t begin = ib.dirty_begin / index_size * index_size;
+        const uint32_t end = std::min((ib.dirty_end + index_size - 1) / index_size * index_size, size);
+        bgfx::update(ib.dynamic, begin / index_size, bgfx::copy(ib.shadow.data() + begin, end - begin));
+        perf().buffer_upload_bytes += end - begin;
+    }
+    ++perf().buffer_uploads;
+    perf_resize(&render::PerfCounters::buffer_gpu_bytes, ib.gpu_bytes, size);
+    ib.gpu_bytes = size;
+    ib.dirty_begin = UINT32_MAX;
+    ib.dirty_end = 0;
+}
+
 void Device::forget_transient(const VertexBuffer *vb)
 {
     std::erase_if(transient_ranges, [vb](const TransientRange &r) { return r.vb == vb; });
@@ -786,12 +866,16 @@ HRESULT Device::GetPixelShader(PixelShader **shader)
 
 bool Device::prepare_program(uint32_t vs_id, uint32_t fs_id, int &budget)
 {
-    if (programs.contains({vs_id, fs_id}))
-        return true;
-    if (budget <= 0)
-        return false;
-    program(vs_id, fs_id); // logs a failure
-    --budget;
+    if (!programs.contains({vs_id, fs_id}))
+    {
+        if (budget <= 0)
+            return false;
+        program(vs_id, fs_id); // logs a failure
+        --budget;
+    }
+    // The draws of the same programs without clip plane and alpha test use the opaque twin (draw()).
+    if (const uint32_t twin = opaque_twin(fs_id); twin != UINT32_MAX && !programs.contains({vs_id, twin}))
+        return prepare_program(vs_id, twin, budget);
     return true;
 }
 
@@ -884,12 +968,25 @@ bool Device::draw_bounds(const DrawCall &call, const LayoutInfo &layout, uint32_
                 return true;
             }
     }
-    // Box centre, then the farthest vertex from it.
+    // Box centre, then the farthest vertex from it. Float positions (all the game's layouts) are read in place;
+    // bgfx::vertexUnpack (format conversion per vertex) only for the others.
     float lo[3] = {FLT_MAX, FLT_MAX, FLT_MAX}, hi[3] = {-FLT_MAX, -FLT_MAX, -FLT_MAX};
+    uint8_t components = 0;
+    bgfx::AttribType::Enum type = bgfx::AttribType::Float;
+    bool normalized = false, as_int = false;
+    vl.decode(bgfx::Attrib::Position, components, type, normalized, as_int);
+    const bool floats = type == bgfx::AttribType::Float && components >= 3;
+    const uint8_t *position = data + vl.getOffset(bgfx::Attrib::Position) + static_cast<size_t>(first) * stride;
+    const auto read = [&](uint32_t i, float p[4]) {
+        if (floats)
+            memcpy(p, position + static_cast<size_t>(i) * stride, sizeof(float) * 3);
+        else
+            bgfx::vertexUnpack(p, bgfx::Attrib::Position, vl, data, first + i);
+    };
     float p[4];
     for (uint32_t i = 0; i < count; ++i)
     {
-        bgfx::vertexUnpack(p, bgfx::Attrib::Position, vl, data, first + i);
+        read(i, p);
         for (int k = 0; k < 3; ++k)
         {
             lo[k] = std::min(lo[k], p[k]);
@@ -901,7 +998,7 @@ bool Device::draw_bounds(const DrawCall &call, const LayoutInfo &layout, uint32_
         center[k] = 0.5f * (lo[k] + hi[k]);
     for (uint32_t i = 0; i < count; ++i)
     {
-        bgfx::vertexUnpack(p, bgfx::Attrib::Position, vl, data, first + i);
+        read(i, p);
         const float dx = p[0] - center[0], dy = p[1] - center[1], dz = p[2] - center[2];
         r2 = std::max(r2, dx * dx + dy * dy + dz * dz);
     }
@@ -1076,20 +1173,34 @@ HRESULT Device::draw(const DrawCall &call)
     effects::FfDraw fx_draw;
     if (!vs_port && !ps_port && fs_variant != 4 && !fx_lighting.idle())
     {
-        // The lights are chosen for the part of the world the draw covers (its vertices' sphere in world space).
-        effects::DrawSphere sphere;
-        float center[3], radius = 0.0f;
-        if (draw_bounds(call, *layout, element_count, center, radius))
+        // The lights are chosen for the part of the world the draw covers (its vertices' sphere in world space),
+        // computed only when prepare() needs it (effects::DrawSphereSource).
+        struct SphereContext
         {
-            const D3DMATRIX &w = s.world;
-            for (int k = 0; k < 3; ++k)
-                sphere.center[k] = center[0] * w.m[0][k] + center[1] * w.m[1][k] + center[2] * w.m[2][k] + w.m[3][k];
-            float scale = 0.0f;
-            for (int r = 0; r < 3; ++r)
-                scale = std::max(scale, std::sqrt(w.m[r][0] * w.m[r][0] + w.m[r][1] * w.m[r][1] + w.m[r][2] * w.m[r][2]));
-            sphere.radius = radius * scale;
-            sphere.valid = true;
-        }
+            Device *device;
+            const DrawCall *call;
+            const LayoutInfo *layout;
+            uint32_t element_count;
+        } sphere_context{this, &call, layout, element_count};
+        const effects::DrawSphereSource sphere(
+            [](const void *context) {
+                const auto &c = *static_cast<const SphereContext *>(context);
+                effects::DrawSphere result;
+                float center[3], radius = 0.0f;
+                if (c.device->draw_bounds(*c.call, *c.layout, c.element_count, center, radius))
+                {
+                    const D3DMATRIX &w = c.device->s.world;
+                    for (int k = 0; k < 3; ++k)
+                        result.center[k] = center[0] * w.m[0][k] + center[1] * w.m[1][k] + center[2] * w.m[2][k] + w.m[3][k];
+                    float scale = 0.0f;
+                    for (int r = 0; r < 3; ++r)
+                        scale = std::max(scale, std::sqrt(w.m[r][0] * w.m[r][0] + w.m[r][1] * w.m[r][1] + w.m[r][2] * w.m[r][2]));
+                    result.radius = radius * scale;
+                    result.valid = true;
+                }
+                return result;
+            },
+            &sphere_context);
         fx_lighting.prepare(*this, *layout, fs_variant, sphere, fx_draw);
     }
     if (layout->skinned && (vs_port || !store_of(s.vertex_texture)))
@@ -1110,7 +1221,13 @@ HRESULT Device::draw(const DrawCall &call)
             return D3D_OK;
         }
     }
-    const uint32_t fs_id = ps_port ? s.ps->port->shader_id() : fx_draw.active ? fx_draw.fs_id : id_fs_ff[fs_variant];
+    uint32_t fs_id = ps_port ? s.ps->port->shader_id() : fx_draw.active ? fx_draw.fs_id : id_fs_ff[fs_variant];
+    // Nothing of this draw can be discarded (no user clip plane, no alpha test): its shader's opaque twin, which
+    // keeps early depth and the tile GPUs' hidden-surface removal (ff_finish.sh FF_OPAQUE).
+    if (!ps_port && !(s.rs[D3DRS_CLIPPLANEENABLE] & 1) &&
+        !(s.rs[D3DRS_ALPHATESTENABLE] && s.rs[D3DRS_ALPHAFUNC] != D3DCMP_ALWAYS))
+        if (const uint32_t twin = opaque_twin(fs_id); twin != UINT32_MAX)
+            fs_id = twin;
     const bgfx::ProgramHandle handle = program(vs_id, fs_id);
     if (!bgfx::isValid(handle))
     {
@@ -1261,24 +1378,13 @@ HRESULT Device::draw(const DrawCall &call)
         for (uint32_t i = 0; i < layout->stream_count; ++i)
         {
             VertexBuffer *vb = s.stream[i];
-            // bgfx sub-allocates dynamic buffers from shared pools, which breaks layout aliasing;
-            // a stable buffer is therefore an immutable snapshot that is replaced when it goes stale.
-            if (!bgfx::isValid(vb->handle) || vb->dirty_begin < vb->dirty_end)
-            {
-                if (bgfx::isValid(vb->handle))
-                    bgfx::destroy(vb->handle);
-                vb->handle = bgfx::createVertexBuffer(
-                    bgfx::copy(vb->shadow.data(), static_cast<uint32_t>(vb->shadow.size())), byte_layout);
-                ++perf().buffer_uploads;
-                perf().buffer_upload_bytes += vb->shadow.size();
-                perf_resize(&render::PerfCounters::buffer_gpu_bytes, vb->gpu_bytes, vb->shadow.size());
-                vb->gpu_bytes = vb->shadow.size();
-                vb->dirty_begin = UINT32_MAX;
-                vb->dirty_end = 0;
-            }
+            upload_buffer(*vb);
             const uint32_t start = s.stream_offset[i] / layout->stride[i] + first_vertex;
-            bgfx::setVertexBuffer(static_cast<uint8_t>(i), vb->handle, start, call.indexed ? UINT32_MAX : vertex_count,
-                                  layout->handle[i]);
+            const uint32_t count = call.indexed ? UINT32_MAX : vertex_count;
+            if (bgfx::isValid(vb->handle))
+                bgfx::setVertexBuffer(static_cast<uint8_t>(i), vb->handle, start, count, layout->handle[i]);
+            else
+                bgfx::setVertexBuffer(static_cast<uint8_t>(i), vb->dynamic, start, count, layout->handle[i]);
         }
     }
 
@@ -1322,20 +1428,11 @@ HRESULT Device::draw(const DrawCall &call)
     }
     else if (call.indexed)
     {
-        if (!bgfx::isValid(ib->handle) || ib->dirty_begin < ib->dirty_end)
-        {
-            if (bgfx::isValid(ib->handle))
-                bgfx::destroy(ib->handle);
-            ib->handle = bgfx::createIndexBuffer(bgfx::copy(ib->shadow.data(), static_cast<uint32_t>(ib->shadow.size())),
-                                                 index32 ? BGFX_BUFFER_INDEX32 : BGFX_BUFFER_NONE);
-            ++perf().buffer_uploads;
-            perf().buffer_upload_bytes += ib->shadow.size();
-            perf_resize(&render::PerfCounters::buffer_gpu_bytes, ib->gpu_bytes, ib->shadow.size());
-            ib->gpu_bytes = ib->shadow.size();
-            ib->dirty_begin = UINT32_MAX;
-            ib->dirty_end = 0;
-        }
-        bgfx::setIndexBuffer(ib->handle, call.start_index, element_count);
+        upload_buffer(*ib, index32);
+        if (bgfx::isValid(ib->handle))
+            bgfx::setIndexBuffer(ib->handle, call.start_index, element_count);
+        else
+            bgfx::setIndexBuffer(ib->dynamic, call.start_index, element_count);
     }
 
     // ---- textures ----
@@ -1380,10 +1477,33 @@ HRESULT Device::draw(const DrawCall &call)
 
     if (layout->skinned)
     {
+        // The frame's palettes share one texture (bone_palettes.hpp): this palette's rows at an offset.
         TexStore *palette = store_of(s.vertex_texture);
-        palette->sync();
-        bgfx::setTexture(static_cast<uint8_t>(kBonePaletteUnit), Context::instance().sampler(kBonePaletteUnit),
-                         palette->handle, BGFX_SAMPLER_POINT | BGFX_SAMPLER_UVW_CLAMP);
+        BonePalettes &palettes = Context::instance().bone_palettes();
+        const uint32_t row = palettes.place(*palette);
+        bgfx::TextureHandle texture = palettes.texture();
+        if (row == UINT32_MAX)
+        {
+            // The frame's atlas is full (logged once): the palette's own texture, uploaded as before.
+            palette->any_dirty = palette->sub(0, 0).dirty = true;
+            palette->sync();
+            texture = palette->handle;
+        }
+        // The first row as instance data of one instance (ff_skin.sh i_data0): a uniform here re-committed the
+        // program's whole uniform block for every skinned draw (bgfx GL commits all of a program's uniforms on a
+        // change). Kept for the casters submitted after this draw (BGFX_DISCARD_NONE).
+        if (bgfx::getAvailInstanceDataBuffer(1, 16) < 1)
+        {
+            skip_draw("transient budget exhausted for a skinned draw's palette row");
+            return D3D_OK;
+        }
+        bgfx::InstanceDataBuffer instance;
+        bgfx::allocInstanceDataBuffer(&instance, 1, 16);
+        const float base[4] = {row == UINT32_MAX ? 0.0f : static_cast<float>(row), 0.0f, 0.0f, 0.0f};
+        memcpy(instance.data, base, sizeof(base));
+        bgfx::setInstanceDataBuffer(&instance);
+        bgfx::setTexture(static_cast<uint8_t>(kBonePaletteUnit), Context::instance().sampler(kBonePaletteUnit), texture,
+                         BGFX_SAMPLER_POINT | BGFX_SAMPLER_UVW_CLAMP);
         ++perf().texture_binds;
     }
 

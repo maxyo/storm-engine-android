@@ -1,5 +1,6 @@
 #pragma once
 #include "android_gameplay.hpp"
+#include "android_hud_refresh.hpp"
 #include <array>
 #include <cmath>
 #include <limits>
@@ -210,8 +211,25 @@ public:
 
 };
 inline LandCommandsState landCommands;
+// What can change the command list without time passing, read natively each loop iteration
+// (android_hud_refresh.hpp). The script's own answer (dialog/officer/body targets, which
+// commands are possible) also follows the player's movement: that part is re-read per period.
+struct LandRefreshSignal
+{
+    bool ready = false;
+    uint64_t owner = 0, player = 0, location = 0; // entity ids: a scene change or a loaded save
+    bool menuActive = false;                      // the native menu opened or closed (ComState)
+    std::string reload;                           // the reload locator the player waits in (a door)
+    bool operator==(const LandRefreshSignal &) const = default;
+};
+// 100 ms: the menu sheet and its taps follow the scripts within a few frames; a tap is
+// checked against a fresh read anyway (executeLandCommand).
+inline HudRefreshPolicy<LandRefreshSignal> landRefresh{100};
 // Defined by battle_interface. All entry points run on the game thread and
 // resolve the live entity on each call; no retained pointers cross a frame.
+// The main loop's entry: refreshes when landRefresh says so.
+void pollLandCommands(bool ready, uint32_t tick);
+// Asks the scripts now.
 void refreshLandCommands(bool ready);
 bool executeLandCommand(const LandCommandsRequest &request);
 void closeLandCommands();

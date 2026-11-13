@@ -79,6 +79,7 @@ PerfCounters PerfCounters::Since(const PerfCounters &start) const
     d.fan_draws -= start.fan_draws;
     d.buffer_uploads -= start.buffer_uploads;
     d.buffer_upload_bytes -= start.buffer_upload_bytes;
+    d.buffer_creates -= start.buffer_creates;
     d.texture_uploads -= start.texture_uploads;
     d.texture_upload_bytes -= start.texture_upload_bytes;
     d.shim_ms -= start.shim_ms;
@@ -99,12 +100,12 @@ std::string PerfCounters::Summary() const
     snprintf(text, sizeof(text),
              "draws=%.1f skipped=%.1f views=%.1f programs=%.1f states=%.1f uniforms=%.1f uniform_kb=%.1f "
              "uniform_draws=%.1f commit_kb=%.1f tex_binds=%.1f tex_changes=%.1f tvb_kb=%.1f tib_kb=%.1f fans=%.1f buf_uploads=%.2f "
-             "buf_kb=%.1f tex_uploads=%.2f tex_kb=%.1f shim_ms=%.3f backend_ms=%.3f gpu_ms=%.3f tex_mb=%.1f rt_mb=%.1f "
+             "buf_kb=%.1f buf_creates=%.2f tex_uploads=%.2f tex_kb=%.1f shim_ms=%.3f backend_ms=%.3f gpu_ms=%.3f tex_mb=%.1f rt_mb=%.1f "
              "tex_shadow_mb=%.1f buf_shadow_mb=%.1f buf_gpu_mb=%.1f tvb_max_kb=%.0f tib_max_kb=%.0f",
              mean(draws), mean(skipped_draws), mean(views), mean(program_changes), mean(state_changes),
              mean(uniform_updates), kb(uniform_bytes), mean(uniform_draws), kb(uniform_commit_bytes), mean(texture_binds), mean(texture_changes),
              kb(transient_vb_bytes), kb(transient_ib_bytes), mean(fan_draws), mean(buffer_uploads),
-             kb(buffer_upload_bytes), mean(texture_uploads), kb(texture_upload_bytes), shim_ms / n, backend_ms / n,
+             kb(buffer_upload_bytes), mean(buffer_creates), mean(texture_uploads), kb(texture_upload_bytes), shim_ms / n, backend_ms / n,
              gpu_frames ? gpu_ms / static_cast<double>(gpu_frames) : 0.0, texture_memory / 1048576.0,
              render_target_memory / 1048576.0, texture_shadow_bytes / 1048576.0, buffer_shadow_bytes / 1048576.0,
              buffer_gpu_bytes / 1048576.0, transient_vb_frame_max / 1024.0, transient_ib_frame_max / 1024.0);

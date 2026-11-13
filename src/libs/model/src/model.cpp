@@ -1,6 +1,9 @@
 #include "core.h"
 #include "entity.h"
 #include "modelr.h"
+#include "skinned_trace.hpp"
+
+#include <algorithm>
 #include "shared/messages.h"
 #include "legacy_dynamic_vertex_stream.hpp"
 #include "skinning.hpp"
@@ -32,7 +35,7 @@ MODELR::~MODELR()
         delete aniVerts[i].v;
     delete ani;
 
-    delete idxBuff;
+    delete[] idxBuff;
 }
 
 bool MODELR::Init()
@@ -451,51 +454,23 @@ float MODELR::Trace(const glm::vec3 &src, const glm::vec3 &dst)
             if (idx == nullptr)
                 return 0.;
 
-            int nt = 0;
+            // A CPU copy of the index ranges of the objects (GEOS::OBJECT::striangle counts triangles).
             root->geo->GetInfo(gi);
-            for (int32_t vb = 0; vb < gi.nvrtbuffs; vb++)
+            int32_t end = 0;
+            for (int32_t o = 0; o < gi.nobjects; o++)
             {
-                int32_t avb = root->geo->GetVertexBuffer(vb);
-                VGEOMETRY::ANIMATION_VB gavb = GeometyService->GetAnimationVBDesc(avb);
-                auto *gsrc = static_cast<GEOS::AVERTEX0 *>(gavb.buff);
-
-                // for all objects that refers to this vertexBuffer
-                for (int32_t o = 0; o < gi.nobjects; o++)
-                {
-                    GEOS::OBJECT go;
-                    root->geo->GetObj(o, go);
-                    if (go.vertex_buff != static_cast<uint32_t>(avb))
-                        continue;
-
-                    nt += go.ntriangles;
-                }
+                GEOS::OBJECT go;
+                root->geo->GetObj(o, go);
+                end = std::max(end, storm::model::triangleIndex({go.striangle, go.ntriangles, 0}, go.ntriangles));
             }
-
-            idxBuff = new unsigned short[nt * 3];
-            for (int32_t vb = 0; vb < gi.nvrtbuffs; vb++)
+            idxBuff = new unsigned short[std::max(end, 1)];
+            std::fill(idxBuff, idxBuff + std::max(end, 1), static_cast<unsigned short>(0));
+            for (int32_t o = 0; o < gi.nobjects; o++)
             {
-                int32_t avb = root->geo->GetVertexBuffer(vb);
-                VGEOMETRY::ANIMATION_VB gavb = GeometyService->GetAnimationVBDesc(avb);
-                auto *gsrc = static_cast<GEOS::AVERTEX0 *>(gavb.buff);
-
-                // for all objects that refers to this vertexBuffer
-                for (int32_t o = 0; o < gi.nobjects; o++)
-                {
-                    GEOS::OBJECT go;
-                    root->geo->GetObj(o, go);
-                    if (go.vertex_buff != static_cast<uint32_t>(avb))
-                        continue;
-
-                    // for all triangles in object
-                    for (int32_t gt = 0; gt < go.ntriangles; gt++)
-                    {
-                        int32_t t = gt * 3 + go.striangle;
-                        // Tomas Moller and Ben Trumbore algorithm
-                        idxBuff[t + 0] = idx[t + 0];
-                        idxBuff[t + 1] = idx[t + 1];
-                        idxBuff[t + 2] = idx[t + 2];
-                    }
-                }
+                GEOS::OBJECT go;
+                root->geo->GetObj(o, go);
+                const int32_t first = storm::model::triangleIndex({go.striangle, go.ntriangles, 0}, 0);
+                std::copy(idx + first, idx + first + go.ntriangles * 3, idxBuff + first);
             }
             rs->UnLockIndexBuffer(root->geo->GetIndexBuffer());
         }
@@ -531,33 +506,8 @@ float MODELR::Trace(const glm::vec3 &src, const glm::vec3 &dst)
                 if (go.vertex_buff != static_cast<uint32_t>(avb))
                     continue;
 
-                // for all triangles in object
-                for (int32_t gt = 0; gt < go.ntriangles; gt++)
-                {
-                    int32_t t = gt * 3 + go.striangle;
-                    // Tomas Moller and Ben Trumbore algorithm
-                    glm::vec3 a = cold[idxBuff[t + 1] + go.start_vertex] - cold[idxBuff[t + 0] + go.start_vertex];
-                    glm::vec3 b = cold[idxBuff[t + 2] + go.start_vertex] - cold[idxBuff[t + 0] + go.start_vertex];
-                    glm::vec3 pvec = glm::cross(dirvec, b);
-                    float det = glm::dot(a, pvec);
-                    float invdet = 1.0f / det;
-
-                    glm::vec3 c = _src - cold[idxBuff[t + 0] + go.start_vertex];
-                    float U = glm::dot(c, pvec) * invdet;
-                    if (U < 0.0f || U > 1.0)
-                        continue;
-
-                    glm::vec3 qvec = glm::cross(c, a);
-                    float V = glm::dot(dirvec, qvec) * invdet;
-                    if (V < 0.0f || U + V > 1.0)
-                        continue;
-
-                    float d = glm::dot(b, qvec) * invdet;
-                    if (d >= 0.0f && d <= 1.0 && d < bd)
-                    {
-                        bd = d;
-                    }
-                }
+                bd = storm::model::traceObject(idxBuff, cold, {go.striangle, go.ntriangles, static_cast<int32_t>(go.start_vertex)},
+                                               _src, dirvec, bd);
             }
         }
 

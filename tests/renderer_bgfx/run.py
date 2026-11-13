@@ -45,18 +45,20 @@ subprocess.run(configure, check=True, stdout=subprocess.DEVNULL)
 warmth = here.parents[1] / 'tools/ccache/warmth'
 subprocess.run([str(warmth), 'begin', str(build)], check=True)
 subprocess.run(['cmake', '--build', str(build), '--target', 'storm_bgfx', 'storm_texture_tests', 'perf_check', 'skinning_check',
-                'preset_switch_check', 'program_cache_check', 'storm_fx_core_check', 'ao_volume_check',
-                'storm_relief_check', 'cutout_caster_check'], check=True)
+                'preset_switch_check', 'sea_edge_check', 'program_cache_check', 'storm_fx_core_check', 'ao_volume_check',
+                'storm_relief_check', 'cutout_caster_check', 'relief_switch_check'], check=True)
 subprocess.run([str(warmth), 'end', str(build)], check=True)
 subprocess.run([str(build / 'renderer_bgfx' / 'storm_texture_tests')], check=True)
 subprocess.run([str(build / 'perf_check')], check=True)
 subprocess.run([str(build / 'skinning_check')], check=True)
 subprocess.run([str(build / 'preset_switch_check')], check=True)
+subprocess.run([str(build / 'sea_edge_check')], check=True)
 subprocess.run([str(build / 'program_cache_check')], check=True)
 subprocess.run([str(build / 'renderer_bgfx' / 'fx' / 'storm_fx_core_check')], check=True)
 subprocess.run([str(build / 'ao_volume_check')], check=True)
 subprocess.run([str(build / 'cutout_caster_check')], check=True)
+subprocess.run([str(build / 'relief_switch_check')], check=True)
 subprocess.run([str(build / 'relief' / 'storm_relief_check'), (build / 'deepbump_model_path.txt').read_text()], check=True)
-print('PASS: storm_bgfx builds; storm_texture_tests; perf_check; skinning_check; preset_switch_check; program_cache_check; '
-      'fx core_check; ao_volume_check; cutout_caster_check; relief_check',
+print('PASS: storm_bgfx builds; storm_texture_tests; perf_check; skinning_check; preset_switch_check; sea_edge_check; program_cache_check; '
+      'fx core_check; ao_volume_check; cutout_caster_check; relief_switch_check; relief_check',
       flush=True)

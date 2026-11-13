@@ -228,7 +228,7 @@ entity_container_cref EntityManager::GetEntityIds(const layer_type_t type) const
 
     for (auto it = std::begin(layers_); it != std::end(layers_); ++it)
     {
-        if (it->frozen)
+        if (it->frozen || it->held)
         {
             continue;
         }
@@ -343,6 +343,13 @@ void EntityManager::SetLayerFrozen(const layer_index_t index, const bool freeze)
     assert(index < kMaxLayerNum);
 
     layers_[index].frozen = freeze;
+}
+
+void EntityManager::SetLayerHeld(const layer_index_t index, const bool held)
+{
+    assert(index < kMaxLayerNum);
+
+    layers_[index].held = held;
 }
 
 bool EntityManager::IsLayerFrozen(const layer_index_t index) const

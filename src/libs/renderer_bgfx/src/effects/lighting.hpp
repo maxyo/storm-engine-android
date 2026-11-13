@@ -67,6 +67,30 @@ struct DrawSphere
     bool valid = false;
 };
 
+// A draw's sphere computed when prepare() first needs it (perf audit finding 9: walking the vertices of every dynamic
+// lit draw cost 12-14 % of the engine's CPU at sea, where most draws choose no point lights).
+class DrawSphereSource
+{
+  public:
+    using Compute = DrawSphere (*)(const void *context);
+    DrawSphereSource(Compute compute, const void *context) : compute_(compute), context_(context) {}
+    const DrawSphere &get() const
+    {
+        if (!computed_)
+        {
+            sphere_ = compute_(context_);
+            computed_ = true;
+        }
+        return sphere_;
+    }
+
+  private:
+    Compute compute_;
+    const void *context_;
+    mutable DrawSphere sphere_;
+    mutable bool computed_ = false;
+};
+
 struct FfDraw
 {
     bool active = false;      // a variant below replaces the legacy program
@@ -114,8 +138,8 @@ class Lighting
     bool idle() const { return !lighting_ && !coverage_; }
 
     // Fixed-function draw (no shader ports). `cube_variant` = the fs_ff_cube* variant the shim picked (0 = none).
-    void prepare(const shim::Device &device, const shim::LayoutInfo &layout, uint32_t cube_variant, const DrawSphere &sphere,
-                 FfDraw &draw);
+    void prepare(const shim::Device &device, const shim::LayoutInfo &layout, uint32_t cube_variant,
+                 const DrawSphereSource &sphere_source, FfDraw &draw);
     void submit(const FfDraw &draw);
     // Fog of a draw with fog enabled in D3DFOG_EXP mode (the game's): true when it takes the aerial perspective (fog
     // mode 5); u_fxAerialUp is then set for that draw and `haze` goes where fog mode 5 reads it (the fog start and end
@@ -179,6 +203,7 @@ class Lighting
     bool technique_set_ = false;
     std::vector<fx::PointLight> dynamic_lights_;        // absolute world
     std::vector<fx::PointLight> device_dynamic_lights_; // the same in the device's camera-relative world
+    std::vector<fx::PointLight> candidate_lights_; // ... those a baked draw may take (scratch of prepare())
     bool device_lights_origin_valid_ = false;
     std::array<float, 3> origin_{};
     bool dynamic_lights_this_frame_ = false;

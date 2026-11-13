@@ -29,6 +29,7 @@ class EntityManager final
     void EraseAll();
     void SetLayerType(layer_index_t index, layer_type_t type);
     void SetLayerFrozen(layer_index_t index, bool freeze);
+    void SetLayerHeld(layer_index_t index, bool held);
     void NewLifecycle();
     void ForEachEntity(const std::function<void(entptr_t)> &f);
 
@@ -66,6 +67,7 @@ class EntityManager final
 
         layer_type_t type;
         bool frozen;
+        bool held = false; // skipped like a frozen layer, set by the engine (not the scripts): SetLayerHeld
     };
 
     static bool EntIdxValid(size_t idx);

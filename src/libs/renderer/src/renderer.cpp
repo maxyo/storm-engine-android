@@ -19,6 +19,8 @@
 #include "debug-trap.h"
 #include "string_compare.hpp"
 #include "storm/render/d3d_interop.hpp"
+#include "storm/render/frame_owner.hpp"
+#include "scene_hold.hpp"
 #include "storm/render/effects.hpp"
 #include "storm/render/frame_rate.hpp"
 #include "storm/render/perf_stats.hpp"
@@ -27,8 +29,11 @@
 
 #include <algorithm>
 #include <cstring>
+#include <fstream>
 #include <functional>
+#include <iterator>
 #include <map>
+#include <SDL_rwops.h>
 #include <SDL_timer.h>
 
 
@@ -610,21 +615,44 @@ bool Renderer::Init()
 #endif
         storm::render::ConfigureProgramCache(programCache);
 
-        // Relief maps (fx/relief_store.hpp): made from the game's files at import (Android launcher: the app's external
-        // files directory, or the internal one, + "relief", the same rule as the launcher's NativeRelief call), never
-        // shipped. engine.ini relief_dir overrides (host checks with prepared maps).
+        // Relief maps (fx/relief_store.hpp): made by DeepBump in the game process from the game's own files, never
+        // shipped; kept in the app's external files directory (or the internal one) + "relief" on Android, the stash
+        // elsewhere. engine.ini relief_dir overrides (host checks with prepared maps). The model: the APK asset on
+        // Android, engine.ini relief_model on the host (none: no maps are made, logged).
+        storm::render::ReliefConfig relief;
         ini->ReadString(nullptr, "relief_dir", str, sizeof(str), "");
-        std::filesystem::path reliefDir = str;
-        if (reliefDir.empty())
-        {
+        relief.directory = std::filesystem::u8path(str);
+        relief.textures = std::filesystem::u8path(fio->ConvertPathResource("resource\\textures"));
 #ifdef __ANDROID__
+        if (relief.directory.empty())
+        {
             const char *external = SDL_AndroidGetExternalStoragePath();
-            reliefDir = std::filesystem::path(external && *external ? external : SDL_AndroidGetInternalStoragePath()) / "relief";
-#else
-            reliefDir = fs::GetStashPath() / "relief";
-#endif
+            relief.directory =
+                std::filesystem::path(external && *external ? external : SDL_AndroidGetInternalStoragePath()) / "relief";
         }
-        storm::render::ConfigureReliefDirectory(reliefDir);
+        relief.model = [] {
+            std::vector<uint8_t> model;
+            if (SDL_RWops *asset = SDL_RWFromFile("deepbump256-int8.onnx", "rb"))
+            {
+                const Sint64 size = SDL_RWsize(asset);
+                model.resize(size > 0 ? static_cast<size_t>(size) : 0);
+                if (model.empty() || SDL_RWread(asset, model.data(), model.size(), 1) != 1)
+                    model.clear();
+                SDL_RWclose(asset);
+            }
+            return model;
+        };
+#else
+        if (relief.directory.empty())
+            relief.directory = fs::GetStashPath() / "relief";
+        ini->ReadString(nullptr, "relief_model", str, sizeof(str), "");
+        if (*str)
+            relief.model = [path = std::filesystem::u8path(str)] {
+                std::ifstream in(path, std::ios::binary);
+                return std::vector<uint8_t>{std::istreambuf_iterator<char>(in), {}};
+            };
+#endif
+        storm::render::ConfigureRelief(relief);
 
         FovMultiplier = ini->GetFloat(nullptr, "fov_multiplier", 1.0f);
 
@@ -796,6 +824,7 @@ bool Renderer::Init()
 //################################################################################
 Renderer::~Renderer()
 {
+    storm::render::ShutdownRelief();
     storm::render::ShutdownTextureCache();
     // d3d9->SetRenderTarget(NULL, NULL); //~!~
 
@@ -1667,7 +1696,8 @@ bool Renderer::TextureLoad(int32_t t)
         }
         Textures[t].d3dtex = tex;
         Textures[t].isCubeMap = false;
-        storm::render::SetEffectsTextureSource(tex, Textures[t].name); // relief (fx normal maps)
+        storm::render::SetEffectsTextureSource(tex, Textures[t].name, // relief (fx normal maps)
+                                               std::filesystem::u8path(fio->ConvertPathResource(fn)));
     }
     else
     {
@@ -2744,6 +2774,11 @@ void Renderer::RunStart()
     if (pendingViewResize_.width > 0)
         ApplyViewResize();
     ReconfigureGraphicsEffects(); // the settings screen stored new preferences
+    // The pause menu covers a paused game: its last 3D frame is presented again instead of drawing the scene every
+    // frame (perf audit F11). The hold begins once the renderer kept a full frame and ends with the menu; a settings
+    // or size change while it lasts is drawn in one full frame, which is kept in its turn.
+    storm::render::HoldGamePicture(storm::android::mobileScreen == "game_menu");
+    storm::core::HoldSceneRealize(storm::render::GamePictureHeld());
 #endif
     // The GPU self-test switched an effect stage off on this device: tell the player once (also logged).
     if (const std::string notice = storm::render::TakeEffectsNotice(); !notice.empty())
@@ -3214,6 +3249,11 @@ HRESULT Renderer::GetViewport(D3DVIEWPORT9 *pViewport)
 HRESULT Renderer::SetViewport(const D3DVIEWPORT9 *pViewport)
 {
     return CHECKD3DERR(d3d9->SetViewport(pViewport));
+}
+
+HRESULT Renderer::SetScissorRect(const RECT *rect)
+{
+    return CHECKD3DERR(d3d9->SetScissorRect(rect));
 }
 
 uint32_t Renderer::SetRenderState(uint32_t State, uint32_t Value)

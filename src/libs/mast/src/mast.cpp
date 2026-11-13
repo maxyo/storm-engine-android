@@ -105,16 +105,6 @@ void MAST::Execute(uint32_t Delta_Time)
 
     if (bUse)
     {
-        // ====================================================
-        // If the ini-file has been changed, read the info from it
-        if (fio->_FileOrDirectoryExists(MAST_INI_FILE))
-        {
-            auto ft_new = fio->_GetLastWriteTime(MAST_INI_FILE);
-            if (ft_old != ft_new)
-            {
-                LoadIni();
-            }
-        }
         doMove(Delta_Time);
         auto *mdl = static_cast<MODEL *>(core.GetEntityPointer(model_id));
         if (mdl)
@@ -427,10 +417,6 @@ void MAST::LoadIni()
     // GUARD(MAST::LoadIni());
     char section[256];
 
-    if (fio->_FileOrDirectoryExists(MAST_INI_FILE))
-    {
-        ft_old = fio->_GetLastWriteTime(MAST_INI_FILE);
-    }
     auto ini = fio->OpenIniFile(MAST_INI_FILE);
     if (!ini)
     {

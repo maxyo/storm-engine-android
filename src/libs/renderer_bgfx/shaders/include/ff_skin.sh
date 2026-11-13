@@ -6,10 +6,14 @@
 // matrix, texel 0 negated (the CPU kernel negates elements 0, 4, 8 and 12 after blending); see
 // src/libs/model/include/skinning_palette.hpp.
 SAMPLER2D(s_bones, 13);
+// The frame's palettes share one texture (renderer_bgfx shim bone_palettes.hpp): the draw's first row comes as
+// instance data (i_data0.x, one instance), so it changes no uniform.
 
 vec4 blendedRow(int row, int bone0, int bone1, float weight)
 {
-    return texelFetch(s_bones, ivec2(row, bone0), 0) * weight + texelFetch(s_bones, ivec2(row, bone1), 0) * (1.0 - weight);
+    int base = int(i_data0.x);
+    return texelFetch(s_bones, ivec2(row, base + bone0), 0) * weight +
+           texelFetch(s_bones, ivec2(row, base + bone1), 0) * (1.0 - weight);
 }
 
 // Position and normal alike, the normal with the translation included (as the CPU kernel did).

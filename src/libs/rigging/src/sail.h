@@ -79,7 +79,6 @@ class SAIL : public SAIL_BASE
     bool bUse;
     VRenderer *RenderService;
     D3DMATERIAL9 mat;
-    std::filesystem::file_time_type ft_old;
     int32_t texl;
     int32_t m_nEmptyGerbTex;
 

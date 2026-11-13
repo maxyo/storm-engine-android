@@ -120,6 +120,20 @@ foreach(suffix _l _s _sl _n _nl _sn _snl _h _lh _sh _slh _nh _nlh _snh _snlh _o 
         list(APPEND ff_fx_variants "fs_ff_baked${suffix}|${CMAKE_CURRENT_SOURCE_DIR}/shaders/fs_ff_baked.sc|${defines}")
     endif()
 endforeach()
+# Opaque twins (FF_OPAQUE, ff_finish.sh without its discards) of every fixed-function fragment shader the shim
+# chooses: draw.cpp uses "<name>_opaque" when the draw has no clip plane and no alpha test, so early depth stays on.
+set(ff_opaque_variants)
+foreach(base fs_ff fs_ff_cube0 fs_ff_cube1 fs_ff_cube2 fs_ff_lit fs_ff_baked)
+    list(APPEND ff_opaque_variants "${base}_opaque|${CMAKE_CURRENT_SOURCE_DIR}/shaders/${base}.sc|FF_OPAQUE")
+endforeach()
+foreach(variant ${ff_fx_variants})
+    string(REPLACE "|" ";" fields "${variant}")
+    list(GET fields 0 name)
+    list(GET fields 1 source)
+    list(GET fields 2 defines)
+    list(APPEND ff_opaque_variants "${name}_opaque|${source}|${defines},FF_OPAQUE")
+endforeach()
+list(APPEND ff_fx_variants ${ff_opaque_variants})
 storm_bgfx_embed_shaders(TARGET storm_bgfx_shaders NAMESPACE storm_shaders
     VARYING "${CMAKE_CURRENT_SOURCE_DIR}/shaders/varying.def.sc" SOURCES ${shader_sources}
     INCLUDES "${CMAKE_CURRENT_SOURCE_DIR}/fx/shaders/include" VARIANTS ${ff_fx_variants})
@@ -159,6 +173,8 @@ find_package(Threads REQUIRED)
 target_link_libraries(storm_texture_core PUBLIC Threads::Threads)
 set_target_properties(storm_texture_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_link_libraries(storm_bgfx PRIVATE storm_texture_core)
+# The relief generation (src/effects/relief_generator.hpp): DeepBump through onnxruntime (src/libs/relief).
+target_link_libraries(storm_bgfx PRIVATE storm_relief_core)
 
 # Graphics effects package (fx/README.md): presets «Оригинал / Среднее / Высокое», driven by src/effects.
 set(STORM_FX_SHADERC_COMMAND "${STORM_SHADERC_COMMAND}")

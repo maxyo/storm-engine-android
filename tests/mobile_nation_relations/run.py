@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Bounded source adapter checks, not runtime game evidence."""
-import json, pathlib, subprocess, tempfile
+import json, pathlib, re, subprocess, tempfile
 here=pathlib.Path(__file__).resolve().parent
 root=here.parents[1]
 with tempfile.TemporaryDirectory(prefix='nation-relations-') as tmp:
@@ -9,7 +9,12 @@ with tempfile.TemporaryDirectory(prefix='nation-relations-') as tmp:
     model=json.loads(subprocess.check_output([str(exe)],text=True))
     source=(root/'src/libs/xinterface/src/xinterface.cpp').read_text()
     start=source.index('void XINTERFACE::MobileCollectWidgets(')
-    (pathlib.Path(tmp)/'collection.inc').write_text(source[start:source.index('\n#endif',start)])
+    collection=source[start:source.index('\n#endif',start)]
+    (pathlib.Path(tmp)/'collection.inc').write_text(collection)
+    # The other screens' collectors the dispatcher calls are empty here, generated from the
+    # dispatcher itself so a new screen does not break this nation check.
+    others=sorted(set(re.findall(r'\b(MobileCollect\w+)\(widgets\)',collection))-{'MobileCollectNations'})
+    (pathlib.Path(tmp)/'collectors.inc').write_text(''.join(f'void {name}(std::vector<MobileWidget>&){{}}\n' for name in others))
     start=source.index('        if(action.screen=="nationrelation" && action.value.rfind("nation@",0)==0)')
     (pathlib.Path(tmp)/'dispatch.inc').write_text(source[start:source.index('        if (node->MobileApply',start)])
     bridge=pathlib.Path(tmp)/'bridge'

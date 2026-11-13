@@ -1,0 +1,58 @@
+GPU timer queries on GLES. The GLES import block took glQueryCounter, glGetQueryObjectiv and glGetQueryObjectui64v
+under their desktop names only; GLES drivers export them as ...EXT (EXT_disjoint_timer_query), so the pointers
+stayed null and timer queries were off on every phone ("gpu_frame_ms=n/a (no timer queries)" on an Adreno 830).
+With timer queries on, flip() called glFinish() after every swap while a query was pending, which the frame
+query always is: the game thread would have waited for the GPU every frame. That glFinish goes in the same patch
+(results are read when available; the full-ring wait in TimerQueryGL::begin stays).
+
+diff --git a/src/glimports.h b/src/glimports.h
+index 131e6bb..8cb7874 100644
+--- a/src/glimports.h
++++ b/src/glimports.h
+@@ -513,6 +513,10 @@ GL_IMPORT______(true,  PFNGLTEXIMAGE3DMULTISAMPLEPROC,             glTexImage3DM
+ GL_IMPORT______(false, PFNGLCLEARDEPTHFPROC,                       glClearDepthf);
+ GL_IMPORT______(false, PFNGLDEPTHRANGEFPROC,                       glDepthRangef);
+ GL_IMPORT_EXT__(true,  PFNGLRENDERBUFFERSTORAGEMULTISAMPLEPROC,    glRenderbufferStorageMultisample);
++// Storm Engine patch (bgfx-gles-timer-queries.patch): the EXT_disjoint_timer_query names where GLES lacks the plain ones.
++GL_IMPORT_EXT__(true,  PFNGLGETQUERYOBJECTIVPROC,                  glGetQueryObjectiv);
++GL_IMPORT_EXT__(true,  PFNGLGETQUERYOBJECTUI64VPROC,               glGetQueryObjectui64v);
++GL_IMPORT_EXT__(true,  PFNGLQUERYCOUNTERPROC,                      glQueryCounter);
+ #	endif // BGFX_CONFIG_RENDERER_OPENGL
+ 
+ GL_IMPORT______(true,  PFNGLINSERTEVENTMARKEREXTPROC,              glInsertEventMarker);
+@@ -647,10 +651,12 @@ GL_IMPORT______(true,  PFNGLGENQUERIESPROC,                        glGenQueries)
+ GL_IMPORT______(true,  PFNGLDELETEQUERIESPROC,                     glDeleteQueries);
+ GL_IMPORT______(true,  PFNGLBEGINQUERYPROC,                        glBeginQuery);
+ GL_IMPORT______(true,  PFNGLENDQUERYPROC,                          glEndQuery);
+-GL_IMPORT______(true,  PFNGLGETQUERYOBJECTIVPROC,                  glGetQueryObjectiv);
++// Storm Engine patch (renderer_bgfx/patches/bgfx-gles-timer-queries.patch): on GLES these three exist only as
++// EXT_disjoint_timer_query entry points (...EXT); under the desktop names they stayed null and timer queries off.
++GL_IMPORT_EXT__(true,  PFNGLGETQUERYOBJECTIVPROC,                  glGetQueryObjectiv);
+ GL_IMPORT______(true,  PFNGLGETQUERYOBJECTUIVPROC,                 glGetQueryObjectuiv);
+-GL_IMPORT______(true,  PFNGLGETQUERYOBJECTUI64VPROC,               glGetQueryObjectui64v);
+-GL_IMPORT______(true,  PFNGLQUERYCOUNTERPROC,                      glQueryCounter);
++GL_IMPORT_EXT__(true,  PFNGLGETQUERYOBJECTUI64VPROC,               glGetQueryObjectui64v);
++GL_IMPORT_EXT__(true,  PFNGLQUERYCOUNTERPROC,                      glQueryCounter);
+ 
+ GL_IMPORT______(true,  PFNGLDRAWARRAYSINDIRECTPROC,                glDrawArraysIndirect);
+ GL_IMPORT______(true,  PFNGLDRAWELEMENTSINDIRECTPROC,              glDrawElementsIndirect);
+diff --git a/src/renderer_gl.cpp b/src/renderer_gl.cpp
+index 8138518..165ef14 100644
+--- a/src/renderer_gl.cpp
++++ b/src/renderer_gl.cpp
+@@ -3268,11 +3268,10 @@ namespace bgfx { namespace gl
+ 				return;
+ 			}
+ 
+-			if (m_timerQuerySupport
+-			&&  m_gpuTimer.hasPending() )
+-			{
+-				GL_CHECK(glFinish() );
+-			}
++			// Storm Engine patch (bgfx-gles-timer-queries.patch): no glFinish here while a timer query is pending.
++			// The frame's query is pending after every frame (BGFX_RESET_FLIP_AFTER_RENDER), so it blocked the game
++			// thread until the GPU had finished each frame (CPU + GPU time instead of the larger of the two). The
++			// results are read when they are available (TimerQueryGL::update); only a full query ring waits.
+ 		}
+ 
+ 		void createIndexBuffer(IndexBufferHandle _handle, const Memory* _mem, uint16_t _flags) override

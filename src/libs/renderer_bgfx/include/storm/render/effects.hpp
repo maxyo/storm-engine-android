@@ -10,6 +10,7 @@
 #include <array>
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -112,9 +113,9 @@ void SetEffectsTechnique(const char *name);
 // absolute world data (the location's geometry, lamps, dynamic lights, lightmaps) converts with it.
 void SetEffectsWorldOrigin(const std::array<float, 3> &origin);
 
-// Point lights of this frame that no baked vertex colours contain (lanterns carried by characters), world space,
-// D3DLIGHT9 attenuation. Static location geometry, drawn with its baked colours, is lit only by these. A frame
-// without the call has none.
+// Point lights of this frame that no baked vertex colours contain (lanterns and torches carried by characters), world
+// space, D3DLIGHT9 attenuation. Static location geometry, drawn with its baked colours, is lit only by these; the
+// nearest to the camera cast shadows (fx_lamp_moving). A frame without the call has none.
 struct EffectsPointLight
 {
     std::array<float, 3> position{};
@@ -157,6 +158,48 @@ struct EffectsLocationGeometry
 };
 void SetEffectsLocationGeometry(const EffectsLocationGeometry &geometry);
 
+// SHIP_LIGHTS, every frame at sea: the ships that carry lit lanterns and those lanterns (world space, with this
+// frame's flicker; not the flashes of the cannons). The nearest to the camera take the lamp slots of the lights that
+// move (fx_lamp_moving). A lantern stands still on its ship, so the shadows of the ship itself (hull, masts, deck)
+// are drawn once into faces in the ship's own space and stay while the ship sails; the crew, the sails and other
+// ships cast every frame. A frame without the call has none.
+struct EffectsShip
+{
+    uint64_t id = 0;               // names the ship while it lives (not 0)
+    std::array<float, 16> world{}; // ship space -> absolute world (row vectors), rigid
+    uint64_t signature = 0;        // changes when the ship's still geometry does (a mast falls, the lanterns change)
+};
+struct EffectsShipLight
+{
+    EffectsPointLight light;
+    uint64_t ship = 0;             // an EffectsShip::id of the same call
+    std::array<float, 3> local{};  // the lantern in the ship's space
+};
+void SetEffectsShipLights(std::span<const EffectsShip> ships, std::span<const EffectsShipLight> lights);
+// True when one of the ship's lanterns holds a slot and the effects do not have the ship's still geometry of this
+// signature: the ship then reports it (SetEffectsShipGeometry) before the frame draws.
+bool EffectsShipGeometryWanted(uint64_t ship, uint64_t signature);
+// The ship's still geometry in its own space (triangle list; uvs and surfaces as in EffectsLocationGeometry, the
+// textures alive while the ship's lanterns are reported). Empty: it could not be read; the ship casts nothing still.
+struct EffectsShipGeometry
+{
+    std::span<const std::array<float, 3>> positions;
+    std::span<const std::array<float, 2>> uvs;
+    std::span<const uint32_t> indices;
+    std::span<const EffectsLocationGeometry::Surface> surfaces;
+};
+void SetEffectsShipGeometry(uint64_t ship, uint64_t signature, const EffectsShipGeometry &geometry);
+// While one lives, the draws are the still geometry of this ship (what SetEffectsShipGeometry reports): they are in
+// the cached faces of the ship's own lanterns and cast every frame only for other lights.
+class EffectsShipDraw
+{
+  public:
+    explicit EffectsShipDraw(uint64_t ship);
+    ~EffectsShipDraw();
+    EffectsShipDraw(const EffectsShipDraw &) = delete;
+    EffectsShipDraw &operator=(const EffectsShipDraw &) = delete;
+};
+
 
 // Location, once an outdoor location is loaded: its lightmapped ground (the still models with a shadow.tga lightmap:
 // world positions, lightmap texture coordinates, triangle list, the lightmap of each triangle) and those lightmaps
@@ -172,14 +215,24 @@ void SetEffectsGroundLight(std::string_view name, std::span<const std::array<flo
                            std::span<const std::array<float, 2>> uvs, std::span<const uint32_t> indices,
                            std::span<const uint32_t> triangle_lightmap, std::span<const EffectsLightmap> lightmaps);
 
-// The game file a texture was loaded from (Renderer::TextureLoad, after its levels are filled). Stone, wood, plaster
-// and ground textures and grey height ("bump") textures get a normal map for the per-pixel lighting's relief
-// (fx_light_normal_map, fx/normal_map.hpp).
-void SetEffectsTextureSource(shim::BaseTexture *texture, const char *path);
+// The texture's name and the game file it was loaded from (Renderer::TextureLoad, after its levels are filled). Stone,
+// wood, plaster and ground textures and grey height ("bump") textures get a normal map for the per-pixel lighting's
+// relief (fx_light_normal_map, fx/normal_map.hpp, src/effects/relief_generator.hpp).
+void SetEffectsTextureSource(shim::BaseTexture *texture, const char *path, const std::filesystem::path &file);
 
-// The relief directory (fx/relief_store.hpp): the normal maps «Подготовка рельефа» made at import, and the height maps the
-// game derives. Before the first texture is loaded.
-void ConfigureReliefDirectory(const std::filesystem::path &directory);
+// Relief maps (fx/relief_store.hpp): made by DeepBump in the game process the first time a texture needs one, and the
+// height maps the game derives; kept in `directory`. Before the first texture is loaded.
+struct ReliefConfig
+{
+    std::filesystem::path directory;
+    std::filesystem::path textures; // the game's RESOURCE/Textures (the generator reads the texture files)
+    // Reads the DeepBump model (src/libs/relief/model). Null: no maps are made (logged); textures without one get no
+    // relief.
+    std::function<std::vector<uint8_t>()> model;
+};
+void ConfigureRelief(const ReliefConfig &config);
+// Before the renderer goes: stops the generator (the texture in progress is abandoned, its map made next time).
+void ShutdownRelief();
 
 // ---- World passes: contact shadows ----
 // The consumer entities (shadow, SUNGLOW) ask which parts are on and then either call the fx pass below

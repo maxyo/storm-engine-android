@@ -92,8 +92,9 @@ bool SelfTest::Submit(const Settings &settings, bgfx::ViewId first_view, const P
     const RendererState state = RendererStateFor(settings);
     // The game's scene target: RGBA8 colour and D24S8 depth, multisampled like it (src/shim/device.cpp).
     const uint64_t msaa = state.msaa_samples >= 4 ? BGFX_TEXTURE_RT_MSAA_X4 : state.msaa_samples == 2 ? BGFX_TEXTURE_RT_MSAA_X2 : 0;
-    // The scene at the internal size of the render scale, like the game's (the post chain then upscales it).
-    const auto size = static_cast<uint16_t>(std::lround(kSize * std::clamp(state.render_scale, 0.5f, 1.0f)));
+    // With an internal scene height the scene is smaller than the output, like the game's on a tall display: the
+    // upscale (EASU, then RCAS) is tested at a typical factor.
+    const auto size = static_cast<uint16_t>(state.render_height ? std::lround(kSize * 0.67f) : kSize);
     if (!bgfx::isValid(scene_) || scene_flags_ != msaa || scene_size_ != size)
     {
         Destroy(scene_);

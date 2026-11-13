@@ -63,9 +63,19 @@ void CheckSettings()
     const Settings high = Settings::FromPreset(QualityPreset::High);
     CHECK(!medium.PostIsIdentity() && !high.PostIsIdentity());
     CHECK(medium.bloom_downscale == 4 && high.bloom_downscale == 2);
-    // FSR 1 on both: Средняя renders the scene smaller than Высокая; «Низкая» stays native without any post pass.
-    CHECK(medium.sharpen && high.sharpen && medium.render_scale < high.render_scale && high.render_scale < 1.0f);
-    CHECK(medium.render_scale >= 0.5f && original.render_scale == 1.0f && !original.sharpen);
+    // FSR 1 on every preset, by an internal scene height; «Низкая» otherwise the original look.
+    CHECK(original.sharpen && medium.sharpen && high.sharpen);
+    // Monotonic: a higher preset never renders the scene smaller («Низкая» is the fastest).
+    CHECK(original.render_height > 0 && original.render_height <= medium.render_height &&
+          medium.render_height <= high.render_height);
+    // On the owner's 3200x1440 panel all three scale; a 1080-line phone scales Низкая and Средняя; 720 lines none.
+    CHECK(RenderScale(original.render_height, 1440) == 0.625f && RenderScale(medium.render_height, 1440) < 0.7f &&
+          RenderScale(high.render_height, 1440) < 0.8f);
+    CHECK(RenderScale(original.render_height, 1080) < 0.85f && RenderScale(medium.render_height, 1080) < 1.0f &&
+          RenderScale(high.render_height, 1080) == 1.0f);
+    CHECK(RenderScale(original.render_height, 720) == 1.0f && RenderScale(medium.render_height, 720) == 1.0f &&
+          RenderScale(high.render_height, 720) == 1.0f);
+    CHECK(RenderScale(900, 2160) == 0.5f && RenderScale(0, 2160) == 1.0f); // never below FSR 1's range
     // MSAA is the primary anti-aliasing of the presets; SMAA is left to the player. Optional looks stay off.
     CHECK(medium.msaa == 4 && high.msaa == 4 && !medium.smaa && !high.smaa && original.msaa == 1);
     CHECK(medium.anisotropy == 4 && high.anisotropy == 8 && original.anisotropy == 1);
@@ -80,6 +90,7 @@ void CheckSettings()
     CHECK(original.lamp_shadows == 0 && medium.lamp_shadows == 8 && high.lamp_shadows == 16);
     CHECK(!medium.lamp_soft && high.lamp_soft && high.lamp_baked == 0.5f && high.lamp_gain == 1.0f && high.lamp_debug == 0);
     CHECK(medium.lamp_model_lift == 0.2f && high.lamp_model_lift == 0.2f); // the owner: characters a little above the room
+    CHECK(original.lamp_moving == 0 && medium.lamp_moving == 1 && high.lamp_moving == 2); // carried lanterns, ship lanterns
     // «Средняя»: the cheap looks (tone curve, the grade of the place and hour, aerial perspective, rim light) under
     // the restrained Caribbean grade; «Высокая» adds the sun glare and sun shafts. «Низкая» has none of them.
     for (const Settings *preset : {&medium, &high})
@@ -308,20 +319,29 @@ void CheckSupport()
         CHECK(ValidateSettings(settings, all).empty());
         std::vector<std::string> changes;
         CHECK(ConstrainSettings(settings, all, changes) == settings && changes.empty());
-        // The original look never depends on a capability.
+        // The original look never depends on a capability; only «Низкая»'s upscale needs the post chain, and
+        // without it the scene is native and nothing else changes.
         if (preset == QualityPreset::Low)
-            CHECK(ValidateSettings(settings, Support{}).empty());
+        {
+            changes.clear();
+            Settings native = settings;
+            native.render_height = 0;
+            native.sharpen = false; // RCAS is part of the upscale
+            CHECK(ConstrainSettings(settings, Support{}, changes) == native && changes.size() == 1);
+            CHECK(ValidateSettings(native, Support{}).empty());
+        }
     }
     const Settings high = Settings::FromPreset(QualityPreset::High);
 
     // No sampleable scene depth: occlusion and the sea's soft edges off.
     Support no_depth = all;
     no_depth.scene_depth = false;
-    CHECK(ValidateSettings(high, no_depth).size() == 2);
+    // ... and the render scale: the 3D drawn after the scene needs the scene depth on the display-size picture.
+    CHECK(ValidateSettings(high, no_depth).size() == 3);
     std::vector<std::string> changes;
     Settings constrained = ConstrainSettings(high, no_depth, changes);
-    CHECK(!constrained.ssao && !constrained.sea_soft_edges && constrained.sea_band_limit);
-    CHECK(changes.size() == 2);
+    CHECK(!constrained.ssao && !constrained.sea_soft_edges && constrained.sea_band_limit && constrained.render_height == 0);
+    CHECK(changes.size() == 3);
     CHECK(constrained.shadows == high.shadows && constrained.bloom && constrained.lighting_flags == high.lighting_flags);
     CHECK(ValidateSettings(constrained, no_depth).empty());
 
@@ -340,6 +360,15 @@ void CheckSupport()
     constrained = ConstrainSettings(high, no_ao, changes);
     // ... and no lamp grid or room light: no lamp shadows either, each said once.
     CHECK(constrained.ao_volume == 0 && constrained.lamp_shadows == 0 && changes.size() == 2 && constrained.shadows == high.shadows);
+    // The slots of the lights that move are some of the lamp slots: at most two, never more than there are.
+    Settings many_moving = high;
+    many_moving.lamp_moving = 5;
+    changes.clear();
+    CHECK(ConstrainSettings(many_moving, all, changes).lamp_moving == 2 && changes.size() == 1);
+    Settings no_lamps = high; // without lamp slots the number says nothing and is left alone
+    no_lamps.lamp_shadows = 0;
+    changes.clear();
+    CHECK(ConstrainSettings(no_lamps, all, changes).lamp_moving == 2 && changes.empty());
     Settings five_lamps = high;
     five_lamps.lamp_shadows = 5;
     changes.clear();
@@ -370,7 +399,8 @@ void CheckSupport()
     no_msaa_depth.msaa_depth = false;
     changes.clear();
     constrained = ConstrainSettings(high, no_msaa_depth, changes);
-    CHECK(constrained.msaa == 4 && !constrained.ssao && !constrained.sea_soft_edges && changes.size() == 2);
+    CHECK(constrained.msaa == 4 && !constrained.ssao && !constrained.sea_soft_edges && constrained.render_height == 0 &&
+          changes.size() == 3);
     // No MSAA at all: alpha to coverage goes with it, and then depth-based effects are fine again.
     Support no_msaa = no_msaa_depth;
     no_msaa.msaa = false;
@@ -388,7 +418,7 @@ void CheckSupport()
     no_msaa_no_lut.lut_3d = false;
     changes.clear();
     constrained = ConstrainSettings(high, no_msaa_no_lut, changes);
-    CHECK(constrained.msaa == 1 && !constrained.smaa && constrained.PostIsIdentity() && constrained.render_scale == 1.0f);
+    CHECK(constrained.msaa == 1 && !constrained.smaa && constrained.PostIsIdentity() && constrained.render_height == 0);
     CHECK(std::find(changes.begin(), changes.end(), no_aa) != changes.end());
     // ... nor without its tables: SMAA asked for explicitly is switched off, reported.
     Support no_msaa_no_r8 = no_msaa;
@@ -407,18 +437,20 @@ void CheckSupport()
     msaa_off.alpha_to_coverage = false;
     changes.clear();
     CHECK(!ConstrainSettings(msaa_off, no_msaa, changes).smaa && changes.empty());
-    // The FSR 1 range of the render scale; the upscale is part of the post chain.
+    // The internal height's range; the upscale is part of the post chain (3D textures), the sharpening part of the
+    // upscale: neither makes the post effects non-identical by itself.
     Settings scaled = high;
-    scaled.render_scale = 0.3f;
+    scaled.render_height = 100;
     changes.clear();
-    CHECK(ConstrainSettings(scaled, all, changes).render_scale == 0.5f && changes.size() == 1);
-    scaled.render_scale = 0.7f;
+    CHECK(ConstrainSettings(scaled, all, changes).render_height == 360 && changes.size() == 1);
+    scaled.render_height = 1000;
     Settings only_scaled;
-    only_scaled.render_scale = 0.7f;
-    CHECK(Settings{}.PostIsIdentity() && !only_scaled.PostIsIdentity());
-    CHECK(RendererStateFor(scaled).render_scale == 0.7f);
+    only_scaled.render_height = 1000;
+    only_scaled.sharpen = true;
+    CHECK(Settings{}.PostIsIdentity() && only_scaled.PostIsIdentity());
+    CHECK(RendererStateFor(scaled).render_height == 1000);
     changes.clear();
-    CHECK(ConstrainSettings(scaled, no_lut, changes).render_scale == 1.0f && !changes.empty());
+    CHECK(ConstrainSettings(only_scaled, no_lut, changes).render_height == 0 && !changes.empty());
     const RendererState state = RendererStateFor(high);
     CHECK(state.msaa_samples == 4 && state.alpha_to_coverage && state.max_anisotropy == 8);
     CHECK(RendererStateFor(Settings{}).msaa_samples == 1 && !RendererStateFor(Settings{}).alpha_to_coverage);
@@ -879,27 +911,31 @@ void CheckLuminanceRelief()
 // DeepBump around the model (a stand-in `infer`): tiles cover the wrapped image, axes, strength; the relief store.
 void CheckDeepBump()
 {
-    constexpr int T = kDeepBumpTile;
-    // A stand-in whose output depends only on the texel's own value: the blended result must be that function of the
-    // texel, wherever the tiles fall (positions, wrap, blend weights).
+    // A stand-in whose output depends only on the texel's own value: the cropped result must be that function of the
+    // texel (padding, wrap, crop, axes).
     const int w = 300, h = 170;
     std::vector<float> grey(static_cast<size_t>(w) * h);
     for (int y = 0; y < h; ++y)
         for (int x = 0; x < w; ++x)
             grey[static_cast<size_t>(y) * w + x] = static_cast<float>((x * 7 + y * 13) % 97) / 96.0f;
-    int tiles = 0;
-    const auto per_texel = [&](const float *tile, float *out) {
-        ++tiles;
-        for (int i = 0; i < T * T; ++i)
+    int calls = 0, pw = 0, ph = 0;
+    bool wrapped = true;
+    const auto per_texel = [&](const float *image, int iw, int ih, float *out) {
+        ++calls;
+        pw = iw, ph = ih;
+        const size_t plane = static_cast<size_t>(iw) * ih;
+        // The padding repeats the texture: the texel kDeepBumpPad left of the image's first column is its last one.
+        wrapped = image[kDeepBumpPad * iw + 0] == grey[w - kDeepBumpPad] && image[0] == grey[static_cast<size_t>(h - kDeepBumpPad) * w + w - kDeepBumpPad];
+        for (size_t i = 0; i < plane; ++i)
         {
-            out[i] = 0.5f + 0.3f * tile[i];            // x grows with the value
-            out[T * T + i] = 0.5f + 0.2f;               // the model's +y (up the image)
-            out[2 * T * T + i] = 1.0f;
+            out[i] = 0.5f + 0.3f * image[i];  // x grows with the value
+            out[plane + i] = 0.5f + 0.2f;     // the model's +y (up the image)
+            out[2 * plane + i] = 1.0f;
         }
         return true;
     };
     const std::vector<float> normals = DeepBumpNormals(grey, w, h, per_texel);
-    CHECK(tiles == DeepBumpTileCount(w, h) && normals.size() == static_cast<size_t>(w) * h * 3);
+    CHECK(calls == 1 && pw == 448 && ph == 320 && wrapped && normals.size() == static_cast<size_t>(w) * h * 3);
     float worst = 0.0f;
     for (size_t t = 0; t < grey.size(); ++t)
     {
@@ -910,7 +946,7 @@ void CheckDeepBump()
     }
     CHECK(worst < 1e-4f);
     // An aborted inference gives no normals.
-    CHECK(DeepBumpNormals(grey, w, h, [](const float *, float *) { return false; }).empty());
+    CHECK(DeepBumpNormals(grey, w, h, [](const float *, int, int, float *) { return false; }).empty());
 
     // The input: grey = mean of R, G, B, box-halved to the map size.
     std::vector<uint8_t> rgba(16 * 8 * 4, 0);
@@ -1233,22 +1269,64 @@ void CheckLampShadows()
         CHECK(hall.nx == 64 && Near(hall.cell[0], 200.0f / 64.0f, 1e-4f));
     }
 
-    // The still triangles a lamp can shadow with: those that touch its sphere.
+    // The still triangles a lamp can shadow with: those that touch its sphere, found through the triangle grid; the
+    // same list as testing every triangle, for a lamp anywhere (a carried lantern asks every frame).
     {
         std::vector<Vec3> p;
         std::vector<uint32_t> idx;
         AddBox(p, idx, {-0.5f, 0.0f, -0.5f}, {0.5f, 1.0f, 0.5f});   // at the lamp
         AddBox(p, idx, {20.0f, 0.0f, -0.5f}, {21.0f, 1.0f, 0.5f});  // far away
         AddBox(p, idx, {-30.0f, -1.0f, -30.0f}, {30.0f, 0.0f, 30.0f}); // a floor far larger than the lamp's reach
-        const std::vector<uint32_t> near = TrianglesInSphere(p, idx, {0.0f, 2.0f, 0.0f}, 4.0f);
+        for (int i = 0; i < 40; ++i) // furniture all over the floor
+        {
+            const float x = -28.0f + 1.4f * static_cast<float>(i), z = 25.0f * std::sin(1.7f * static_cast<float>(i));
+            AddBox(p, idx, {x, 0.0f, z}, {x + 0.8f, 0.9f, z + 0.8f});
+        }
+        const TriangleGrid grid = BuildTriangleGrid(p, idx, 4.0f);
+        CHECK(grid.count == idx.size() / 3 && grid.size[0] >= 15 && grid.size[0] <= kTriangleGridCells && grid.size[1] == 1);
+        std::vector<uint32_t> near, seen;
+        TrianglesInSphere(grid, idx, {0.0f, 2.0f, 0.0f}, 4.0f, near, seen);
         CHECK(near.size() % 3 == 0 && near.size() >= 36 + 6 && near.size() < idx.size());
         bool far_box = false, floor_top = false;
         for (const uint32_t i : near)
         {
             far_box |= i >= 8 && i < 16;
-            floor_top |= i >= 16;
+            floor_top |= i >= 16 && i < 24;
         }
         CHECK(!far_box && floor_top);
+        bool same = true;
+        for (int probe = 0; probe < 60; ++probe)
+        {
+            const Vec3 lamp{-29.0f + static_cast<float>(probe), 1.5f, 20.0f * std::cos(0.9f * static_cast<float>(probe))};
+            const float reach = 1.0f + 0.2f * static_cast<float>(probe % 30);
+            std::vector<uint32_t> expected, got;
+            for (size_t t = 0; t + 2 < idx.size(); t += 3)
+            {
+                Vec3 lo = p[idx[t]], hi = p[idx[t]];
+                for (int v = 1; v < 3; ++v)
+                    for (int k = 0; k < 3; ++k)
+                    {
+                        lo[k] = std::min(lo[k], p[idx[t + v]][k]);
+                        hi[k] = std::max(hi[k], p[idx[t + v]][k]);
+                    }
+                float d2 = 0.0f;
+                for (int k = 0; k < 3; ++k)
+                {
+                    const float nearest = std::clamp(lamp[k], lo[k], hi[k]);
+                    d2 += (nearest - lamp[k]) * (nearest - lamp[k]);
+                }
+                if (d2 <= reach * reach)
+                    expected.insert(expected.end(), {idx[t], idx[t + 1], idx[t + 2]});
+            }
+            TrianglesInSphere(grid, idx, lamp, reach, got, seen);
+            same &= got == expected;
+        }
+        CHECK(same);
+        // Nothing for a lamp outside the place, and for a place without triangles.
+        near.clear();
+        TrianglesInSphere(grid, idx, {500.0f, 0.0f, 0.0f}, 5.0f, near, seen);
+        TrianglesInSphere(BuildTriangleGrid(p, {}, 4.0f), {}, {0.0f, 0.0f, 0.0f}, 5.0f, near, seen);
+        CHECK(near.empty());
     }
 
     // The room light: the baked colours around a point, mostly those of the level surfaces. A room with a bright

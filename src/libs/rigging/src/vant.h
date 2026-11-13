@@ -77,7 +77,6 @@ class VANT_BASE : public Entity
     float ZERO_CMP_VAL;    // Guy motion sampling step
     float MAXFALL_CMP_VAL; // the maximum change in the guy position at which the guy stops being displayed
     // -------------------------------------
-    std::filesystem::file_time_type ft_old;
 
     bool bUse;
     bool bRunFirstTime;

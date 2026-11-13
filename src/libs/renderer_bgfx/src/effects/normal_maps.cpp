@@ -1,5 +1,7 @@
 #include "effects/normal_maps.hpp"
 
+#include "effects/relief_generator.hpp"
+#include "relief.hpp"
 #include "shim/device.hpp"
 #include "storm/fx/lighting.hpp"
 #include "storm/fx/relief_store.hpp"
@@ -17,7 +19,7 @@ namespace storm::effects
 
 namespace
 {
-// The relief directory (ConfigureReliefDirectory), shared with the worker tasks.
+// The relief directory (ConfigureRelief), shared with the worker tasks.
 std::mutex directory_mutex;
 std::filesystem::path relief_directory;
 
@@ -28,10 +30,13 @@ std::filesystem::path directory()
 }
 } // namespace
 
-void ConfigureReliefDirectory(const std::filesystem::path &path)
+void ConfigureRelief(ReliefSetup setup)
 {
-    std::lock_guard lock(directory_mutex);
-    relief_directory = path;
+    {
+        std::lock_guard lock(directory_mutex);
+        relief_directory = setup.directory;
+    }
+    ReliefGenerator::instance().configure(std::move(setup));
 }
 
 NormalMapEntry::~NormalMapEntry()
@@ -42,18 +47,22 @@ NormalMapEntry::~NormalMapEntry()
 
 void NormalMaps::configure(bool enabled, int max_size)
 {
+    const bool switched_on = enabled && !enabled_;
     const bool changed = enabled != enabled_ || max_size != max_size_;
-    if (enabled && !enabled_ && loaded_while_off_)
-        shim::logf("effects: relief switched on: textures loaded while it was off get their normal maps when they are "
-                   "loaded again (the next location)");
     enabled_ = enabled;
     max_size_ = max_size;
+    ReliefGenerator::instance().set_active(enabled);
     if (!changed)
         return;
     std::erase_if(entries_, [](const std::weak_ptr<NormalMapEntry> &entry) { return entry.expired(); });
     for (const std::weak_ptr<NormalMapEntry> &weak : entries_)
         if (const std::shared_ptr<NormalMapEntry> entry = weak.lock())
+        {
             release(*entry);
+            // The textures loaded while relief was off: looked up now, as if loaded now.
+            if (switched_on && entry->state == NormalMapEntry::Unqueued)
+                look_up(entry);
+        }
 }
 
 void NormalMaps::release(NormalMapEntry &entry)
@@ -68,15 +77,12 @@ void NormalMaps::release(NormalMapEntry &entry)
     entry.state = NormalMapEntry::Stored; // read back from the relief directory when drawn again
 }
 
-void NormalMaps::on_texture_loaded(shim::TexStore &store, const char *path)
+void NormalMaps::on_texture_loaded(shim::TexStore &store, const char *path, const std::filesystem::path &file)
 {
     if (!path || store.kind != shim::TexKind::Tex2D || store.subs.empty())
         return;
-    if (!enabled_)
-    {
-        loaded_while_off_ = true;
-        return;
-    }
+    // Every texture of a relief class gets its entry (its key needs the probe level, which only the load has), relief
+    // on or off; it is looked up now or when relief is switched on (configure).
     const std::string name = fx::NormalizeTexturePath(path);
     const uint32_t format = static_cast<uint32_t>(store.format);
     const bool readable = texture::tx_format_known(format);
@@ -106,12 +112,11 @@ void NormalMaps::on_texture_loaded(shim::TexStore &store, const char *path)
         return;
     }
     if (!probe_bytes || probe_data->size() < probe_bytes)
-        return; // smaller than a 4x4 block below 64 px: no relief (the import step skips it too)
-    const std::filesystem::path relief_dir = directory();
-    if (relief_dir.empty())
+        return; // smaller than a 4x4 block below 64 px: no relief (the preparation skips it too)
+    if (directory().empty())
     {
         if (!directory_reported_)
-            shim::logf("ERROR: effects: no relief directory (render::ConfigureReliefDirectory): no relief at all");
+            shim::logf("ERROR: effects: no relief directory (render::ConfigureRelief): no relief at all");
         directory_reported_ = true;
         return;
     }
@@ -119,34 +124,48 @@ void NormalMaps::on_texture_loaded(shim::TexStore &store, const char *path)
     auto entry = std::make_shared<NormalMapEntry>();
     entry->name = name;
     entry->relief = verdict.relief;
-    const bool height_map = verdict.relief == fx::ReliefClass::HeightMap;
+    entry->file = file;
     entry->key = fx::ReliefKey(name, {probe_data->data(), probe_bytes}, static_cast<int>(pw), static_cast<int>(ph),
-                               height_map ? fx::kReliefHeightMethod : fx::kReliefMethodVersion, fx::kReliefMapSize);
+                               verdict.relief == fx::ReliefClass::HeightMap ? fx::kReliefHeightMethod
+                                                                            : fx::kReliefMethodVersion,
+                               fx::kReliefMapSize);
     store.normal_map = entry;
     entries_.push_back(entry);
+    if (enabled_)
+        look_up(entry);
+}
 
-    std::vector<uint8_t> source; // height maps: the top level they are derived from, when they have no map yet
-    if (height_map)
-        source = store.sub(0, 0).data;
-    texture::Service::instance().post([entry, relief_dir, height_map, source = std::move(source), format,
-                                       width = store.width, height = store.height, counters = counters_] {
+void NormalMaps::look_up(const std::shared_ptr<NormalMapEntry> &entry)
+{
+    entry->state = NormalMapEntry::Pending;
+    texture::Service::instance().post([entry, relief_dir = directory(), counters = counters_] {
         if (fx::HasReliefMap(relief_dir, entry->key))
         {
             entry->state = NormalMapEntry::Stored;
             return;
         }
-        if (!height_map)
+        if (entry->relief != fx::ReliefClass::HeightMap)
         {
-            shim::logd("effects: relief: no prepared map for %s", entry->name.c_str());
-            entry->state = NormalMapEntry::Missing; // not prepared: no relief (counted in the "effects relief:" line)
+            shim::logd("effects: relief: %s has no map yet: requested", entry->name.c_str());
+            entry->state = NormalMapEntry::Waiting; // counted in the "effects relief:" line
+            ReliefGenerator::instance().request(entry, entry->file);
             return;
         }
+        // A height map: derived from the top level of its game file (the game may have skipped top mips of the loaded
+        // texture, texture_degradation: the map is the same on every device).
         const auto start = std::chrono::steady_clock::now();
-        std::vector<uint8_t> rgba(size_t(width) * height * 4);
-        texture::decode_tx_level(format, source.data(), width, height, rgba.data());
+        std::vector<uint8_t> rgba;
+        int width = 0, height = 0;
+        if (!relief::ReadTextureLevel(entry->file, 1 << 16, rgba, width, height))
+        {
+            shim::logf("ERROR: effects: relief: height map %s: its file %s cannot be read", entry->name.c_str(),
+                       entry->file.string().c_str());
+            entry->state = NormalMapEntry::Failed;
+            return;
+        }
         fx::NormalMapOptions options = fx::ReliefOptions(fx::ReliefClass::HeightMap);
         options.max_size = fx::kReliefMapSize;
-        const fx::NormalMap rg8 = fx::DeriveNormalMap(rgba, static_cast<int>(width), static_cast<int>(height), options);
+        const fx::NormalMap rg8 = fx::DeriveNormalMap(rgba, width, height, options);
         fx::NormalMap map{rg8.width, rg8.height, rg8.mip_count, fx::NormalMapFormat::EacRg11,
                           texture::encode_eac_rg11_chain(rg8.rg.data(), rg8.width, rg8.height, rg8.mip_count)};
         counters->derive_us += static_cast<uint64_t>(
@@ -185,23 +204,25 @@ void NormalMaps::read_stored(const std::shared_ptr<NormalMapEntry> &entry)
     });
 }
 
-bgfx::TextureHandle NormalMaps::handle(shim::TexStore &store, fx::Lighting &lighting)
+NormalMaps::Relief NormalMaps::handle(shim::TexStore &store, fx::Lighting &lighting)
 {
     const std::shared_ptr<NormalMapEntry> &entry = store.normal_map;
     if (!entry)
-        return BGFX_INVALID_HANDLE;
+        return {};
     entry->wanted = true;
+    entry->drawn = frame_;
     switch (entry->state.load())
     {
     case NormalMapEntry::Stored:
         read_stored(entry);
-        return BGFX_INVALID_HANDLE;
+        return {};
     case NormalMapEntry::Derived:
         fx::DropTopMips(entry->map, max_size_);
         entry->handle = lighting.CreateNormalMap(entry->map); // logs why when it cannot
         entry->bytes = entry->map.rg.size();
         entry->map = {};
         entry->state = bgfx::isValid(entry->handle) ? NormalMapEntry::Uploaded : NormalMapEntry::Failed;
+        entry->uploaded = now_;
         break;
     default:
         break;
@@ -212,7 +233,11 @@ bgfx::TextureHandle NormalMaps::handle(shim::TexStore &store, fx::Lighting &ligh
         shim::logf("ERROR: effects: no normal map for texture %s (relief %s): derivation, reading or upload failed",
                    entry->name.c_str(), fx::ReliefClassName(entry->relief));
     }
-    return entry->handle;
+    if (entry->state != NormalMapEntry::Uploaded)
+        return {};
+    const float fade = std::chrono::duration<float>(now_ - entry->uploaded).count() /
+                       std::chrono::duration<float>(kReliefFade).count();
+    return {entry->handle, std::clamp(fade, 0.0f, 1.0f)};
 }
 
 NormalMaps::Stats NormalMaps::stats()
@@ -227,6 +252,8 @@ NormalMaps::Stats NormalMaps::stats()
                 ++stats.resident;
                 stats.bytes += entry->bytes;
             }
+            stats.unqueued += entry->state == NormalMapEntry::Unqueued ? 1 : 0;
+            stats.waiting += entry->state == NormalMapEntry::Waiting ? 1 : 0;
             stats.missing += entry->state == NormalMapEntry::Missing ? 1 : 0;
         }
     stats.derived = counters_->derived;
@@ -236,17 +263,27 @@ NormalMaps::Stats NormalMaps::stats()
 
 void NormalMaps::end_frame()
 {
+    ++frame_;
+    now_ = std::chrono::steady_clock::now();
     if (++frames_ < 300)
         return;
     frames_ = 0;
     const Stats now = stats();
-    if (now.resident == logged_.resident && now.bytes == logged_.bytes && now.missing == logged_.missing &&
-        now.derived == logged_.derived)
+    const ReliefGenerator::Stats generator = ReliefGenerator::instance().stats();
+    const uint32_t rest = generator.rest > 0 ? static_cast<uint32_t>(generator.rest) : 0;
+    if (now.resident == logged_.resident && now.bytes == logged_.bytes && now.waiting == logged_.waiting &&
+        now.missing == logged_.missing && now.unqueued == logged_.unqueued && now.derived == logged_.derived && rest == logged_rest_ &&
+        generator.made == logged_made_)
         return;
     logged_ = now;
-    shim::logf("effects relief: %u normal maps resident (%.1f MB, max %d px); %u loaded textures without a prepared "
-               "map (no relief: «Подготовка рельефа» not run or not finished); %u height maps derived (%.0f ms)",
-               now.resident, static_cast<double>(now.bytes) / 1048576.0, max_size_, now.missing, now.derived, now.derive_ms);
+    logged_rest_ = rest;
+    logged_made_ = generator.made;
+    shim::logf("effects relief: %u normal maps resident (%.1f MB, max %d px); %u loaded textures waiting for their map, "
+               "%u more of the game to make in the background%s; %u maps made (%.0f ms, slowest %.0f ms); %u without "
+               "a map (generation unavailable); %u height maps derived (%.0f ms); %u loaded while relief was off",
+               now.resident, static_cast<double>(now.bytes) / 1048576.0, max_size_, now.waiting, rest,
+               generator.hot ? " (paused: the device is hot)" : "", generator.made, generator.made_ms,
+               generator.slowest_ms, now.missing, now.derived, now.derive_ms, now.unqueued);
 }
 
 } // namespace storm::effects

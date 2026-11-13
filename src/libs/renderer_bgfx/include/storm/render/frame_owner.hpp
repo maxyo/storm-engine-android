@@ -29,7 +29,7 @@
 namespace storm::render
 {
 
-inline constexpr uint32_t kFrameOwnerApiVersion = 5;
+inline constexpr uint32_t kFrameOwnerApiVersion = 6;
 
 // bgfx::ViewId values. Compile-time constants so clients can size tables.
 inline constexpr uint16_t kPreGameViewBegin = 0; // passes that must run before the scene (e.g. a shadow map)
@@ -231,9 +231,18 @@ struct PictureRect
 };
 PictureRect GamePictureRect();
 
+// A paused game under a menu of the UI layer (game thread, once per frame before the engine's frame): while
+// HoldGamePicture(true) lasts, the next presented game picture is kept and presented again in place of the game's
+// own frames. GamePictureHeld() is true from the frame after that picture was kept: the engine then draws no scene
+// (its scene realize layers are held). A change of the renderer settings or of the game picture's size drops the
+// kept picture: the next frame is drawn in full and kept again. HoldGamePicture(false) releases it at once.
+void HoldGamePicture(bool hold);
+bool GamePictureHeld();
+
 } // namespace storm::render
 
 // Version history
+//   6  HoldGamePicture() / GamePictureHeld(): the last game picture presented again under a pause menu.
 //   1  initial: view range, hooks, surface metrics, texture helpers, game pictures.
 //   4  GamePictureRect(): the letterboxed game picture on the surface.
 //   5  SetFrameRateLimit() removed: the renderer paces presents itself (Swappy on Android).
