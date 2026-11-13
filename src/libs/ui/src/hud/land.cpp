@@ -189,7 +189,10 @@ class LandScene final : public Scene
             BuildCombat(states, ready, view, input);
         else
             BuildContext(states, ready, view, input);
-        BuildHint(melee || !ready ? std::nullopt : WantedHint(states), view);
+        if (melee)
+            DropHint(); // the combat layout has no hint (V2-Land-Combat): it does not linger into a fight
+        else
+            BuildHint(ready ? WantedHint(states) : std::nullopt, view);
     }
 
     double Tick(const States &states, double now) override
@@ -402,6 +405,13 @@ class LandScene final : public Scene
                 if (action == entry.key)
                     return Hint{entry.icon, hud_.Text(entry.label)};
         return std::nullopt;
+    }
+
+    void DropHint()
+    {
+        hint_.reset();
+        hint_lost_ = -1.0;
+        hint_leaving_ = false;
     }
 
     // Shown at once and exactly while it applies; a lost one holds, fades and goes (kHintHold).
