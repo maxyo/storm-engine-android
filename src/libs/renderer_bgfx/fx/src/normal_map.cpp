@@ -1,5 +1,7 @@
 #include "storm/fx/normal_map.hpp"
 
+#include "image_field.hpp"
+#include "name_rules.hpp"
 #include "storm/fx/log.hpp"
 
 #include <algorithm>
@@ -11,79 +13,11 @@ namespace storm::fx
 {
 namespace
 {
-struct Field
-{
-    int width, height;
-    bool wrap;
-    std::vector<float> values;
+using namespace img;
 
-    // Texel index of coordinate i on an axis of `length` (wrapped or clamped).
-    int Index(int i, int length) const { return wrap ? ((i % length) + length) % length : std::clamp(i, 0, length - 1); }
-    // Indices of -pad .. length + pad - 1 on an axis: offsets[i + pad].
-    std::vector<int> Indices(int length, int pad) const
-    {
-        std::vector<int> indices(static_cast<size_t>(length + 2 * pad));
-        for (int i = -pad; i < length + pad; ++i)
-            indices[static_cast<size_t>(i + pad)] = Index(i, length);
-        return indices;
-    }
-};
+const char *const kClassNames[] = {"none", "height map", "stone", "wood", "building", "plaster", "metal"};
 
-// One filter pass along x (horizontal) or y: out[i] = sum_k taps[k] * in[i + k - r].
-Field Convolve(const Field &in, std::span<const float> taps, bool horizontal)
-{
-    Field out = in;
-    const int r = static_cast<int>(taps.size() / 2);
-    const int length = horizontal ? in.width : in.height, lines = horizontal ? in.height : in.width;
-    const std::vector<int> at = in.Indices(length, r);
-    const size_t step = horizontal ? 1 : static_cast<size_t>(in.width), line_step = horizontal ? static_cast<size_t>(in.width) : 1;
-    for (int line = 0; line < lines; ++line)
-    {
-        const float *src = in.values.data() + line * line_step;
-        float *dst = out.values.data() + line * line_step;
-        for (int i = 0; i < length; ++i)
-        {
-            float sum = 0.0f;
-            for (size_t k = 0; k < taps.size(); ++k)
-                sum += taps[k] * src[at[static_cast<size_t>(i) + k] * step];
-            dst[i * step] = sum;
-        }
-    }
-    return out;
-}
-
-// 3x3 binomial.
-Field Blur(const Field &in)
-{
-    static constexpr float kTaps[] = {0.25f, 0.5f, 0.25f};
-    return Convolve(Convolve(in, kTaps, true), kTaps, false);
-}
-
-Field Halve(const Field &in)
-{
-    Field out{std::max(in.width / 2, 1), std::max(in.height / 2, 1), in.wrap, {}};
-    out.values.resize(static_cast<size_t>(out.width) * out.height);
-    const int sx = in.width > 1 ? 2 : 1, sy = in.height > 1 ? 2 : 1;
-    for (int y = 0; y < out.height; ++y)
-        for (int x = 0; x < out.width; ++x)
-        {
-            float sum = 0.0f;
-            for (int dy = 0; dy < sy; ++dy)
-                for (int dx = 0; dx < sx; ++dx)
-                    sum += in.values[static_cast<size_t>(y * sy + dy) * in.width + x * sx + dx];
-            out.values[static_cast<size_t>(y) * out.width + x] = sum / static_cast<float>(sx * sy);
-        }
-    return out;
-}
-
-const char *const kClassNames[] = {"none", "height map", "stone", "wood", "building", "plaster"};
-
-enum class Match : uint8_t
-{
-    Folder,   // the path starts with the pattern (a folder, "ships/"); the name is not looked at
-    Prefix,   // the file name starts with the pattern
-    Contains, // the file name contains the pattern
-};
+using rules::Match;
 
 struct Rule
 {
@@ -98,7 +32,7 @@ struct Rule
 // (English, Russian transliterations, a few French); ships in Ships/<type>/Hull<n>/. Written from the texture list of
 // the game; a texture no rule names gets no relief.
 constexpr ReliefClass N = ReliefClass::None, S = ReliefClass::Stone, W = ReliefClass::Wood, B = ReliefClass::Building,
-                      P = ReliefClass::Plaster;
+                      P = ReliefClass::Plaster, M = ReliefClass::Metal;
 #define STORM_RULE(folder, match, pattern, relief) {folder, Match::match, pattern, relief, folder pattern}
 const Rule kRules[] = {
     // Folders of things without relief: characters, UI, sky and weather, light maps, effects, foliage, items.
@@ -137,7 +71,7 @@ const Rule kRules[] = {
     STORM_RULE("", Contains, "fonar", N), // lanterns
     STORM_RULE("", Contains, "lighthouse", S),
     // Not surfaces with relief: occlusion / reflection / mask maps, windows and glass, light, fire, smoke, water,
-    // foliage cards, cloth, metal, bones, signs, UI and effect sheets.
+    // foliage cards, cloth, bones, signs, UI and effect sheets.
     STORM_RULE("", Prefix, "occl", N),
     STORM_RULE("", Prefix, "refl", N),
     STORM_RULE("", Contains, "mask", N),
@@ -189,15 +123,15 @@ const Rule kRules[] = {
     STORM_RULE("", Contains, "rope", N),
     STORM_RULE("", Contains, "nets", N),
     STORM_RULE("", Contains, "web", N),
-    STORM_RULE("", Contains, "chain", N),
+    STORM_RULE("", Contains, "chain", M),
     STORM_RULE("", Contains, "canopy", N),
     STORM_RULE("", Contains, "vant", N), // shrouds
-    STORM_RULE("", Contains, "metal", N),
-    STORM_RULE("", Contains, "iron", N),
+    STORM_RULE("", Contains, "metal", M),
+    STORM_RULE("", Contains, "iron", M),
     STORM_RULE("", Contains, "gold", N),
     STORM_RULE("", Contains, "gundeck", W),
-    STORM_RULE("", Contains, "cannon", N),
-    STORM_RULE("", Contains, "gun", N),
+    STORM_RULE("", Contains, "cannon", M),
+    STORM_RULE("", Contains, "gun", M),
     STORM_RULE("", Contains, "skelet", N),
     STORM_RULE("", Contains, "skull", N),
     STORM_RULE("", Contains, "skin", N),
@@ -357,9 +291,14 @@ void NormalMapSize(int width, int height, const NormalMapOptions &options, int &
 
 size_t NormalMapLevelBytes(NormalMapFormat format, int width, int height)
 {
-    if (format == NormalMapFormat::EacRg11)
-        return static_cast<size_t>((width + 3) / 4) * ((height + 3) / 4) * 16;
-    return static_cast<size_t>(width) * height * 2;
+    const size_t blocks = static_cast<size_t>((width + 3) / 4) * ((height + 3) / 4), texels = static_cast<size_t>(width) * height;
+    switch (format)
+    {
+    case NormalMapFormat::Rg8: return texels * 2;
+    case NormalMapFormat::EacRg11: return blocks * 16;
+    case NormalMapFormat::R8: return texels;
+    }
+    return 0;
 }
 
 size_t NormalMapBytes(int width, int height, NormalMapFormat format)
@@ -491,28 +430,9 @@ bool IsGrayscale(std::span<const uint8_t> rgba)
 
 ReliefVerdict ClassifyTextureName(std::string_view path)
 {
-    const size_t slash = path.rfind('/');
-    const std::string_view name = slash == std::string_view::npos ? path : path.substr(slash + 1);
     for (const Rule &rule : kRules)
-    {
-        if (path.compare(0, std::strlen(rule.folder), rule.folder) != 0)
-            continue;
-        bool hit = false;
-        switch (rule.match)
-        {
-        case Match::Folder:
-            hit = true;
-            break;
-        case Match::Prefix:
-            hit = name.compare(0, std::strlen(rule.pattern), rule.pattern) == 0;
-            break;
-        case Match::Contains:
-            hit = name.find(rule.pattern) != std::string_view::npos;
-            break;
-        }
-        if (hit)
+        if (rules::Matches(path, rule.folder, rule.match, rule.pattern))
             return {rule.relief, rule.text, rule.match == Match::Folder};
-    }
     return {};
 }
 

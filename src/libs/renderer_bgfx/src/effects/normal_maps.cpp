@@ -99,6 +99,8 @@ void NormalMaps::on_texture_loaded(shim::TexStore &store, const char *path, cons
         small.resize(size_t(pw) * ph * 4);
         texture::decode_rgba8(format, probe_data->data(), pw, ph, small.data());
     }
+    if (readable && probe_bytes && probe_data->size() >= probe_bytes)
+        add_gloss(store, name, {probe_data->data(), probe_bytes}, pw, ph, file);
     const fx::ReliefVerdict verdict = classifier_.Classify(path, small);
     if (verdict.relief == fx::ReliefClass::None)
         return;
@@ -196,7 +198,9 @@ void NormalMaps::read_stored(const std::shared_ptr<NormalMapEntry> &entry)
     entry->state = NormalMapEntry::Pending;
     texture::Service::instance().post([entry, relief_dir = directory()] {
         std::string error;
-        std::optional<fx::NormalMap> map = fx::ReadReliefMap(relief_dir, entry->key, &error);
+        std::optional<fx::NormalMap> map = entry->gloss != fx::GlossClass::None
+                                               ? fx::ReadGlossMap(relief_dir, entry->key, &error)
+                                               : fx::ReadReliefMap(relief_dir, entry->key, &error);
         if (!map)
         {
             // Gone from the cache while the texture stayed loaded (the system evicted it, «Очистить кэш») or damaged
@@ -216,21 +220,31 @@ void NormalMaps::read_stored(const std::shared_ptr<NormalMapEntry> &entry)
 
 NormalMaps::Relief NormalMaps::handle(shim::TexStore &store, fx::Lighting &lighting)
 {
-    const std::shared_ptr<NormalMapEntry> &entry = store.normal_map;
-    if (!entry)
-        return {};
+    return store.normal_map ? upload(store.normal_map, lighting, max_size_) : Relief{};
+}
+
+NormalMaps::Relief NormalMaps::gloss(shim::TexStore &store, fx::Lighting &lighting)
+{
+    return store.gloss_map ? upload(store.gloss_map, lighting, gloss_max_size_) : Relief{};
+}
+
+NormalMaps::Relief NormalMaps::upload(const std::shared_ptr<NormalMapEntry> &entry, fx::Lighting &lighting, int max_size)
+{
     entry->wanted = true;
     entry->drawn = frame_;
     switch (entry->state.load())
     {
     case NormalMapEntry::Unqueued: // its map left the cache since it was looked up (read_stored)
-        look_up(entry);
+        if (entry->gloss != fx::GlossClass::None)
+            look_up_gloss(entry);
+        else
+            look_up(entry);
         return {};
     case NormalMapEntry::Stored:
         read_stored(entry);
         return {};
     case NormalMapEntry::Derived:
-        fx::DropTopMips(entry->map, max_size_);
+        fx::DropTopMips(entry->map, max_size);
         entry->handle = lighting.CreateNormalMap(entry->map); // logs why when it cannot
         entry->bytes = entry->map.rg.size();
         entry->map = {};
@@ -243,14 +257,113 @@ NormalMaps::Relief NormalMaps::handle(shim::TexStore &store, fx::Lighting &light
     if (entry->state == NormalMapEntry::Failed && !entry->failure_reported)
     {
         entry->failure_reported = true;
-        shim::logf("ERROR: effects: no normal map for texture %s (relief %s): derivation, reading or upload failed",
-                   entry->name.c_str(), fx::ReliefClassName(entry->relief));
+        if (entry->gloss != fx::GlossClass::None)
+            shim::logf("ERROR: effects: no gloss map for texture %s (gloss %s): derivation, reading or upload failed",
+                       entry->name.c_str(), fx::GlossClassName(entry->gloss));
+        else
+            shim::logf("ERROR: effects: no normal map for texture %s (relief %s): derivation, reading or upload failed",
+                       entry->name.c_str(), fx::ReliefClassName(entry->relief));
     }
     if (entry->state != NormalMapEntry::Uploaded)
         return {};
     const float fade = std::chrono::duration<float>(now_ - entry->uploaded).count() /
                        std::chrono::duration<float>(kReliefFade).count();
     return {entry->handle, std::clamp(fade, 0.0f, 1.0f)};
+}
+
+void NormalMaps::configure_gloss(bool enabled, int max_size)
+{
+    const bool switched_on = enabled && !gloss_enabled_;
+    const bool changed = enabled != gloss_enabled_ || max_size != gloss_max_size_;
+    gloss_enabled_ = enabled;
+    gloss_max_size_ = max_size;
+    if (!changed)
+        return;
+    std::erase_if(gloss_entries_, [](const std::weak_ptr<NormalMapEntry> &entry) { return entry.expired(); });
+    for (const std::weak_ptr<NormalMapEntry> &weak : gloss_entries_)
+        if (const std::shared_ptr<NormalMapEntry> entry = weak.lock())
+        {
+            release(*entry);
+            if (switched_on && entry->state == NormalMapEntry::Unqueued)
+                look_up_gloss(entry);
+        }
+}
+
+void NormalMaps::add_gloss(shim::TexStore &store, const std::string &name, std::span<const uint8_t> probe, uint32_t pw,
+                           uint32_t ph, const std::filesystem::path &file)
+{
+    const fx::GlossVerdict verdict = fx::ClassifyGlossName(name);
+    if (std::find(gloss_logged_.begin(), gloss_logged_.end(), name) == gloss_logged_.end())
+    {
+        gloss_logged_.push_back(name);
+        if (verdict.rule)
+            shim::logd("effects: texture %s: gloss %s (rule %s)", name.c_str(), fx::GlossClassName(verdict.gloss), verdict.rule);
+        else
+            shim::logd("effects: texture %s: no gloss map (no rule knows it)", name.c_str());
+    }
+    if (verdict.gloss == fx::GlossClass::None || directory().empty())
+        return; // no directory: reported once by the relief
+    auto entry = std::make_shared<NormalMapEntry>();
+    entry->name = name;
+    entry->gloss = verdict.gloss;
+    entry->file = file;
+    entry->key = fx::ReliefKey(name, probe, static_cast<int>(pw), static_cast<int>(ph), fx::GlossMethod(verdict.gloss), fx::kGlossMapSize);
+    store.gloss_map = entry;
+    gloss_entries_.push_back(entry);
+    if (gloss_enabled_)
+        look_up_gloss(entry);
+}
+
+void NormalMaps::look_up_gloss(const std::shared_ptr<NormalMapEntry> &entry)
+{
+    entry->state = NormalMapEntry::Pending;
+    texture::Service::instance().post([entry, relief_dir = directory(), counters = counters_] {
+        if (fx::HasGlossMap(relief_dir, entry->key))
+        {
+            entry->state = NormalMapEntry::Stored;
+            return;
+        }
+        // From the game file's first level no larger than the map size.
+        const auto start = std::chrono::steady_clock::now();
+        std::vector<uint8_t> rgba;
+        int width = 0, height = 0;
+        if (!relief::ReadTextureLevel(entry->file, fx::kGlossMapSize, rgba, width, height))
+        {
+            shim::logf("ERROR: effects: gloss map %s: its file %s cannot be read", entry->name.c_str(),
+                       entry->file.string().c_str());
+            entry->state = NormalMapEntry::Failed;
+            return;
+        }
+        const fx::NormalMap r8 = fx::DeriveGlossMap(rgba, width, height, entry->gloss);
+        // The material texture of a texture without height (sampler unit 7, COORDINATION: R height, G gloss): flat.
+        std::vector<uint8_t> rg(r8.rg.size() * 2, 128);
+        for (size_t i = 0; i < r8.rg.size(); ++i)
+            rg[2 * i + 1] = r8.rg[i];
+        fx::NormalMap map{r8.width, r8.height, r8.mip_count, fx::NormalMapFormat::EacRg11,
+                          texture::encode_eac_chain(texture::EacFormat::Rg11, rg.data(), r8.width, r8.height, r8.mip_count)};
+        const auto us = static_cast<uint64_t>(
+            std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - start).count());
+        counters->gloss_derive_us += us;
+        uint64_t slowest = counters->gloss_slowest_us;
+        while (us > slowest && !counters->gloss_slowest_us.compare_exchange_weak(slowest, us))
+        {
+        }
+        ++counters->gloss_derived;
+        shim::logd("effects: gloss %s (%s): %dx%d from %dx%d, %.1f ms", entry->name.c_str(), fx::GlossClassName(entry->gloss),
+                   r8.width, r8.height, width, height, static_cast<double>(us) / 1000.0);
+        if (r8.rg.empty() || !fx::WriteGlossMap(relief_dir, entry->key, map))
+        {
+            entry->state = NormalMapEntry::Failed;
+            return;
+        }
+        if (!entry->wanted)
+        {
+            entry->state = NormalMapEntry::Stored;
+            return;
+        }
+        entry->map = std::move(map);
+        entry->state = NormalMapEntry::Derived;
+    });
 }
 
 NormalMaps::Stats NormalMaps::stats()
@@ -269,6 +382,20 @@ NormalMaps::Stats NormalMaps::stats()
             stats.waiting += entry->state == NormalMapEntry::Waiting ? 1 : 0;
             stats.missing += entry->state == NormalMapEntry::Missing ? 1 : 0;
         }
+    std::erase_if(gloss_entries_, [](const std::weak_ptr<NormalMapEntry> &entry) { return entry.expired(); });
+    for (const std::weak_ptr<NormalMapEntry> &weak : gloss_entries_)
+        if (const std::shared_ptr<NormalMapEntry> entry = weak.lock())
+        {
+            if (entry->state == NormalMapEntry::Uploaded)
+            {
+                ++stats.gloss_resident;
+                stats.gloss_bytes += entry->bytes;
+            }
+            stats.gloss_unqueued += entry->state == NormalMapEntry::Unqueued ? 1 : 0;
+        }
+    stats.gloss_derived = counters_->gloss_derived;
+    stats.gloss_derive_ms = static_cast<double>(counters_->gloss_derive_us) / 1000.0;
+    stats.gloss_slowest_ms = static_cast<double>(counters_->gloss_slowest_us) / 1000.0;
     stats.derived = counters_->derived;
     stats.derive_ms = static_cast<double>(counters_->derive_us) / 1000.0;
     return stats;
@@ -284,7 +411,9 @@ void NormalMaps::end_frame()
     const Stats now = stats();
     const ReliefGenerator::Stats generator = ReliefGenerator::instance().stats();
     const uint32_t rest = generator.rest > 0 ? static_cast<uint32_t>(generator.rest) : 0;
-    if (now.resident == logged_.resident && now.bytes == logged_.bytes && now.waiting == logged_.waiting &&
+    const bool gloss_same = now.gloss_resident == logged_.gloss_resident && now.gloss_bytes == logged_.gloss_bytes &&
+                            now.gloss_unqueued == logged_.gloss_unqueued && now.gloss_derived == logged_.gloss_derived;
+    if (gloss_same && now.resident == logged_.resident && now.bytes == logged_.bytes && now.waiting == logged_.waiting &&
         now.missing == logged_.missing && now.unqueued == logged_.unqueued && now.derived == logged_.derived && rest == logged_rest_ &&
         generator.made == logged_made_)
         return;
@@ -297,6 +426,11 @@ void NormalMaps::end_frame()
                now.resident, static_cast<double>(now.bytes) / 1048576.0, max_size_, now.waiting, rest,
                generator.hot ? " (paused: the device is hot)" : "", generator.made, generator.made_ms,
                generator.slowest_ms, now.missing, now.derived, now.derive_ms, now.unqueued);
+    if (!gloss_same)
+        shim::logf("effects gloss: %u gloss maps resident (%.1f MB, max %d px); %u derived (%.0f ms, slowest %.1f ms); %u "
+                   "loaded while gloss was off",
+                   now.gloss_resident, static_cast<double>(now.gloss_bytes) / 1048576.0, gloss_max_size_, now.gloss_derived,
+                   now.gloss_derive_ms, now.gloss_slowest_ms, now.gloss_unqueued);
 }
 
 } // namespace storm::effects

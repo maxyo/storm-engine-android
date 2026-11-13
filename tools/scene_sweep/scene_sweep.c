@@ -58,6 +58,7 @@ int ssTime = 0;
 int ssStep = 0;
 int ssSettleTime = 0;
 bool ssSteady = false;		// the fader is gone: the measured window has started
+bool ssFrozen = false;		// --variants in a location: the game's time stands still for every variant
 int ssVariant = 0;		// graphics settings variant of the next capture (--variants)
 bool ssViaHome = false;
 string ssHome = "";
@@ -128,6 +129,18 @@ void SceneSweep_Quit()
 	ExitProgram();
 }
 
+// Every variant of a location shows the same picture: the game's time stands still from the first variant on (the
+// follow camera, the hero's idle turns, people, sea and sky would move between them), the renderer goes on drawing.
+// While it stands still the sweep's clock counts SS_FROZEN_FRAME_MS a frame (the game's delta time is 0 then).
+#define SS_FROZEN_FRAME_MS	100
+void SceneSweep_Freeze(bool frozen)
+{
+	if(frozen == ssFrozen) return;
+	ssFrozen = frozen;
+	if(frozen) SetTimeScale(0.0);
+	else SetTimeScale(1.0);
+}
+
 // Graphics variants (--variants) apply to game scenes; the boot scenes (main menu, new game) are captured once.
 bool SceneSweep_HasVariants()
 {
@@ -139,7 +152,8 @@ void SceneSweep_Frame()
 {
 	aref fader;
 	ssFrames++;
-	ssTime += GetDeltaTime();
+	if(ssFrozen) ssTime += SS_FROZEN_FRAME_MS;
+	else ssTime += GetDeltaTime();
 	switch(ssState)
 	{
 	case SS_BOOT:
@@ -185,6 +199,12 @@ void SceneSweep_Frame()
 				break;
 			}
 			if(SceneSweep_HasVariants() && ssFrames < SS_VARIANT_WARM) break; // target rebuilds
+			// Every variant of a location shows the same picture (SceneSweep_Freeze).
+			if(SceneSweep_HasVariants())
+			{
+				if(ssKind == "loc") SceneSweep_Freeze(true);
+				if(ssKind == "night") SceneSweep_Freeze(true);
+			}
 			// Restarts the runner's frame and renderer counters: the capture reports the scene alone.
 			SceneSweepEvent("steady " + ssScene);
 			ssSteady = true;
@@ -207,6 +227,7 @@ void SceneSweep_Frame()
 			break;
 		}
 		SceneSweepEvent("end " + ssScene);
+		SceneSweep_Freeze(false);
 		SceneSweep_Finish();
 		break;
 	case SS_NEWGAME:

@@ -20,6 +20,7 @@ void Lighting::Shutdown()
     detail::Destroy(u_point_);
     detail::Destroy(u_point_count_);
     detail::Destroy(s_normal_map_);
+    detail::Destroy(s_gloss_map_);
 }
 
 void Lighting::OnDeviceLost()
@@ -28,6 +29,7 @@ void Lighting::OnDeviceLost()
     u_point_ = BGFX_INVALID_HANDLE;
     u_point_count_ = BGFX_INVALID_HANDLE;
     s_normal_map_ = BGFX_INVALID_HANDLE;
+    s_gloss_map_ = BGFX_INVALID_HANDLE;
 }
 
 void Lighting::Apply(const LightingUniforms &uniforms)
@@ -62,6 +64,8 @@ void Lighting::Apply(const PointLightUniforms &uniforms)
 
 bgfx::TextureHandle Lighting::CreateNormalMap(const NormalMap &map)
 {
+    if (map.format != NormalMapFormat::Rg8 && map.format != NormalMapFormat::EacRg11)
+        return BGFX_INVALID_HANDLE;
     const bgfx::TextureFormat::Enum format =
         map.format == NormalMapFormat::EacRg11 ? bgfx::TextureFormat::EACRG11 : bgfx::TextureFormat::RG8;
     if (!detail::SupportsNormalMap(format))
@@ -81,6 +85,13 @@ void Lighting::BindNormalMap(bgfx::TextureHandle normal_map, uint32_t sampler_fl
     if (!bgfx::isValid(s_normal_map_))
         s_normal_map_ = bgfx::createUniform("s_fxNormalMap", bgfx::UniformType::Sampler);
     bgfx::setTexture(kNormalMapStage, s_normal_map_, normal_map, sampler_flags);
+}
+
+void Lighting::BindGlossMap(bgfx::TextureHandle gloss_map, uint32_t sampler_flags)
+{
+    if (!bgfx::isValid(s_gloss_map_))
+        s_gloss_map_ = bgfx::createUniform("s_fxGlossMap", bgfx::UniformType::Sampler);
+    bgfx::setTexture(kGlossMapStage, s_gloss_map_, gloss_map, sampler_flags);
 }
 
 int Lighting::TakeDroppedLights()

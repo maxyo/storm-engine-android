@@ -6,6 +6,7 @@
 #include <cstdio>
 #include <cstring>
 #include <fstream>
+#include <initializer_list>
 #include <system_error>
 #include <vector>
 
@@ -83,11 +84,19 @@ std::filesystem::path ReliefFile(const std::filesystem::path &directory, uint64_
     return directory / name;
 }
 
-bool WriteReliefMap(const std::filesystem::path &directory, uint64_t key, const NormalMap &map)
+std::filesystem::path GlossFile(const std::filesystem::path &directory, uint64_t key)
+{
+    char name[32];
+    std::snprintf(name, sizeof(name), "%016llx.gloss", static_cast<unsigned long long>(key));
+    return directory / name;
+}
+
+namespace
+{
+bool WriteMapFile(const std::filesystem::path &target, const NormalMap &map)
 {
     std::error_code error;
-    std::filesystem::create_directories(directory, error);
-    const std::filesystem::path target = ReliefFile(directory, key);
+    std::filesystem::create_directories(target.parent_path(), error);
     std::filesystem::path temporary = target;
     temporary += ".tmp";
     {
@@ -115,9 +124,10 @@ bool WriteReliefMap(const std::filesystem::path &directory, uint64_t key, const 
     return !error;
 }
 
-std::optional<NormalMap> ReadReliefMap(const std::filesystem::path &directory, uint64_t key, std::string *error)
+// `formats`: the formats a file of this kind may hold.
+std::optional<NormalMap> ReadMapFile(const std::filesystem::path &path, std::initializer_list<NormalMapFormat> formats,
+                                     std::string *error)
 {
-    const std::filesystem::path path = ReliefFile(directory, key);
     std::ifstream in(path, std::ios::binary);
     if (!in)
         return std::nullopt;
@@ -126,7 +136,7 @@ std::optional<NormalMap> ReadReliefMap(const std::filesystem::path &directory, u
     NormalMap map;
     bool ok = in.good() && std::memcmp(header.magic, kMagic, sizeof(kMagic)) == 0 && header.version == kFileVersion &&
               header.width > 0 && header.height > 0 && header.width <= 16384 && header.height <= 16384 &&
-              header.format <= static_cast<uint32_t>(NormalMapFormat::EacRg11);
+              std::find(formats.begin(), formats.end(), static_cast<NormalMapFormat>(header.format)) != formats.end();
     if (ok)
     {
         map.width = static_cast<int>(header.width);
@@ -150,16 +160,47 @@ std::optional<NormalMap> ReadReliefMap(const std::filesystem::path &directory, u
         std::error_code ignored;
         std::filesystem::remove(path, ignored);
         if (error)
-            *error = "damaged or outdated relief file " + path.string() + " (deleted)";
+            *error = "damaged or outdated map file " + path.string() + " (deleted)";
         return std::nullopt;
     }
     return map;
 }
 
-bool HasReliefMap(const std::filesystem::path &directory, uint64_t key)
+bool IsFile(const std::filesystem::path &path)
 {
     std::error_code error;
-    return std::filesystem::is_regular_file(ReliefFile(directory, key), error);
+    return std::filesystem::is_regular_file(path, error);
+}
+} // namespace
+
+bool WriteReliefMap(const std::filesystem::path &directory, uint64_t key, const NormalMap &map)
+{
+    return WriteMapFile(ReliefFile(directory, key), map);
+}
+
+std::optional<NormalMap> ReadReliefMap(const std::filesystem::path &directory, uint64_t key, std::string *error)
+{
+    return ReadMapFile(ReliefFile(directory, key), {NormalMapFormat::Rg8, NormalMapFormat::EacRg11}, error);
+}
+
+bool HasReliefMap(const std::filesystem::path &directory, uint64_t key)
+{
+    return IsFile(ReliefFile(directory, key));
+}
+
+bool WriteGlossMap(const std::filesystem::path &directory, uint64_t key, const NormalMap &map)
+{
+    return WriteMapFile(GlossFile(directory, key), map);
+}
+
+std::optional<NormalMap> ReadGlossMap(const std::filesystem::path &directory, uint64_t key, std::string *error)
+{
+    return ReadMapFile(GlossFile(directory, key), {NormalMapFormat::EacRg11}, error);
+}
+
+bool HasGlossMap(const std::filesystem::path &directory, uint64_t key)
+{
+    return IsFile(GlossFile(directory, key));
 }
 
 } // namespace storm::fx

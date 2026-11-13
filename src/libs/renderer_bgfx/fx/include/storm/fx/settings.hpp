@@ -29,6 +29,9 @@ inline constexpr uint8_t kLampStaticStage = 11;
 inline constexpr uint8_t kRoomLightStage = 8;    // the baked colours around every point of an interior (RGBA8 3D)
 inline constexpr uint8_t kLampGridStage = 9;     // which lamps reach which cell of the place (RGBA8 3D)
 inline constexpr uint8_t kNormalMapStage = 14;
+// The material texture (EAC RG11: R height for the parallax, G gloss, gloss_map.hpp) in the lit and baked programs: unit 7 is the stage-2 cube of the plain
+// fixed-function cube variants, which those programs never are (cube-mapped draws keep the fixed-function path).
+inline constexpr uint8_t kGlossMapStage = 7;
 
 enum class QualityPreset : uint8_t
 {
@@ -154,6 +157,16 @@ struct Settings
     // With kLightingTranslucent: strength of the sunlight through sails and flags (scales LightingMaterial::translucency).
     float sail_light = 1.0f;
     uint16_t normal_map_size = 512;   // with kLightingNormalMap: larger side of the resident normal maps (EAC RG11 + mips)
+    // With kLightingSpecular: the highlights follow per-texel gloss maps derived from the colour textures
+    // (gloss_map.hpp): the sun's and the lamps' on lit and baked surfaces alike. Off: the lit materials' fixed highlight
+    // only (no lamp or baked highlights).
+    bool gloss = false;
+    float gloss_strength = 1.0f;   // with gloss: the share of the gloss maps' highlights (0..3), 1 = the chosen look
+    uint16_t gloss_map_size = 256; // with gloss: larger side of the resident gloss maps (EAC RG11 + mips)
+    // 0 off; 1 the gloss of every lit or baked pixel as grey (magenta: no gloss map, the material's own highlight);
+    // 2 the relief: the shading normal of the pixels whose relief is on, grey elsewhere; 3 the share of the open sun the
+    // bake shows (its highlight's mask on baked surfaces); 4 the metal mask.
+    uint8_t gloss_debug = 0;
     ShadowQuality shadows = ShadowQuality::Off; // sun shadows on per-pixel lit surfaces (needs kLightingPerPixel)
     // Towns light their lightmapped surfaces with our own bake for the live sun instead of the game's lightmaps
     // (needs kLightingPerPixel; src/effects/town_light.hpp).
@@ -204,7 +217,7 @@ struct Support
     bool lut_3d = false;        // 3D RGBA8 texture: the grading table every post effect passes through
     bool shadow_map = false;    // D16 texture as a render target: Settings::shadows
     bool scene_depth = false;   // the scene's depth attachment can be sampled: Settings::ssao, Settings::sea_soft_edges
-    bool normal_map = false;    // EAC RG11 textures (the derived maps): kLightingNormalMap
+    bool normal_map = false;    // EAC RG11 textures (the derived maps): kLightingNormalMap, Settings::gloss
     uint8_t msaa_samples = 1;   // the highest MSAA sample count (1 = none, 2 or 4) the scene target renders with,
                                 // RGBA8 colour and D24S8 depth both (per-format bgfx caps): Settings::msaa
     bool smaa = false;          // R8 and RG8 textures (the SMAA search and area tables): Settings::smaa

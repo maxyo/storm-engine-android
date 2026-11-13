@@ -91,6 +91,8 @@ void Lighting::configure(const fx::Settings &settings, const fx::RendererState &
     town_light_.set_debug(settings.town_light_debug);
     lamps_.configure(settings);
     normal_maps_.configure(lighting_ && (flags_ & fx::kLightingNormalMap), settings.normal_map_size);
+    gloss_ = (flags_ & fx::kLightingPerPixel) && (flags_ & fx::kLightingSpecular) && settings.gloss;
+    normal_maps_.configure_gloss(gloss_, settings.gloss_map_size);
     find_shaders();
 }
 
@@ -115,12 +117,14 @@ void Lighting::find_shaders()
                             name += "_" + suffix;
                         fs_lit_[s][n][l][h] = shim::shader_id_by_name(name.c_str());
                     }
-        for (int n = 0; n < 2; ++n)
-            for (int l = 0; l < 2; ++l)
-                for (int h = 0; h < 3; ++h)
-                {
-                    const std::string suffix = std::string(n ? "n" : "") + (l ? "l" : "") + (h == 1 ? "h" : h == 2 ? "o" : "");
-                    fs_baked_[n][l][h] = shim::shader_id_by_name(("fs_ff_baked" + (suffix.empty() ? "" : "_" + suffix)).c_str());
+        for (int s = 0; s < 2; ++s)
+            for (int n = 0; n < 2; ++n)
+                for (int l = 0; l < 2; ++l)
+                    for (int h = 0; h < 3; ++h)
+                    {
+                        const std::string suffix = std::string(s ? "s" : "") + (n ? "n" : "") + (l ? "l" : "") +
+                                                   (h == 1 ? "h" : h == 2 ? "o" : "");
+                        fs_baked_[s][n][l][h] = shim::shader_id_by_name(("fs_ff_baked" + (suffix.empty() ? "" : "_" + suffix)).c_str());
                 }
     }
 }
@@ -151,10 +155,12 @@ bool Lighting::prepare_programs(shim::Device &device, const fx::Settings &settin
                 if (n == 0 && !device.prepare_program(vs_lit_skin_, fs_lit_[specular][0][linear][h], budget))
                     return false;
             }
-            // The town's walls take the shadowed twin (settings.town_light).
+            // The town's walls take the shadowed twin (settings.town_light); baked draws with a gloss map (or every one
+            // under the gloss debug view) the specular one.
             for (const int h : {0, settings.town_walls ? shadow : 0})
-                if (!device.prepare_program(vs_lit_, fs_baked_[n][linear][h], budget))
-                    return false;
+                for (int s = 0; s <= (specular && settings.gloss ? 1 : 0); ++s)
+                    if (!device.prepare_program(vs_lit_, fs_baked_[s][n][linear][h], budget))
+                        return false;
         }
     if (per_pixel && settings.lamp_shadows && !casters_.prepare_programs(device, Casters::Pass::Lamp, budget))
         return false;
@@ -265,6 +271,14 @@ void Lighting::prepare(const shim::Device &device, const shim::LayoutInfo &layou
             break;
         }
     baked |= !lit_state && bgfx::isValid(normal_map);
+    // Gloss: the map of stage 0's colour texture (characters stay matte: no map, their material has no highlight).
+    NormalMaps::Relief gloss_map;
+    shim::TexStore *gloss_store = shim::store_of(device.s.textures[0]);
+    if (gloss_ && layout.has_normal && gloss_store && gloss_store->gloss_map && device.s.tss[0][D3DTSS_COLOROP] != D3DTOP_DISABLE &&
+        !(lit && material_ == Material::Character))
+        gloss_map = normal_maps_.gloss(*gloss_store, fx_);
+    const bool gloss_debug = gloss_ && settings_.gloss_debug != 0;
+    baked |= !lit_state && (bgfx::isValid(gloss_map.handle) || gloss_debug) && target && target == picture;
     // The interior's AO volume darkens what is drawn into the game picture: baked location geometry (which then takes
     // the baked variant) and lit models (characters, props). Reflections and other targets keep their look.
     const bool ao = ao_volume_ && lighting_ && layout.has_normal && target && target == picture;
@@ -409,7 +423,21 @@ void Lighting::prepare(const shim::Device &device, const shim::LayoutInfo &layou
     const bool specular = per_pixel && (flags_ & fx::kLightingSpecular);
     // The per-pixel sun reaches a pixel by how open it is (the visibility volume, ff_fragment.sh): under a roof none
     // of it arrives, whatever the scripts say of the place's weather.
-    if (!per_pixel || sun_slot < 0 || !lit)
+    if (!lit && per_pixel && bgfx::isValid(gloss_map.handle) && weather_sun_.present)
+    {
+        // A glossy baked surface: the bake holds the sun's light, its highlight is added per pixel (ff_fragment.sh, by
+        // how open the pixel is) from the weather's sun (a baked draw has the fixed-function lights off).
+        fx::LightingInput sun = input;
+        sun.sun_dir = {weather_sun_.dir[0], weather_sun_.dir[1], weather_sun_.dir[2]};
+        sun.sun_diffuse = {weather_sun_.color[0], weather_sun_.color[1], weather_sun_.color[2]};
+        const fx::LightingUniforms from_weather = fx::ComputeLighting(sun, material, sky_, settings_);
+        for (int k = 0; k < 3; ++k)
+        {
+            u[0][k] = from_weather.u_fxLight[0][k];
+            u[1][k] = from_weather.u_fxLight[1][k];
+        }
+    }
+    else if (!per_pixel || sun_slot < 0 || !lit)
         u[1][0] = u[1][1] = u[1][2] = 0.0f; // the sun stays in the vertex sum (or there is none)
     else
     {
@@ -438,6 +466,18 @@ void Lighting::prepare(const shim::Device &device, const shim::LayoutInfo &layou
         draw.normal_map_flags = device.sampler_flags(relief_stage, *shim::store_of(device.s.textures[relief_stage]));
         ++frame_.relief;
     }
+    // Gloss: the map's texels shape the highlight; u_fxGloss.w switches on the lamps' and the baked surfaces'
+    // highlights (develop's look without gloss: the lit materials' fixed highlight only).
+    const bool glossy = bgfx::isValid(gloss_map.handle) && gloss_map.fade > 0.0f;
+    if (glossy)
+    {
+        draw.gloss_map = gloss_map.handle;
+        draw.gloss_map_flags = device.sampler_flags(0, *gloss_store);
+        ++frame_.glossy;
+    }
+    draw.gloss = {glossy ? gloss_map.fade : 0.0f, glossy ? fx::GlossMetalTint(gloss_store->gloss_map->gloss) : 0.0f,
+                  gloss_ ? static_cast<float>(settings_.gloss_debug) : 0.0f, gloss_ ? settings_.gloss_strength : 0.0f};
+    const bool baked_specular = specular && gloss_ && (glossy || gloss_debug);
 
     if (lit)
     {
@@ -508,7 +548,7 @@ void Lighting::prepare(const shim::Device &device, const shim::LayoutInfo &layou
             if (draw.view == std::array<float, 16>{})
                 memcpy(draw.view.data(), &device.s.view.m[0][0], sizeof(float) * 16);
         }
-        draw.fs_id = fs_baked_[relief][linear][shadow];
+        draw.fs_id = fs_baked_[baked_specular ? 1 : 0][relief][linear][shadow];
         ++frame_.baked;
     }
 }
@@ -529,6 +569,11 @@ void Lighting::submit(const FfDraw &draw)
     fx_.Apply(draw.points);
     if (bgfx::isValid(draw.normal_map))
         fx_.BindNormalMap(draw.normal_map, draw.normal_map_flags);
+    if (!bgfx::isValid(u_gloss_))
+        u_gloss_ = bgfx::createUniform("u_fxGloss", bgfx::UniformType::Vec4);
+    bgfx::setUniform(u_gloss_, draw.gloss.data());
+    if (bgfx::isValid(draw.gloss_map))
+        fx_.BindGlossMap(draw.gloss_map, draw.gloss_map_flags);
     if (draw.shadow)
         shadows_.bind(draw.view);
     bind_ao_volume(draw);
@@ -710,7 +755,7 @@ void Lighting::shutdown()
         bgfx::destroy(visibility_open_);
     visibility_open_ = BGFX_INVALID_HANDLE;
     ao_open_ = BGFX_INVALID_HANDLE;
-    for (bgfx::UniformHandle *u : {&u_coverage_, &u_ff_, &u_aerial_up_, &s_ao_volume_, &u_ao_matrix_, &u_ao_params_, &s_visibility_,
+    for (bgfx::UniformHandle *u : {&u_coverage_, &u_ff_, &u_gloss_, &u_aerial_up_, &s_ao_volume_, &u_ao_matrix_, &u_ao_params_, &s_visibility_,
                                    &u_visibility_matrix_, &u_visibility_params_, &u_town_wall_})
     {
         if (bgfx::isValid(*u))
@@ -726,7 +771,7 @@ void Lighting::on_device_lost()
     town_light_.on_device_lost();
     lamps_.on_device_lost();
     casters_.on_device_lost();
-    u_coverage_ = u_ff_ = u_aerial_up_ = s_ao_volume_ = u_ao_matrix_ = u_ao_params_ = BGFX_INVALID_HANDLE;
+    u_coverage_ = u_ff_ = u_gloss_ = u_aerial_up_ = s_ao_volume_ = u_ao_matrix_ = u_ao_params_ = BGFX_INVALID_HANDLE;
     s_visibility_ = u_visibility_matrix_ = u_visibility_params_ = u_town_wall_ = BGFX_INVALID_HANDLE;
     ao_view_ = {};
     ao_open_ = visibility_open_ = BGFX_INVALID_HANDLE;

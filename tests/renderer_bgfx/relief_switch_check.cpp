@@ -1,8 +1,9 @@
-// Relief switched on while textures are loaded (effects::NormalMaps): a texture of a relief class loaded while relief
+// Relief and gloss switched on while textures are loaded (effects::NormalMaps): a texture of a relief class loaded while relief
 // is off (a location entered on «Низкая») is looked up when relief is switched on (the preset raised in the same
 // location), exactly like one loaded with relief on: a colour texture without a map is requested from the generator,
 // a grey height texture gets its map derived into the relief directory. Before the fix none was queued until the
-// location was loaded again.
+// location was loaded again. Gloss maps (Settings::gloss) the same: an entry at the load, derived from the game file
+// into the relief directory when gloss is switched on.
 //
 // No GPU: the textures are shim stores filled the way Renderer::TextureLoad fills them, their game files are written
 // into a temporary game; the generator has no model (no DeepBump), so a requested map ends up "missing" (counted).
@@ -10,6 +11,7 @@
 #include "effects/relief_generator.hpp"
 #include "shim.hpp"
 #include "storm/fx/lighting.hpp"
+#include "storm/fx/gloss_map.hpp"
 #include "storm/fx/relief_store.hpp"
 #include "storm/render/effects.hpp"
 
@@ -19,6 +21,8 @@
 #include <cstring>
 #include <filesystem>
 #include <iterator>
+#include <optional>
+#include <string>
 #include <fstream>
 #include <thread>
 #include <vector>
@@ -91,7 +95,8 @@ effects::NormalMaps::Stats Settle(effects::NormalMaps &maps, const std::vector<s
     {
         bool pending = false;
         for (shim::TexStore *store : stores)
-            pending |= store->normal_map && store->normal_map->state == effects::NormalMapEntry::Pending;
+            pending |= (store->normal_map && store->normal_map->state == effects::NormalMapEntry::Pending) ||
+                       (store->gloss_map && store->gloss_map->state == effects::NormalMapEntry::Pending);
         if (!pending || std::chrono::steady_clock::now() > until)
             return maps.stats();
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
@@ -108,6 +113,7 @@ int main()
     WriteTx(textures / "stone_wall.tga.tx", colour);
     WriteTx(textures / "bump_wall.tga.tx", height);
     WriteTx(textures / "brick_arch.tga.tx", colour);
+    WriteTx(textures / "cannon_x.tga.tx", colour);
     effects::ConfigureRelief({relief, textures, nullptr}); // no model: requested maps become "missing"
     // A map an older build made for the stone texture (its key without the model and the options: method 3 alone),
     // as the owner's phone kept them: never taken for the current one.
@@ -118,14 +124,20 @@ int main()
     fx::WriteReliefMap(relief, old_key, old_map);
 
     effects::NormalMaps maps;
-    maps.configure(false, 512); // «Низкая»: relief off
-    auto stone = Store(colour), bump = Store(height), brick = Store(colour);
+    maps.configure(false, 512); // «Низкая»: relief and gloss off
+    maps.configure_gloss(false, 256);
+    auto stone = Store(colour), bump = Store(height), brick = Store(colour), cannon = Store(colour);
     maps.on_texture_loaded(*stone, "resource\\textures\\stone_wall.tga.tx", textures / "stone_wall.tga.tx");
     maps.on_texture_loaded(*bump, "resource\\textures\\bump_wall.tga.tx", textures / "bump_wall.tga.tx");
-    const std::vector<shim::TexStore *> loaded{stone.get(), bump.get()};
+    maps.on_texture_loaded(*cannon, "resource\\textures\\cannon_x.tga.tx", textures / "cannon_x.tga.tx");
+    const std::vector<shim::TexStore *> loaded{stone.get(), bump.get(), cannon.get()};
     effects::NormalMaps::Stats off = Settle(maps, loaded);
     expect(stone->normal_map && bump->normal_map, "textures loaded while relief is off get their entries");
-    expect(off.unqueued == 2 && off.waiting == 0 && off.missing == 0 && off.derived == 0,
+    expect(stone->gloss_map && cannon->gloss_map && !bump->gloss_map && cannon->normal_map &&
+               cannon->gloss_map->gloss == fx::GlossClass::Metal && cannon->normal_map->relief == fx::ReliefClass::Metal,
+           "colour textures of a gloss class get gloss entries (metal: relief too), height maps none");
+    expect(off.gloss_unqueued == 2 && off.gloss_derived == 0, "no gloss map is looked up while gloss is off");
+    expect(off.unqueued == 3 && off.waiting == 0 && off.missing == 0 && off.derived == 0,
            "nothing is looked up while relief is off");
 
     maps.configure(true, 512); // the preset raised in the same location
@@ -133,16 +145,31 @@ int main()
     std::printf("after the switch: unqueued %u, waiting %u, missing %u, derived %u\n", on.unqueued, on.waiting, on.missing,
                 on.derived);
     expect(on.unqueued == 0, "switching relief on looks up every texture loaded while it was off");
-    expect(on.waiting + on.missing == 1, "the colour texture is requested from the generator");
+    expect(on.waiting + on.missing == 2, "the colour textures are requested from the generator");
     expect(stone->normal_map->key != old_key && fx::HasReliefMap(relief, old_key),
            "the older build's map of the stone texture is not taken: its map is requested");
     expect(on.derived == 1 && fx::HasReliefMap(relief, bump->normal_map->key),
            "the height texture's map is derived from its game file into the relief directory");
 
+    maps.configure_gloss(true, 256);
+    const effects::NormalMaps::Stats glossy = Settle(maps, loaded);
+    bool glossy_settled = true;
+    for (shim::TexStore *store : loaded)
+        glossy_settled &= !store->gloss_map || store->gloss_map->state != effects::NormalMapEntry::Pending;
+    std::printf("after the gloss switch: unqueued %u, derived %u (%.1f ms)\n", glossy.gloss_unqueued, glossy.gloss_derived,
+                glossy.gloss_derive_ms);
+    expect(glossy_settled && glossy.gloss_unqueued == 0 && glossy.gloss_derived == 2 &&
+               fx::HasGlossMap(relief, cannon->gloss_map->key) && fx::HasGlossMap(relief, stone->gloss_map->key),
+           "switching gloss on derives the gloss maps of the textures loaded while it was off");
+    std::string error;
+    const std::optional<fx::NormalMap> stored = fx::ReadGlossMap(relief, cannon->gloss_map->key, &error);
+    expect(stored && stored->format == fx::NormalMapFormat::EacRg11 && stored->width == 128 && stored->mip_count == 8,
+           "a gloss map is stored as an EAC RG11 material texture with all mips at the texture's size (up to 256)");
+
     // A texture loaded with relief on is looked up at once (unchanged).
     maps.on_texture_loaded(*brick, "resource\\textures\\brick_arch.tga.tx", textures / "brick_arch.tga.tx");
     const effects::NormalMaps::Stats later = Settle(maps, {stone.get(), bump.get(), brick.get()});
-    expect(later.unqueued == 0 && later.waiting + later.missing == 2, "a texture loaded with relief on is requested at once");
+    expect(later.unqueued == 0 && later.waiting + later.missing == 3, "a texture loaded with relief on is requested at once");
 
     // Off and on again: nothing is requested twice, nothing is left unqueued.
     maps.configure(false, 512);

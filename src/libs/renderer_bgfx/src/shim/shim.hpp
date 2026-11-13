@@ -126,6 +126,8 @@ struct TexStore
     std::shared_ptr<effects::NormalMapEntry> normal_map;
     // A location lightmap (lighting\<time>\...\shadow.tga): the surfaces it lies on carry the sun's shadows already.
     bool lightmap = false;
+    // Effects: the gloss map derived from this colour texture (src/effects/normal_maps.hpp), null for others.
+    std::shared_ptr<effects::NormalMapEntry> gloss_map;
 
     ~TexStore();
     uint32_t faces() const { return kind == TexKind::Cube ? 6 : 1; }

@@ -9,12 +9,17 @@
 //     says how many wait.
 //   * grey height ("bump") textures: their values are heights. The game derives their maps itself (fx::DeriveNormalMap
 //     on a texture worker) into the same directory, once.
+// Gloss maps (fx/gloss_map.hpp) follow the same path for the colour textures of a gloss class (TexStore::gloss_map):
+// an entry at the load, looked up while Settings::gloss is on (now or when it is switched on), derived on a texture
+// worker from the game file when the relief directory has none (~10 ms: no generator queue), stored there as EAC R11
+// with mips, read and uploaded when a draw first asks (fading in like the relief).
 // Maps are EAC RG11 with mips, read on a texture worker and uploaded when a draw first needs them (a smaller preset
 // drops their top mips); the relief fades in over kReliefFade. Turning the option off releases them. Every texture of
 // a relief class gets its entry when it is loaded, relief on or off: one loaded while it is off is looked up (and
 // requested or derived) when it is switched on, like one loaded then.
 #pragma once
 
+#include "storm/fx/gloss_map.hpp"
 #include "storm/fx/normal_map.hpp"
 
 #include <bgfx/bgfx.h>
@@ -26,6 +31,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <memory>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -48,7 +54,8 @@ void ConfigureRelief(ReliefSetup setup);
 
 inline constexpr std::chrono::milliseconds kReliefFade{300};
 
-// One texture's normal map, owned by its TexStore (TexStore::normal_map).
+// One texture's normal map (TexStore::normal_map) or gloss map (TexStore::gloss_map: `gloss` is not None), owned by its
+// TexStore.
 struct NormalMapEntry
 {
     enum State : int
@@ -68,6 +75,7 @@ struct NormalMapEntry
     std::atomic<uint32_t> drawn{0};  // the frame a draw last asked for it (the generator makes those on screen first)
     std::string name;                // normalized texture path, for the logs
     fx::ReliefClass relief = fx::ReliefClass::None;
+    fx::GlossClass gloss = fx::GlossClass::None; // a gloss map's class
     uint64_t key = 0;     // fx::ReliefKey
     std::filesystem::path file; // the game file the texture was loaded from (the generator and the derivation read it)
     fx::NormalMap map;    // written by the worker before `state` becomes Derived
@@ -96,6 +104,10 @@ class NormalMaps
     };
     Relief handle(shim::TexStore &store, fx::Lighting &lighting);
 
+    // Gloss maps: as configure() and handle(), for Settings::gloss and Settings::gloss_map_size.
+    void configure_gloss(bool enabled, int max_size);
+    Relief gloss(shim::TexStore &store, fx::Lighting &lighting);
+
     struct Stats
     {
         uint32_t resident = 0;  // uploaded maps
@@ -105,6 +117,9 @@ class NormalMaps
         uint32_t missing = 0;   // loaded colour textures of a relief class that get no map (generator unavailable)
         uint32_t derived = 0;   // height maps derived since the start
         double derive_ms = 0.0; // worker time spent deriving them
+        uint32_t gloss_resident = 0, gloss_unqueued = 0, gloss_derived = 0;
+        size_t gloss_bytes = 0;
+        double gloss_derive_ms = 0.0, gloss_slowest_ms = 0.0;
     };
     Stats stats();
     // Every few seconds, when the stats changed: one "effects relief:" line.
@@ -116,6 +131,11 @@ class NormalMaps
     // On a texture worker: Stored when the directory has its map, else requested (colour textures) or derived (height
     // maps, from the game file).
     void look_up(const std::shared_ptr<NormalMapEntry> &entry);
+    // The same for a gloss map: Stored, or derived from the game file.
+    void look_up_gloss(const std::shared_ptr<NormalMapEntry> &entry);
+    Relief upload(const std::shared_ptr<NormalMapEntry> &entry, fx::Lighting &lighting, int max_size);
+    void add_gloss(shim::TexStore &store, const std::string &name, std::span<const uint8_t> probe, uint32_t pw, uint32_t ph,
+                   const std::filesystem::path &file);
 
     bool enabled_ = false;
     int max_size_ = 1024;
@@ -123,6 +143,10 @@ class NormalMaps
     bool format_reported_ = false;
     bool directory_reported_ = false;
     std::vector<std::weak_ptr<NormalMapEntry>> entries_; // for configure() and stats()
+    bool gloss_enabled_ = false;
+    int gloss_max_size_ = fx::kGlossMapSize;
+    std::vector<std::weak_ptr<NormalMapEntry>> gloss_entries_;
+    std::vector<std::string> gloss_logged_; // names whose gloss class was logged
     uint32_t frames_ = 0;
     uint32_t frame_ = 1; // for NormalMapEntry::drawn
     std::chrono::steady_clock::time_point now_ = std::chrono::steady_clock::now(); // this frame's, for the fade
@@ -132,6 +156,8 @@ class NormalMaps
     {
         std::atomic<uint32_t> derived{0};
         std::atomic<uint64_t> derive_us{0};
+        std::atomic<uint32_t> gloss_derived{0};
+        std::atomic<uint64_t> gloss_derive_us{0}, gloss_slowest_us{0};
     };
     std::shared_ptr<Counters> counters_ = std::make_shared<Counters>(); // shared with the worker tasks
 };

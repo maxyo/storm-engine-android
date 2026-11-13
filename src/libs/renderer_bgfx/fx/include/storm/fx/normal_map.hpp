@@ -25,12 +25,13 @@ namespace storm::fx
 // Material class of a texture for the relief: which textures get a map, and where it comes from.
 enum class ReliefClass : uint8_t
 {
-    None,      // no relief: faces and skin, cloth and sails, UI, water, glass, foliage cards, sky, decals, unknown
+    None,      // no relief: faces and skin, cloth and sails, UI, water, glass, foliage cards, sky, decals, gold, unknown
     HeightMap, // grey "bump" texture: its values are heights
     Stone,
     Wood,
     Building, // one atlas per building: its walls, beams, doors
     Plaster,  // plaster, ceilings, floors, ground, sand
+    Metal,    // cannons, guns, iron, chains: fine pitting that the gloss highlights show
 };
 const char *ReliefClassName(ReliefClass relief);
 
@@ -58,6 +59,7 @@ enum class NormalMapFormat : uint8_t
 {
     Rg8,     // 2 bytes per texel
     EacRg11, // 16 bytes per 4x4 block (R block, then G block); levels smaller than 4 texels take one block per axis
+    R8, // 1 byte per texel, `rg` holds R only: the gloss as DeriveGlossMap makes it (gloss_map.hpp)
 };
 
 struct NormalMap

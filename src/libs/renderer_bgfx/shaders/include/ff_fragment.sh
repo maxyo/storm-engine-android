@@ -13,6 +13,15 @@
 //   FX_LIGHT_NORMALMAP  with FX_FF_LIT / FX_FF_BAKED: relief from the normal map derived from stage 1's height texture
 //                   or stage 0's colour texture (stage 14, that stage's coordinates: u_fxFf.y): lit draws perturb the
 //                   normal, baked ones scale their colour.
+//   FX_LIGHT_SPECULAR  with FX_FF_LIT / FX_FF_BAKED: highlights. With a gloss map of stage 0's texture (stage 7,
+//                   fx/gloss_map.hpp, u_fxGloss.x its share while it fades in) each texel's gloss sets the highlight
+//                   (fxGlossSpec), else the material's (fxMaterialSpec). u_fxGloss.w > 0 (Settings::gloss, its value the gloss strength) adds the
+//                   lamps' highlights with their shadows (lit and baked) and the sun's on baked surfaces outdoors, where
+//                   the bake shows the sun; u_fxGloss.y the texture's metal class (its polished texels: the highlight in
+//                   the texture's colour, a little less diffuse light); u_fxGloss.z debug
+//                   views: 1 the gloss (magenta: no map), 2 the relief (the normal's tilt by the normal map, grey: none),
+//                   3 the open sun the bake shows times the sun's light (yellow), its highlight (blue); lit draws
+//                   dark blue; 4 the metal mask (cyan).
 //   FX_LIGHT_SHADOW[_SOFT]  with FX_FF_LIT: the sun's diffuse and specular terms are scaled by the sun shadow map
 //                   (stage 15, src/effects/shadows.hpp).
 //   AO volume       FX_FF_LIT / FX_FF_BAKED: the interior's ambient occlusion (ffAoVolume, off per draw by
@@ -27,6 +36,11 @@
 // x: two-sided surface whose back side shows the light passing through (normal flipped towards the viewer)
 // y: FX_LIGHT_NORMALMAP: the texture stage (0 or 1) whose coordinates the normal map follows
 uniform vec4 u_fxFf;
+
+#ifdef FX_LIGHT_SPECULAR
+SAMPLER2D(s_fxGlossMap, 7);
+uniform vec4 u_fxGloss;
+#endif
 
 // Ambient-occlusion volume of the interior (src/effects/ao_volume.hpp; stage 12 = fx::kAoVolumeStage).
 // u_fxAoVolume: view space -> volume uvw. u_fxAoParams: x strength (0 = no volume for this draw), y contrast,
@@ -250,7 +264,9 @@ vec3 ffLampDebugColor(float slot)
 // Adds the lamp with grid number `id` (slot + 1, 0 = none) at Pw: sum.rgb its light with its shadow, sum.a the
 // luminance of its light without the shadow. Ng: geometric normal (shadow bias, no light from behind the
 // surface), N: shading normal. The game's own D3D attenuation, faded to zero at the lamp's radius.
-void ffLampAdd(float id, vec3 Pw, vec3 Ng, vec3 N, inout vec4 sum)
+// specV, spec: the world-space unit vector to the eye and the pixel's highlight (fxGlossSpec / fxMaterialSpec); the
+// lamp's highlight with its shadow is added to lampSpec.
+void ffLampAdd(float id, vec3 Pw, vec3 Ng, vec3 N, vec3 specV, vec2 spec, inout vec4 sum, inout vec3 lampSpec)
 {
     if (id < 0.5)
         return;
@@ -300,27 +316,36 @@ void ffLampAdd(float id, vec3 Pw, vec3 Ng, vec3 N, inout vec4 sum)
         Lf = vec3(dot(L, u_fxLampGrid[turn].xyz), dot(L, u_fxLampGrid[turn + 1].xyz), dot(L, u_fxLampGrid[turn + 2].xyz));
         Nf = vec3(dot(Ng, u_fxLampGrid[turn].xyz), dot(Ng, u_fxLampGrid[turn + 1].xyz), dot(Ng, u_fxLampGrid[turn + 2].xyz));
     }
-    sum.rgb += rgb * (light * ffLampVisibility(slot, Lf, lamp.w, color.w - 2.0 * moving, Nf, ngl));
+    float seen = ffLampVisibility(slot, Lf, lamp.w, color.w - 2.0 * moving, Nf, ngl);
+    sum.rgb += rgb * (light * seen);
     sum.a += dot(rgb, vec3(0.299, 0.587, 0.114)) * light;
+#ifdef FX_LIGHT_SPECULAR
+    if (u_fxGloss.w > 0.0)
+    {
+        vec3 H = normalize(toLamp + specV);
+        lampSpec += rgb * (pow(max(dot(N, H), 0.0), spec.x) * spec.y * clamp(ndl * 4.0, 0.0, 1.0) * falloff * seen);
+    }
+#endif
 }
 
 // The light of the lights that move (a carried lantern, a ship's lanterns) at the pixel, with their shadows. The
 // bake holds nothing of them: it is plain added light, as the game's own point lights, not a part of the relit sum:
 // `lampMoved` of ffLampLight.
 
-// The lamps that reach Pw, from the lamp grid (up to eight per cell).
-vec4 ffLampLight(vec3 Pw, vec3 Ng, vec3 N, out vec3 lampMoved)
+// The lamps that reach Pw, from the lamp grid (up to eight per cell); `lampSpec` their highlights (ffLampAdd).
+vec4 ffLampLight(vec3 Pw, vec3 Ng, vec3 N, vec3 specV, vec2 spec, out vec3 lampMoved, out vec3 lampSpec)
 {
     vec4 sum = vec4_splat(0.0);
     lampMoved = vec3_splat(0.0);
+    lampSpec = vec3_splat(0.0);
     if (u_fxLamps[0].x < 0.5)
         return sum;
     // The lights that move (at most two) are few and anywhere: every pixel asks them, without the grid.
     vec4 moved = vec4_splat(0.0);
     if (u_fxLampGrid[4].y > 0.5)
-        ffLampAdd(u_fxLampGrid[4].x + 1.0, Pw, Ng, N, moved);
+        ffLampAdd(u_fxLampGrid[4].x + 1.0, Pw, Ng, N, specV, spec, moved, lampSpec);
     if (u_fxLampGrid[4].y > 1.5)
-        ffLampAdd(u_fxLampGrid[4].x + 2.0, Pw, Ng, N, moved);
+        ffLampAdd(u_fxLampGrid[4].x + 2.0, Pw, Ng, N, specV, spec, moved, lampSpec);
     // The debug views show every light the same way.
     if (u_fxLampGrid[0].w > 0.5)
         sum = moved;
@@ -332,17 +357,17 @@ vec4 ffLampLight(vec3 Pw, vec3 Ng, vec3 N, out vec3 lampMoved)
     float half_texel = 0.5 / u_fxLampGrid[1].w;
     float u = 0.5 * clamp(cell.x, half_texel, 1.0 - half_texel);
     vec4 near = floor(texture3D(s_fxLampGrid, vec3(u, cell.y, cell.z)) * 255.0 + vec4_splat(0.5));
-    ffLampAdd(near.x, Pw, Ng, N, sum);
-    ffLampAdd(near.y, Pw, Ng, N, sum);
-    ffLampAdd(near.z, Pw, Ng, N, sum);
-    ffLampAdd(near.w, Pw, Ng, N, sum);
+    ffLampAdd(near.x, Pw, Ng, N, specV, spec, sum, lampSpec);
+    ffLampAdd(near.y, Pw, Ng, N, specV, spec, sum, lampSpec);
+    ffLampAdd(near.z, Pw, Ng, N, specV, spec, sum, lampSpec);
+    ffLampAdd(near.w, Pw, Ng, N, specV, spec, sum, lampSpec);
     if (near.w > 0.5)
     {
         vec4 more = floor(texture3D(s_fxLampGrid, vec3(u + 0.5, cell.y, cell.z)) * 255.0 + vec4_splat(0.5));
-        ffLampAdd(more.x, Pw, Ng, N, sum);
-        ffLampAdd(more.y, Pw, Ng, N, sum);
-        ffLampAdd(more.z, Pw, Ng, N, sum);
-        ffLampAdd(more.w, Pw, Ng, N, sum);
+        ffLampAdd(more.x, Pw, Ng, N, specV, spec, sum, lampSpec);
+        ffLampAdd(more.y, Pw, Ng, N, specV, spec, sum, lampSpec);
+        ffLampAdd(more.z, Pw, Ng, N, specV, spec, sum, lampSpec);
+        ffLampAdd(more.w, Pw, Ng, N, specV, spec, sum, lampSpec);
     }
     return sum;
 }
@@ -481,11 +506,30 @@ void main()
 #ifdef FX_LIGHT_NORMALMAP
     N = fxPerturbNormal(Ng, P, u_fxFf.y > 0.5 ? v_texcoord1.xy : v_texcoord0.xy);
 #endif
+    // The highlight of this pixel: its gloss texel (stage 0's coordinates; the G of the material texture) or the
+    // material's. ffGloss -1: no gloss map (ff_wet.sh may read it).
+    float ffGloss = -1.0;
+    vec2 ffSpec = fxMaterialSpec();
+    // The metal of the pixel (0..1): a metal texture's polished texels; their highlight takes the texture's colour and
+    // their diffuse light is a little less (subtle: no chrome look). Rust, carriages and grime are less glossy, so no
+    // metal.
+    float ffMetal = 0.0;
+#ifdef FX_LIGHT_SPECULAR
+    if (u_fxGloss.x > 0.0)
+    {
+        ffGloss = texture2D(s_fxGlossMap, v_texcoord0.xy).g;
+        ffMetal = u_fxGloss.y * smoothstep(0.55, 0.75, ffGloss) * u_fxGloss.x;
+        // Metal reflects several times what lacquer or glazing do.
+        ffSpec = mix(ffSpec, fxGlossSpec(ffGloss) * vec2(1.0, (1.0 + 2.5 * ffMetal) * u_fxGloss.w), u_fxGloss.x);
+    }
+#endif
+    vec3 ffSpecV = normalize(mul(u_fxLampView, vec4(V, 0.0)).xyz);
     vec3 Pw = mul(u_fxLampView, vec4(P, 1.0)).xyz;
     vec3 Nw = normalize(mul(u_fxLampView, vec4(Ng, 0.0)).xyz);
     // The place's lamps with their shadows (nothing where there are none).
     vec3 ffLampMoved;
-    vec4 lamps = ffLampLight(Pw, Nw, normalize(mul(u_fxLampView, vec4(N, 0.0)).xyz), ffLampMoved);
+    vec3 ffLampSpec;
+    vec4 lamps = ffLampLight(Pw, Nw, normalize(mul(u_fxLampView, vec4(N, 0.0)).xyz), ffSpecV, ffSpec, ffLampMoved, ffLampSpec);
     // How open the pixel is to the sky (the visibility volume): x the sky it sees, y whether the sun can reach it.
     // Under a roof the sun and the weather's ambient do not arrive and the room's own occlusion counts in full; in
     // a doorway, by a window or under a hatch each arrives by its share.
@@ -533,7 +577,7 @@ void main()
 #else
     vec4 ffDiffuse = v_color0;
 #endif
-    vec4 tex0 = vec4_splat(0.0);
+    vec4 tex0 = vec4_splat(0.0); // stage 0's texel: the baked relight, the tint of a metal highlight
 #endif
     vec4 current = FF_DIFFUSE;
     vec4 temp = vec4_splat(0.0);
@@ -543,9 +587,20 @@ void main()
     FF_STAGE(2, STAGE2_SAMPLE)
     FF_STAGE(3, STAGE3_SAMPLE)
     FF_STAGE(4, STAGE4_SAMPLE)
+#ifdef FX_FF_PIXEL_LIGHTING
+    // A metal's highlight takes the colour of its texture; the rest is white (the fixed-function material has no
+    // usable specular colour).
+    vec3 specTint = vec3_splat(1.0);
+#ifdef FX_LIGHT_SPECULAR
+    specTint = mix(specTint, tex0.rgb / max(max(tex0.r, max(tex0.g, tex0.b)), 0.04), ffMetal);
+    // Metal scatters less of its light diffusely: 15 % less at full metal (subtle: the game's textures hold its shading).
+    current.rgb *= 1.0 - 0.15 * ffMetal;
+#endif
+#endif
 #ifdef FX_FF_LIT
-    // Highlights (white: the fixed-function material has no usable specular colour) and the rim light.
-    current.rgb = fxAddSpecular(current.rgb, fxSunSpecular(N, V) * sunShadow + fxPointSpecular(N, P, V) + fxRim(N, V));
+    // Highlights and the rim light.
+    current.rgb = fxAddSpecular(current.rgb, specTint * (fxSunSpecular(N, V, ffSpec) * sunShadow + fxPointSpecular(N, P, V, ffSpec) +
+                                                         ffLampSpec) + fxRim(N, V));
 #ifdef FX_LIGHT_TRANSLUCENT
     // Sails and flags with the sun behind them: its light comes through the canvas (fx_lighting.sh). The visibility
     // is the sun's on the sail's sunlit side, so a sail does not shadow itself; a sail behind another one still gets
@@ -556,6 +611,12 @@ void main()
 #endif
 #endif
 #ifdef FX_FF_BAKED
+#ifdef FX_LIGHT_SPECULAR
+    // How lit the bake shows this texel: its stages' result against the texture alone (with a 2x modulate or a
+    // light map alike). The sun's highlight shows where that is the light of the open sun, not in the shade.
+    float bakedSun = smoothstep(0.55, 0.9, dot(current.rgb, vec3(0.299, 0.587, 0.114)) / (1.0 - 0.15 * ffMetal) /
+                                               max(dot(tex0.rgb, vec3(0.299, 0.587, 0.114)), 0.04));
+#endif
 #ifdef FX_LIGHT_NORMALMAP
     current.rgb *= fxBakedRelief(Ng, N, V);
 #endif
@@ -599,6 +660,43 @@ void main()
         current.rgb *= clamp(now / max(then, 0.02), 0.33, 3.0);
     }
     current.rgb = fxLit(current.rgb, tex0.rgb, fxPointDiffuse(N, P) + ffLampMoved, vec3_splat(0.0), vec3_splat(0.0));
+#ifdef FX_LIGHT_SPECULAR
+    // Highlights the bake cannot hold: the sun's (outdoors: u_fxLight[1] is black indoors), the lamps' with their
+    // shadows (at the lamps' gain on baked colours), the dynamic lights'.
+    if (u_fxGloss.w > 0.0)
+    {
+#ifdef FX_LIGHT_LINEAR
+        float lampGain = gain * gain;
+#else
+        float lampGain = gain;
+#endif
+        current.rgb = fxAddSpecular(current.rgb, specTint * (fxSunSpecular(N, V, ffSpec) * bakedSun * skySeen.y + ffLampSpec * lampGain +
+                                                             fxPointSpecular(N, P, V, ffSpec)));
+    }
+#endif
+#endif
+#if defined(FX_FF_PIXEL_LIGHTING) && defined(FX_LIGHT_SPECULAR)
+    if (u_fxGloss.z > 0.5)
+    {
+        // Debug views: the gloss as grey (magenta: no gloss map), or the relief: how far the normal map tilts the
+        // normal, 0.5 grey where it does not (no map, or still fading in).
+        if (u_fxGloss.z < 1.5)
+            current.rgb = ffGloss >= 0.0 ? vec3_splat(ffGloss) : vec3(0.6, 0.0, 0.6);
+        else if (u_fxGloss.z < 2.5)
+            current.rgb = clamp(vec3_splat(0.5) + 2.5 * (N - Ng), 0.0, 1.0);
+        else if (u_fxGloss.z > 3.5)
+            current.rgb = mix(vec3_splat(0.15), vec3(0.2, 0.85, 1.0), ffMetal); // the metal mask
+        else
+        {
+#ifdef FX_FF_BAKED
+            // Yellow: the open sun the bake shows, times the sun's light; blue: the sun's highlight there.
+            float sunLight = bakedSun * clamp(2.0 * dot(u_fxLight[1].rgb, vec3(0.299, 0.587, 0.114)), 0.0, 1.0);
+            current.rgb = vec3(sunLight, sunLight, clamp(fxSunSpecular(N, V, ffSpec).g * bakedSun, 0.0, 1.0));
+#else
+            current.rgb = vec3(0.0, 0.0, 0.5); // lit draws: the sun shadow map decides
+#endif
+        }
+    }
 #endif
 #ifdef FX_FF_PIXEL_LIGHTING
     if (u_fxLamps[0].x > 0.5 && u_fxLampGrid[0].w > 0.5)

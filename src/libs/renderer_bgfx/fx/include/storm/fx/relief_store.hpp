@@ -1,4 +1,4 @@
-// The relief maps on the device: one file per texture in the relief directory (the engine's cache root,
+// The relief maps (and the gloss maps, below) on the device: one file per texture in the relief directory (the engine's cache root,
 // fs::GetCachePath(), + "/relief": on Android the app's cache, cleared with it; engine.ini relief_dir overrides).
 // The game makes them from its files with DeepBump while it runs (src/libs/relief, renderer_bgfx
 // effects/relief_generator.hpp) and reads them. Derived from the player's files: never ship or commit them.
@@ -51,5 +51,13 @@ bool WriteReliefMap(const std::filesystem::path &directory, uint64_t key, const 
 // The map, or nothing when there is no file. A damaged file or one of another layout is deleted and reported in `error`.
 std::optional<NormalMap> ReadReliefMap(const std::filesystem::path &directory, uint64_t key, std::string *error = nullptr);
 bool HasReliefMap(const std::filesystem::path &directory, uint64_t key);
+
+// The gloss maps (gloss_map.hpp) in the same directory: key ReliefKey(..., GlossMethod(class), kGlossMapSize), one file
+// "<key>.gloss" each: the material texture of a texture without height, EAC RG11 with all mips (R 0.5, the
+// flat height; G the gloss); the same writing and checks as the relief maps.
+std::filesystem::path GlossFile(const std::filesystem::path &directory, uint64_t key);
+bool WriteGlossMap(const std::filesystem::path &directory, uint64_t key, const NormalMap &map);
+std::optional<NormalMap> ReadGlossMap(const std::filesystem::path &directory, uint64_t key, std::string *error = nullptr);
+bool HasGlossMap(const std::filesystem::path &directory, uint64_t key);
 
 } // namespace storm::fx

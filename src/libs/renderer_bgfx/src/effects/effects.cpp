@@ -135,6 +135,12 @@ const Option kOptions[] = {
     {"fx_light_normal_map", "0 off, 1 on", [](fx::Settings &s, int v) { set_flag(s, fx::kLightingNormalMap, v); }},
     {"fx_normal_map_strength", "0..100 % relief strength",
      [](fx::Settings &s, int v) { s.normal_map_strength = static_cast<float>(std::clamp(v, 0, 100)) / 100.0f; }},
+    {"fx_gloss", "0 off, 1 on: gloss maps shape the sun's and the lamps' highlights",
+     [](fx::Settings &s, int v) { s.gloss = on(v); }},
+    {"fx_gloss_strength", "10..300 % of the gloss maps' highlights",
+     [](fx::Settings &s, int v) { s.gloss_strength = static_cast<float>(std::clamp(v, 10, 300)) / 100.0f; }},
+    {"fx_gloss_debug", "0 off, 1 the gloss (magenta: no map), 2 the relief normals, 3 the sun the bake shows, 4 the metal mask",
+     [](fx::Settings &s, int v) { s.gloss_debug = static_cast<uint8_t>(std::clamp(v, 0, 4)); }},
     {"fx_light_rim", "0 off, 1 on", [](fx::Settings &s, int v) { set_flag(s, fx::kLightingRim, v); }},
     {"fx_light_linear", "0 off, 1 on", [](fx::Settings &s, int v) { set_flag(s, fx::kLightingLinear, v); }},
     {"fx_aerial", "0 off, 1 on", [](fx::Settings &s, int v) { set_flag(s, fx::kLightingAerial, v); }},
@@ -419,6 +425,7 @@ void Host::set_weather(const render::EffectsWeather &weather)
     weather_this_frame_ = true;
     // The hemisphere ambient takes its tint from the sky dome; the aerial perspective needs a sky (no interiors).
     lighting_.shadows().set_sun(weather.sun_dir, weather.sun_present);
+    lighting_.set_weather_sun(weather.sun_dir, weather.sun_color, weather.sun_present);
     if (settings_.lighting_flags & (fx::kLightingHemisphere | fx::kLightingAerial))
         lighting_.set_sky(&sky_state());
 }
@@ -669,10 +676,10 @@ void Host::end_frame(bool scene_frame, uint32_t frame)
                          profile_sum_rcas_ / profile_gpu_frames_);
             const Lighting::Counts counts = lighting_.last_frame();
             shim::logf("effects profile: preset %d scene=%ux%u display=%ux%u %s cpu_frame_ms=%.2f draws=%.0f post_views=%u lit_draws=%u "
-                       "baked_draws=%u coverage_draws=%u relief_draws=%u aerial_draws=%u shadowed_draws=%u casters=%u ao_draws=%u lamp_draws=%u lamp_casters=%u lamp_slots=%d lamp_static_faces=%d sun_static_tiles=%u sun_static_triangles=%u lightmapped_draws=%u town_relit_draws=%u town_wall_draws=%u",
+                       "baked_draws=%u coverage_draws=%u relief_draws=%u gloss_draws=%u aerial_draws=%u shadowed_draws=%u casters=%u ao_draws=%u lamp_draws=%u lamp_casters=%u lamp_slots=%d lamp_static_faces=%d sun_static_tiles=%u sun_static_triangles=%u lightmapped_draws=%u town_relit_draws=%u town_wall_draws=%u",
                        preset_, last_post_size_[0], last_post_size_[1], last_post_size_[2], last_post_size_[3], gpu,
                        profile_sum_cpu_ / kProfileFrames, static_cast<double>(profile_draws_) / kProfileFrames,
-                       last_post_views_, counts.lit, counts.baked, counts.coverage, counts.relief, counts.aerial, counts.shadowed, counts.casters, counts.ao, counts.lamp_lit, counts.lamp_casters,
+                       last_post_views_, counts.lit, counts.baked, counts.coverage, counts.relief, counts.glossy, counts.aerial, counts.shadowed, counts.casters, counts.ao, counts.lamp_lit, counts.lamp_casters,
                        lighting_.lamp_shadows().last_slots(), lighting_.lamp_shadows().last_static_faces(),
                        lighting_.shadows().last_static_casters()[0], lighting_.shadows().last_static_casters()[1], lighting_.town_light().last_counts()[0], lighting_.town_light().last_counts()[1], counts.town_walls);
             profile_count_ = profile_gpu_frames_ = 0;

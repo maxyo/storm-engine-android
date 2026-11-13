@@ -109,6 +109,12 @@ struct FfDraw
     std::array<float, 4> coverage{};
     bgfx::TextureHandle normal_map = BGFX_INVALID_HANDLE; // FX_LIGHT_NORMALMAP variant: bound at stage 14
     uint32_t normal_map_flags = 0;
+    // FX_LIGHT_SPECULAR variants: the gloss map of stage 0's texture (stage kGlossMapStage, invalid: none) and u_fxGloss
+    // (ff_fragment.sh: x a map is bound, y how much the texture colour tints the highlight, z debug view, w 1 = the
+    // gloss highlights of the lamps and of baked surfaces are on).
+    bgfx::TextureHandle gloss_map = BGFX_INVALID_HANDLE;
+    uint32_t gloss_map_flags = 0;
+    std::array<float, 4> gloss{};
     bool shadow = false;           // FX_LIGHT_SHADOW variant: submit() binds the map for `view`
     bool caster = false;           // the shim also submits this draw into the shadow view (submit_caster)
     std::array<float, 16> view{};  // the draw's device world -> view (the sun cascade: casters and receivers alike)
@@ -166,6 +172,12 @@ class Lighting
         origin_ = origin;
     }
     void set_sky(const fx::SkyState *sky) { sky_ = sky; }
+    // The weather's sun (towards it, world; its colour; above the horizon): the highlight of glossy baked surfaces
+    // outdoors, whose draws have the fixed-function lights off and so no sun of their own.
+    void set_weather_sun(const std::array<float, 3> &dir, const std::array<float, 3> &color, bool present)
+    {
+        weather_sun_ = {dir, color, present};
+    }
     // The interior's AO volume for this frame's draws into the game picture (null: none).
     void set_ao_volume(const AoVolumes::Bound *volume) { ao_volume_ = volume; }
     // The location's visibility volume for this frame's lit and baked draws (null: none yet, or no location).
@@ -182,7 +194,7 @@ class Lighting
     // Draws of the last presented frame that used a lit / baked / coverage variant (effects profile).
     struct Counts
     {
-        uint32_t lit = 0, baked = 0, coverage = 0, relief = 0, shadowed = 0, casters = 0, aerial = 0, ao = 0, lamp_lit = 0,
+        uint32_t lit = 0, baked = 0, coverage = 0, relief = 0, glossy = 0, shadowed = 0, casters = 0, aerial = 0, ao = 0, lamp_lit = 0,
                  lamp_casters = 0, town_walls = 0;
     };
     Counts last_frame() const { return last_frame_; }
@@ -202,6 +214,8 @@ class Lighting
     fx::Settings settings_{};
     uint32_t flags_ = 0;
     bool lighting_ = false; // per-pixel sun or point lights
+    bool gloss_ = false;    // gloss maps on (Settings::gloss with per-pixel specular)
+    bgfx::UniformHandle u_gloss_ = BGFX_INVALID_HANDLE;
     bool coverage_ = false;
     int budget_ = 0;
     Material material_ = Material::Hull;
@@ -213,11 +227,16 @@ class Lighting
     std::array<float, 3> origin_{};
     bool dynamic_lights_this_frame_ = false;
     const fx::SkyState *sky_ = nullptr;
+    struct WeatherSun
+    {
+        std::array<float, 3> dir{0.0f, 1.0f, 0.0f}, color{};
+        bool present = false;
+    } weather_sun_;
     void find_shaders();
 
     uint32_t vs_ff_ = 0, vs_lit_ = 0, vs_lit_skin_ = 0, fs_coverage_ = 0;
     uint32_t fs_lit_[2][2][2][3] = {}; // [specular][normal map][linear][shadow: none, one tap, soft]
-    uint32_t fs_baked_[2][2][3] = {};  // [normal map][linear][sun shadow: none, one tap, soft]
+    uint32_t fs_baked_[2][2][2][3] = {}; // [specular][normal map][linear][sun shadow: none, one tap, soft]
     NormalMaps normal_maps_;
     SunShadows shadows_;
     TownLight town_light_;

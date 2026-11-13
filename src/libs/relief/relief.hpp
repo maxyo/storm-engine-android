@@ -57,7 +57,8 @@ class Session
 };
 
 // Removes the maps of textures this game no longer has and every map of another method (another game, an older build,
-// model or options; fx::ReliefMethod); the game's own height maps stay while they are current. Returns how many.
+// model or options; fx::ReliefMethod), and the gloss maps (fx/gloss_map.hpp) of textures it no longer has; the
+// game's own height maps stay while they are current. Returns how many.
 int Prune(const std::filesystem::path &textures, const std::filesystem::path &output, int map_size);
 // The mark of a complete pass (Prune done): the method, the map size and how many relief textures the game had. Cheap
 // to check (names only): the game skips its background pass while the mark matches.

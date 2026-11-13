@@ -90,7 +90,8 @@ python3 tools/scene_sweep/run.py --game <game dir> --engine <build>/engine --out
   options (applied at run time through the renderer, `STORM_SCENE_SWEEP_VARIANTS`): shots
   `<scene>@v<i>.jpg`, frame time and draws per variant in the report (`variants`), measured over
   12 frames after a 4-frame warm-up that starts once the variant draws (the renderer prepares its programs
-  first: `SceneSweepVariantReady`); the boot scenes are captured once. Used for the per-effect cost of the fx presets.
+  first: `SceneSweepVariantReady`); the boot scenes are captured once. Used for the per-effect cost of the fx presets. In locations the game's time stands still from the first variant on (`SetTimeScale(0)`;
+  the sweep's clock then counts 100 ms a frame), so every variant shows the same picture: camera, people, sea and sky.
 - `--failed` reruns the failures of the previous report in `--out`; `--changed` runs only
   scenes whose scripts or model folders changed since it, plus its failures (everything
   when the engine binary or `scene_sweep.c` changed: use `--smoke` or `--failed` then).

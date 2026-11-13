@@ -32,6 +32,9 @@ class Lighting
     // map must use a variant without FX_LIGHT_NORMALMAP.
     bgfx::TextureHandle CreateNormalMap(const NormalMap &map);
     void BindNormalMap(bgfx::TextureHandle normal_map, uint32_t sampler_flags = BGFX_SAMPLER_NONE);
+    // FX_LIGHT_SPECULAR variants: the material texture (EAC RG11, uploaded by CreateNormalMap: R height, G gloss, gloss_map.hpp) on sampler
+    // stage kGlossMapStage; the draw's u_fxGloss.x says whether one is bound.
+    void BindGlossMap(bgfx::TextureHandle gloss_map, uint32_t sampler_flags = BGFX_SAMPLER_NONE);
 
     // Most lights any single draw call had to leave out since the last TakeDroppedLights() because they did
     // not fit into the per-draw budget (Settings::point_lights). The first occurrence is also logged. Show
@@ -48,6 +51,7 @@ class Lighting
     int dropped_ = 0;
     bool dropped_reported_ = false;
     bgfx::UniformHandle s_normal_map_ = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle s_gloss_map_ = BGFX_INVALID_HANDLE;
     bool normal_map_reported_ = false;
 };
 

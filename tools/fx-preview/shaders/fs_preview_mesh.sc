@@ -45,7 +45,7 @@ void main()
         float shadow = fxSunShadow(v_vpos, N);
         diffuse = fxSunDiffuse(N, V) * shadow;
         ambient = fxAmbient(N);
-        specular = fxSunSpecular(N, V) * shadow + fxRim(N, V);
+        specular = fxSunSpecular(N, V, fxMaterialSpec()) * shadow + fxRim(N, V);
 #ifdef FX_LIGHT_TRANSLUCENT
         specular += fxSunTransmission(N, V, dot(base.rgb, vec3(0.299, 0.587, 0.114))) * mix(0.4, 1.0, fxSunShadow(v_vpos, -N));
 #endif
@@ -55,7 +55,7 @@ void main()
     // Lit geometry gets every selected light; baked geometry only receives the dynamic ones the tool selected.
     diffuse += fxPointDiffuse(N, v_vpos);
     if (v_albedo.a > 0.5)
-        specular += fxPointSpecular(N, v_vpos, V);
+        specular += fxPointSpecular(N, v_vpos, V, fxMaterialSpec());
 #endif
     color = fxAddSpecular(fxLit(color, albedo, diffuse, albedo, ambient) * detail, specular);
 #else

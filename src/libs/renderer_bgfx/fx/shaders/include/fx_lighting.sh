@@ -26,8 +26,10 @@
 //   v_color0.rgb = fxLit(v_color0.rgb, matDiffuse, fxSunDiffuse(N, V) * fxSunShadow(P, N) + fxPointDiffuse(N, P),
 //                        matAmbient, fxAmbient(N))
 // and after them:
-//   color.rgb = fxAddSpecular(color.rgb, matSpecular * (fxSunSpecular(N, V) * fxSunShadow(P, N)
-//                                                       + fxPointSpecular(N, P, V)) + fxRim(N, V))
+//   color.rgb = fxAddSpecular(color.rgb, matSpecular * (fxSunSpecular(N, V, spec) * fxSunShadow(P, N)
+//                                                       + fxPointSpecular(N, P, V, spec)) + fxRim(N, V))
+// where spec = fxMaterialSpec() (the material's highlight) or fxGlossSpec(gloss) (a texel of a gloss map,
+// fx/gloss_map.hpp).
 // and with FX_LIGHT_TRANSLUCENT, for two-sided surfaces (the sun's visibility taken on the surface's sunlit side):
 //   color.rgb = fxAddSpecular(color.rgb, fxSunTransmission(N, V, luminance of the colour texture) * fxSunShadow(P, -N))
 // Without FX_LIGHT_LINEAR everything is in the gamma space of the legacy pipeline and uses the D3D9
@@ -92,6 +94,36 @@ vec3 fxAddSpecular(vec3 color, vec3 specular)
 #endif
 }
 
+// A highlight's Blinn-Phong power (x) and strength (y). The material's (fx::LightingMaterial):
+vec2 fxMaterialSpec()
+{
+    return vec2(u_fxLight[0].w, u_fxLight[1].w);
+}
+
+// A texel of a gloss map, gloss 0 (matte) .. 1 (a mirror): the lobe narrows from power 8 to 181 (the game's coarse
+// meshes and their interpolated normals cannot hold a sharper one: it would flicker or vanish) and keeps its
+// energy (normalised Blinn-Phong: the peak grows as (power + 8) / 8) while the reflected share is half of gloss^2.5.
+// Dry wood, stone and cloth (gloss 0.04..0.2) get next to nothing (no plastic sheen); painted hulls a faint sheen;
+// lacquer, leather and wet stone (~0.5) clear highlights; metal and glass (0.65..0.9) bright, small ones.
+vec2 fxGlossSpec(float gloss)
+{
+    float power = exp2(3.0 + 4.5 * gloss);
+    return vec2(power, 0.0625 * gloss * gloss * sqrt(gloss) * (power + 8.0));
+}
+
+// The sun's highlight (the baked variants use it too: their bake holds the sun's light, not its highlight).
+// N: unit view-space normal, V: unit vector to the eye, spec: fxMaterialSpec() or fxGlossSpec().
+vec3 fxSunSpecular(vec3 N, vec3 V, vec2 spec)
+{
+#ifdef FX_LIGHT_SPECULAR
+    vec3 H = normalize(u_fxLight[0].xyz + V);
+    float ndl = clamp(dot(N, u_fxLight[0].xyz) * 4.0, 0.0, 1.0);
+    return fxLightColor(u_fxLight[1].rgb) * (pow(max(dot(N, H), 0.0), spec.x) * spec.y * ndl);
+#else
+    return vec3_splat(0.0);
+#endif
+}
+
 #ifdef FX_LIGHT_PER_PIXEL
 // N: unit view-space normal facing the viewer side, V: unit vector to the eye.
 vec3 fxSunDiffuse(vec3 N, vec3 V)
@@ -125,17 +157,6 @@ vec3 fxAmbient(vec3 N)
 #ifdef FX_LIGHT_HEMISPHERE
     float up = 0.5 + 0.5 * dot(N, u_fxLight[2].xyz);
     return fxLightColor(mix(u_fxLight[4].rgb, u_fxLight[3].rgb, up));
-#else
-    return vec3_splat(0.0);
-#endif
-}
-
-vec3 fxSunSpecular(vec3 N, vec3 V)
-{
-#ifdef FX_LIGHT_SPECULAR
-    vec3 H = normalize(u_fxLight[0].xyz + V);
-    float ndl = clamp(dot(N, u_fxLight[0].xyz) * 4.0, 0.0, 1.0);
-    return fxLightColor(u_fxLight[1].rgb) * (pow(max(dot(N, H), 0.0), u_fxLight[0].w) * u_fxLight[1].w * ndl);
 #else
     return vec3_splat(0.0);
 #endif
@@ -242,7 +263,7 @@ vec3 fxPointDiffuse(vec3 N, vec3 P)
     return sum;
 }
 
-vec3 fxPointSpecular(vec3 N, vec3 P, vec3 V)
+vec3 fxPointSpecular(vec3 N, vec3 P, vec3 V, vec2 spec)
 {
     vec3 sum = vec3_splat(0.0);
 #ifdef FX_LIGHT_SPECULAR
@@ -253,7 +274,7 @@ vec3 fxPointSpecular(vec3 N, vec3 P, vec3 V)
         vec4 light = fxPointLight(i, P);
         float ndl = clamp(dot(N, light.xyz) * 4.0, 0.0, 1.0);
         vec3 H = normalize(light.xyz + V);
-        sum += fxLightColor(u_fxPoint[4 * i + 1].rgb) * (pow(max(dot(N, H), 0.0), u_fxLight[0].w) * u_fxLight[1].w * ndl * light.w);
+        sum += fxLightColor(u_fxPoint[4 * i + 1].rgb) * (pow(max(dot(N, H), 0.0), spec.x) * spec.y * ndl * light.w);
     }
 #endif
     return sum;

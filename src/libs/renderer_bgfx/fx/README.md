@@ -86,6 +86,7 @@ is not wired into the game. `Shadows::CasterProgram`,
 | `include/storm/fx/lighting.hpp`, `shaders/include/fx_lighting.sh` | lighting flags and uniforms for the fixed-function emulator |
 | `include/storm/fx/light_set.hpp` | point / spot lights: selection per draw call, flash lights |
 | `include/storm/fx/deepbump.hpp`, `relief_store.hpp` | DeepBump's tiles, axes, mips and strength around the model (run by src/libs/relief); the relief directory's files and keys |
+| `include/storm/fx/gloss_map.hpp` | gloss maps derived from the colour textures (material class from the path rules, luminance and colour cues per texel) that shape the sun's and the lamps' highlights |
 | `include/storm/fx/normal_map.hpp` | normal maps of the grey "bump" heights; the path/name rules table that gives each texture its relief class |
 | `include/storm/fx/shadows.hpp` | `Shadows`: sun shadow map |
 | `include/storm/fx/contact_shadows.hpp` | `ContactShadows`: soft blobs under characters and objects |
@@ -152,3 +153,12 @@ DeepBump's normals as the model gives them (`deepbump.hpp`, the owner's choice),
 textures get `DeriveNormalMap` of their heights, in the game. Both live in the relief directory (`relief_store.hpp`) as EAC RG11 with
 mips: 1 byte per texel plus a third (a 512² map 0.35 MB; prepared maps are 512, fx::kReliefMapSize; Settings::normal_map_size caps the resident
 size).
+
+Gloss maps (`gloss_map.hpp`, Settings::gloss, «Средняя» and «Высокая») come from the same textures the same way: the
+material class from the path (`ClassifyGlossName`: metal, glass, leather, lacquered wood and wet cave stone glossy;
+painted hulls a little; dry wood, stone, plaster and cloth next to nothing; characters none), moved per texel by its
+brightness against its surroundings and, in building atlases and on metal, by its colour (plaster, wood, lacquer,
+window glass; rust). Derived in the game on a texture worker (~10 ms a texture, no model) into the relief directory
+as EAC R11 with mips (256², 43 KB). The lit and baked programs with FX_LIGHT_SPECULAR read them at stage 7
+(fx_lighting.sh `fxGlossSpec`: energy-kept Blinn-Phong, power 8..181, reflectance gloss^2.5 / 2): the sun's highlight on
+lit and on baked surfaces outdoors (where the bake shows the open sun), the lamps' highlights with their shadows.

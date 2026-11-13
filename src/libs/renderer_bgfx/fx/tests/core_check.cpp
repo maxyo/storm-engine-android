@@ -15,6 +15,7 @@
 #include "storm/fx/log.hpp"
 #include "storm/fx/noise_bake.hpp"
 #include "storm/fx/deepbump.hpp"
+#include "storm/fx/gloss_map.hpp"
 #include "storm/fx/normal_map.hpp"
 #include "storm/fx/relief_store.hpp"
 #include "storm/fx/settings.hpp"
@@ -103,7 +104,10 @@ void CheckSettings()
             reported |= line.find("wave lift") != std::string::npos;
         CHECK(reported);
     }
-    CHECK((medium.lighting_flags & kLightingPerPixel) && !(medium.lighting_flags & kLightingSpecular));
+    // Gloss maps on «Высокая» only for now (their cost on «Средняя» waits for phone numbers).
+    CHECK((medium.lighting_flags & kLightingPerPixel) && !(medium.lighting_flags & kLightingSpecular) && !medium.gloss &&
+          high.gloss && !original.gloss && medium.gloss_map_size == 128 && high.gloss_map_size == 256 &&
+          high.gloss_strength == 1.0f);
     CHECK(medium.shadows == ShadowQuality::Low && high.shadows == ShadowQuality::Soft && original.shadows == ShadowQuality::Off);
     CHECK(!medium.ssao && high.ssao && !original.ssao);
     CHECK(original.ao_volume == 0 && medium.ao_volume == 2 && high.ao_volume == 2); // Низкая: no shadows, as the original
@@ -411,8 +415,14 @@ void CheckSupport()
     unlit.town_light = false;
     unlit.town_walls = false;
     unlit.bounce = false;
+    unlit.gloss = false;
     changes.clear();
     CHECK(ConstrainSettings(unlit, all, changes).ao_volume == 0 && changes.size() == 1);
+    // Gloss without per-pixel highlights has nothing to shape: switched off, said.
+    Settings matte = high;
+    matte.lighting_flags &= ~static_cast<uint32_t>(kLightingSpecular);
+    changes.clear();
+    CHECK(!ConstrainSettings(matte, all, changes).gloss && changes.size() == 1);
     Settings too_strong = high;
     too_strong.ao_volume = 9;
     changes.clear();
@@ -425,6 +435,7 @@ void CheckSupport()
     flat_town.ao_volume = 0;
     flat_town.bounce = false;
     flat_town.town_walls = false;
+    flat_town.gloss = false;
     changes.clear();
     CHECK(!ConstrainSettings(flat_town, all, changes).town_light && changes.size() == 1);
     // So does the bounce.
@@ -517,12 +528,12 @@ void CheckSupport()
     changes.clear();
     CHECK(ConstrainSettings(high, no_aniso, changes).anisotropy == 1 && changes.size() == 1);
 
-    // No RG8 textures: normal maps go, and so does the shader define.
+    // No EAC textures: normal maps and gloss maps go, and so does the shader define.
     Support no_rg = all;
     no_rg.normal_map = false;
     changes.clear();
     constrained = ConstrainSettings(high, no_rg, changes);
-    CHECK(changes.size() == 1 && !(constrained.lighting_flags & kLightingNormalMap));
+    CHECK(changes.size() == 2 && !(constrained.lighting_flags & kLightingNormalMap) && !constrained.gloss);
     CHECK(LightingDefines(constrained).find("NORMALMAP") == std::string::npos);
     // One relief strength for both presets: DeepBump's maps at full strength (the owner's choice).
     CHECK(Settings::FromPreset(QualityPreset::Medium).normal_map_strength == high.normal_map_strength &&
@@ -964,7 +975,8 @@ void CheckDeepBump()
     // normals), the derivation of height maps, the model and the version. The maps of the methods before it (version 3
     // alone; version 4, rescaled to our luminance derivation per class) are never found again.
     CHECK(ReliefMethod(ReliefClass::None) == 0);
-    for (const ReliefClass colour : {ReliefClass::Stone, ReliefClass::Wood, ReliefClass::Building, ReliefClass::Plaster})
+    for (const ReliefClass colour : {ReliefClass::Stone, ReliefClass::Wood, ReliefClass::Building, ReliefClass::Plaster,
+                                     ReliefClass::Metal})
         CHECK(ReliefMethod(colour) == ReliefMethod(ReliefClass::Stone) &&
               ReliefMethod(colour) != ReliefMethod(ReliefClass::HeightMap));
     CHECK(kReliefMethodVersion == 5);
@@ -1107,7 +1119,7 @@ void CheckReliefRules()
         {"MontserratMask", N}, {"PalmsSprites", N}, {"leafPalms", N}, {"Ferns", N}, {"tree4", N}, {"cloth1", N},
         {"carpetU4", N}, {"ropeU1", N}, {"FishingNets", N}, {"SignboardsA", N}, {"smoke_dirt", N}, {"bonfire_small", N},
         {"corona01", N}, {"fonar", N}, {"lighthouseFonarU1", N}, {"candle4c", N}, {"WaterFall", N}, {"River1", N},
-        {"metalU4", N}, {"cannon_T1", N}, {"skelet3", N}, {"telo", N}, {"Item_Rapier02", N}, {"MenuWoodFlooooor01", N},
+        {"metalU4", ReliefClass::Metal}, {"cannon_T1", ReliefClass::Metal}, {"skelet3", N}, {"telo", N}, {"Item_Rapier02", N}, {"MenuWoodFlooooor01", N},
         {"HiDeckalpha", N}, {"cap_deck_glass", N}, {"Particles_list", N}, {"shadow2", N}, {"back_jungle", N},
     };
     for (const auto &[path, expected] : cases)
@@ -1818,6 +1830,73 @@ void CheckSeaWaves()
     CHECK(clock.Due(1.0f / 120.0f) <= 1); // the dropped time is not made up later
 }
 
+// Gloss maps (gloss_map.hpp): the class table on TEHO's names, the class order on one texture, the texel cues.
+void CheckGlossMaps()
+{
+    const auto gloss = [](const char *path) { return ClassifyGlossName(NormalizeTexturePath(path)).gloss; };
+    CHECK(gloss("Resource\\Textures\\cannon_T1.tga.tx") == GlossClass::Metal);
+    CHECK(gloss("Resource\\Textures\\dm_guns.tga.tx") == GlossClass::Metal);
+    CHECK(gloss("Resource\\Textures\\Gundeck_1.tga.tx") == GlossClass::DryWood);
+    CHECK(gloss("Resource\\Textures\\Ships\\Brig1\\Hull1\\brighull1.tga.tx") == GlossClass::PaintedWood);
+    CHECK(gloss("Resource\\Textures\\Ships\\Brig1\\Hull1\\deck_brig.tga.tx") == GlossClass::DryWood);
+    CHECK(gloss("Resource\\Textures\\Ships\\parus_common.tga.tx") == GlossClass::Matte);
+    CHECK(gloss("Resource\\Textures\\GlassWindow.tga.tx") == GlossClass::Glass);
+    CHECK(gloss("Resource\\Textures\\windtavern2ins.tga.tx") == GlossClass::Glass);
+    CHECK(gloss("Resource\\Textures\\windmill_walls.tga.tx") == GlossClass::Building);
+    CHECK(gloss("Resource\\Textures\\tavern2ins.tga.tx") == GlossClass::Interior);
+    CHECK(gloss("Resource\\Textures\\BigHouse01.tga.tx") == GlossClass::Building);
+    CHECK(gloss("Resource\\Textures\\furnitureU1.tga.tx") == GlossClass::Lacquered);
+    CHECK(gloss("Resource\\Textures\\bag2.tga.tx") == GlossClass::Leather);
+    CHECK(gloss("Resource\\Textures\\063pierres.tga.tx") == GlossClass::Stone);
+    CHECK(gloss("Resource\\Textures\\Barn2_bump.tga.tx") == GlossClass::None);
+    CHECK(gloss("Resource\\Textures\\Characters\\blaze.tga.tx") == GlossClass::None);
+    CHECK(gloss("Resource\\Textures\\antigua.tga.tx") == GlossClass::None);
+
+    // A brown (wood) and a grey (iron) slightly noisy texture: glass above metal above lacquer above dry wood above
+    // cloth; dark, grainy orange metal is rust, rougher than iron.
+    constexpr int kSize = 64;
+    std::vector<uint8_t> brown, grey, rusty;
+    for (int i = 0; i < kSize * kSize; ++i)
+    {
+        const uint8_t n = static_cast<uint8_t>((i * 7919) % 23), grain = static_cast<uint8_t>((i * 104729) % 41);
+        rusty.insert(rusty.end(), {static_cast<uint8_t>(40 + grain), static_cast<uint8_t>(18 + grain / 2), static_cast<uint8_t>(6), 255});
+        brown.insert(brown.end(), {static_cast<uint8_t>(120 + n), static_cast<uint8_t>(80 + n), static_cast<uint8_t>(50 + n), 255});
+        grey.insert(grey.end(), {static_cast<uint8_t>(95 + n), static_cast<uint8_t>(100 + n), static_cast<uint8_t>(105 + n), 255});
+    }
+    std::vector<uint8_t> rgba = brown;
+    const auto mean = [&](GlossClass c) {
+        const NormalMap map = DeriveGlossMap(rgba, kSize, kSize, c);
+        double sum = 0.0;
+        for (int i = 0; i < kSize * kSize; ++i)
+            sum += map.rg[static_cast<size_t>(i)] / 255.0;
+        return map.format == NormalMapFormat::R8 && map.width == kSize && map.mip_count == 7 ? sum / (kSize * kSize) : -1.0;
+    };
+    rgba = grey;
+    const double metal = mean(GlossClass::Metal), glass = mean(GlossClass::Glass);
+    rgba = rusty;
+    const double rust = mean(GlossClass::Metal);
+    rgba = brown;
+    const double lacquer = mean(GlossClass::Lacquered),
+                 dry = mean(GlossClass::DryWood), matte = mean(GlossClass::Matte), stone = mean(GlossClass::Stone);
+    std::printf("gloss means: glass %.2f metal %.2f rust %.2f lacquer %.2f dry wood %.2f stone %.2f matte %.2f\n", glass,
+                metal, rust, lacquer, dry, stone, matte);
+    CHECK(rust + 0.15 < metal);
+    CHECK(glass > metal && metal > lacquer && lacquer > dry && dry > matte && stone > matte && matte >= 0.0 && matte < 0.1);
+    CHECK(DeriveGlossMap(rgba, kSize, kSize, GlossClass::None).rg.empty());
+    // Larger textures are halved to kGlossMapSize.
+    std::vector<uint8_t> big(size_t(4 * kGlossMapSize) * kGlossMapSize * 4, 128);
+    const NormalMap halved = DeriveGlossMap(big, 2 * kGlossMapSize, 2 * kGlossMapSize, GlossClass::Stone);
+    CHECK(halved.width == kGlossMapSize && halved.height == kGlossMapSize);
+    // A gap darker than its surroundings is less glossy than the plank around it.
+    std::vector<uint8_t> gap = rgba;
+    for (int y = 0; y < kSize; ++y)
+        for (int x = 30; x < 33; ++x)
+            for (int c = 0; c < 3; ++c)
+                gap[(size_t(y) * kSize + x) * 4 + c] = 15;
+    const NormalMap lacquered = DeriveGlossMap(gap, kSize, kSize, GlossClass::Lacquered);
+    CHECK(lacquered.rg[31] + 30 < lacquered.rg[10]);
+}
+
 int main()
 {
     CheckSettings();
@@ -1844,6 +1923,7 @@ int main()
     CheckBakeThermal();
     CheckBounce();
     CheckSeaWaves();
+    CheckGlossMaps();
     if (failures)
     {
         std::printf("%d check(s) failed\n", failures);

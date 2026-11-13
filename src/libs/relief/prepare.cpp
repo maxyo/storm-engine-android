@@ -2,6 +2,7 @@
 
 #include "formats.hpp"
 #include "storm/fx/deepbump.hpp"
+#include "storm/fx/gloss_map.hpp"
 #include "storm/fx/normal_map.hpp"
 #include "storm/fx/relief_store.hpp"
 
@@ -282,17 +283,35 @@ long long PeakRssKb()
 
 bool ReadTextureLevel(const std::filesystem::path &file, int max_size, std::vector<uint8_t> &rgba, int &width, int &height)
 {
-    TxFile tx;
-    if (!tx.Load(file))
+    // Only the header and the one level are read (a game file holds every level: up to 4/3 of its top level).
+    std::ifstream in(file, std::ios::binary);
+    int32_t header[6];
+    if (!in.read(reinterpret_cast<char *>(header), sizeof(header)))
         return false;
-    int level = 0;
-    while (level + 1 < static_cast<int>(tx.levels) && std::max(tx.width >> level, tx.height >> level) > uint32_t(max_size))
+    const uint32_t flags = static_cast<uint32_t>(header[0]), w = static_cast<uint32_t>(header[1]),
+                   h = static_cast<uint32_t>(header[2]), levels = static_cast<uint32_t>(header[3]),
+                   format = static_cast<uint32_t>(header[4]), top_bytes = static_cast<uint32_t>(header[5]);
+    if ((flags & (kTxFlagPalette | kTxFlagCubemap)) || !texture::tx_format_known(format) || w == 0 || h == 0 || w > 8192 ||
+        h > 8192 || levels == 0 || top_bytes != texture::d3d_level_bytes(format, w, h))
+        return false;
+    // The levels as TxFile::Level lays them out: each a quarter of the one above.
+    uint32_t level = 0;
+    size_t offset = 0, size = top_bytes;
+    while (level + 1 < levels && std::max(w >> level, h >> level) > uint32_t(max_size))
+    {
+        offset += size;
+        size /= 4;
         ++level;
-    const uint32_t lw = std::max(1u, tx.width >> level), lh = std::max(1u, tx.height >> level);
-    const std::span<const uint8_t> bytes = tx.Level(level);
+    }
+    const uint32_t lw = std::max(1u, w >> level), lh = std::max(1u, h >> level);
+    if (size < texture::d3d_level_bytes(format, lw, lh))
+        return false;
+    std::vector<uint8_t> bytes(size);
+    in.seekg(static_cast<std::streamoff>(sizeof(header) + offset));
+    if (!in.read(reinterpret_cast<char *>(bytes.data()), static_cast<std::streamsize>(size)))
+        return false;
     rgba.assign(size_t(lw) * lh * 4, 0);
-    if (bytes.size() < texture::d3d_level_bytes(tx.format, lw, lh) ||
-        !texture::decode_rgba8(tx.format, bytes.data(), lw, lh, rgba.data()))
+    if (!texture::decode_rgba8(format, bytes.data(), lw, lh, rgba.data()))
         return false;
     width = static_cast<int>(lw);
     height = static_cast<int>(lh);
@@ -453,11 +472,35 @@ int Prune(const std::filesystem::path &textures, const std::filesystem::path &ou
                 current.push_back(fx::ReliefFile(output, *height_key));
         }
     }
+    // The gloss maps the game derives (fx/gloss_map.hpp): every texture of a gloss class.
+    std::error_code error;
+    for (auto it = std::filesystem::recursive_directory_iterator(textures, error);
+         !error && it != std::filesystem::recursive_directory_iterator(); it.increment(error))
+    {
+        if (!it->is_regular_file(error) || Lower(it->path().extension().string()) != ".tx")
+            continue;
+        std::error_code relative_error;
+        const std::string name =
+            fx::NormalizeTexturePath(std::filesystem::relative(it->path(), textures, relative_error).generic_string());
+        TxFile tx;
+        const fx::GlossClass gloss = fx::ClassifyGlossName(name).gloss;
+        if (relative_error || gloss == fx::GlossClass::None || !tx.Load(it->path()))
+            continue;
+        const int probe = fx::ReliefProbeLevel(static_cast<int>(tx.width), static_cast<int>(tx.height), static_cast<int>(tx.levels));
+        if (probe < 0)
+            continue;
+        const std::span<const uint8_t> bytes = tx.Level(probe);
+        const uint32_t pw = tx.width >> probe, ph = tx.height >> probe;
+        if (bytes.size() == texture::d3d_level_bytes(tx.format, pw, ph))
+            current.push_back(fx::GlossFile(output, fx::ReliefKey(name, bytes, static_cast<int>(pw), static_cast<int>(ph),
+                                                                  fx::GlossMethod(gloss), fx::kGlossMapSize)));
+    }
     std::sort(current.begin(), current.end());
     int removed = 0;
-    std::error_code error;
+    error.clear();
     for (const auto &entry : std::filesystem::directory_iterator(output, error))
-        if (entry.path().extension() == ".relief" && !std::binary_search(current.begin(), current.end(), entry.path()))
+        if ((entry.path().extension() == ".relief" || entry.path().extension() == ".gloss") &&
+            !std::binary_search(current.begin(), current.end(), entry.path()))
         {
             std::filesystem::remove(entry.path(), error);
             ++removed;
@@ -472,7 +515,7 @@ std::string CompleteMark(const std::filesystem::path &textures, int map_size)
     // Every class's method (model, options, versions): another build's maps never count as complete.
     uint64_t methods = 0;
     for (const fx::ReliefClass relief : {fx::ReliefClass::Stone, fx::ReliefClass::Wood, fx::ReliefClass::Building,
-                                         fx::ReliefClass::Plaster, fx::ReliefClass::HeightMap})
+                                         fx::ReliefClass::Plaster, fx::ReliefClass::Metal, fx::ReliefClass::HeightMap})
         methods = (methods ^ fx::ReliefMethod(relief)) * 0x100000001b3ull;
     char hex[24];
     std::snprintf(hex, sizeof(hex), "%016llx", static_cast<unsigned long long>(methods));
