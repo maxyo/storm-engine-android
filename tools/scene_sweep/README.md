@@ -45,6 +45,11 @@ the sweep fails (`inventory:tables`) when they differ from what `inventory.py` p
   techniques laid over the game's, as the APK build does). Every engine boots once per shard
   and then loads its scenes back to back. A crashed or hung engine fails
   its current scene and the shard restarts with the remaining ones.
+- Every file of a copy that the sweep or the game writes (`engine.ini`, `options`, the
+  `PROGRAM/scene_sweep.c` script, the `engine` link) is unlinked before it is written, so the
+  write never goes through the hard link into the player's game or another sweep's copy. After
+  every engine run the sweep checks that no file of `--game` changed (inode, size, modification
+  time) and stops with a harness error naming the files if one did.
 
 A scene fails on: a crash or fatal engine error, a timeout, a failed teleport to the entry locator, script errors (`error.log`),
 missing textures or models, engine/renderer errors in the logs, a fader that never goes,
