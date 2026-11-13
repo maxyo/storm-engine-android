@@ -888,12 +888,25 @@ bool Device::draw_bounds(const DrawCall &call, const LayoutInfo &layout, uint32_
                 return true;
             }
     }
-    // Box centre, then the farthest vertex from it.
+    // Box centre, then the farthest vertex from it. Float positions (all the game's layouts) are read in place;
+    // bgfx::vertexUnpack (format conversion per vertex) only for the others.
     float lo[3] = {FLT_MAX, FLT_MAX, FLT_MAX}, hi[3] = {-FLT_MAX, -FLT_MAX, -FLT_MAX};
+    uint8_t components = 0;
+    bgfx::AttribType::Enum type = bgfx::AttribType::Float;
+    bool normalized = false, as_int = false;
+    vl.decode(bgfx::Attrib::Position, components, type, normalized, as_int);
+    const bool floats = type == bgfx::AttribType::Float && components >= 3;
+    const uint8_t *position = data + vl.getOffset(bgfx::Attrib::Position) + static_cast<size_t>(first) * stride;
+    const auto read = [&](uint32_t i, float p[4]) {
+        if (floats)
+            memcpy(p, position + static_cast<size_t>(i) * stride, sizeof(float) * 3);
+        else
+            bgfx::vertexUnpack(p, bgfx::Attrib::Position, vl, data, first + i);
+    };
     float p[4];
     for (uint32_t i = 0; i < count; ++i)
     {
-        bgfx::vertexUnpack(p, bgfx::Attrib::Position, vl, data, first + i);
+        read(i, p);
         for (int k = 0; k < 3; ++k)
         {
             lo[k] = std::min(lo[k], p[k]);
@@ -905,7 +918,7 @@ bool Device::draw_bounds(const DrawCall &call, const LayoutInfo &layout, uint32_
         center[k] = 0.5f * (lo[k] + hi[k]);
     for (uint32_t i = 0; i < count; ++i)
     {
-        bgfx::vertexUnpack(p, bgfx::Attrib::Position, vl, data, first + i);
+        read(i, p);
         const float dx = p[0] - center[0], dy = p[1] - center[1], dz = p[2] - center[2];
         r2 = std::max(r2, dx * dx + dy * dy + dz * dz);
     }
@@ -1080,20 +1093,34 @@ HRESULT Device::draw(const DrawCall &call)
     effects::FfDraw fx_draw;
     if (!vs_port && !ps_port && fs_variant != 4 && !fx_lighting.idle())
     {
-        // The lights are chosen for the part of the world the draw covers (its vertices' sphere in world space).
-        effects::DrawSphere sphere;
-        float center[3], radius = 0.0f;
-        if (draw_bounds(call, *layout, element_count, center, radius))
+        // The lights are chosen for the part of the world the draw covers (its vertices' sphere in world space),
+        // computed only when prepare() needs it (effects::DrawSphereSource).
+        struct SphereContext
         {
-            const D3DMATRIX &w = s.world;
-            for (int k = 0; k < 3; ++k)
-                sphere.center[k] = center[0] * w.m[0][k] + center[1] * w.m[1][k] + center[2] * w.m[2][k] + w.m[3][k];
-            float scale = 0.0f;
-            for (int r = 0; r < 3; ++r)
-                scale = std::max(scale, std::sqrt(w.m[r][0] * w.m[r][0] + w.m[r][1] * w.m[r][1] + w.m[r][2] * w.m[r][2]));
-            sphere.radius = radius * scale;
-            sphere.valid = true;
-        }
+            Device *device;
+            const DrawCall *call;
+            const LayoutInfo *layout;
+            uint32_t element_count;
+        } sphere_context{this, &call, layout, element_count};
+        const effects::DrawSphereSource sphere(
+            [](const void *context) {
+                const auto &c = *static_cast<const SphereContext *>(context);
+                effects::DrawSphere result;
+                float center[3], radius = 0.0f;
+                if (c.device->draw_bounds(*c.call, *c.layout, c.element_count, center, radius))
+                {
+                    const D3DMATRIX &w = c.device->s.world;
+                    for (int k = 0; k < 3; ++k)
+                        result.center[k] = center[0] * w.m[0][k] + center[1] * w.m[1][k] + center[2] * w.m[2][k] + w.m[3][k];
+                    float scale = 0.0f;
+                    for (int r = 0; r < 3; ++r)
+                        scale = std::max(scale, std::sqrt(w.m[r][0] * w.m[r][0] + w.m[r][1] * w.m[r][1] + w.m[r][2] * w.m[r][2]));
+                    result.radius = radius * scale;
+                    result.valid = true;
+                }
+                return result;
+            },
+            &sphere_context);
         fx_lighting.prepare(*this, *layout, fs_variant, sphere, fx_draw);
     }
     if (layout->skinned && (vs_port || !store_of(s.vertex_texture)))
