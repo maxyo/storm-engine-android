@@ -786,12 +786,16 @@ HRESULT Device::GetPixelShader(PixelShader **shader)
 
 bool Device::prepare_program(uint32_t vs_id, uint32_t fs_id, int &budget)
 {
-    if (programs.contains({vs_id, fs_id}))
-        return true;
-    if (budget <= 0)
-        return false;
-    program(vs_id, fs_id); // logs a failure
-    --budget;
+    if (!programs.contains({vs_id, fs_id}))
+    {
+        if (budget <= 0)
+            return false;
+        program(vs_id, fs_id); // logs a failure
+        --budget;
+    }
+    // The draws of the same programs without clip plane and alpha test use the opaque twin (draw()).
+    if (const uint32_t twin = opaque_twin(fs_id); twin != UINT32_MAX && !programs.contains({vs_id, twin}))
+        return prepare_program(vs_id, twin, budget);
     return true;
 }
 
@@ -1110,7 +1114,13 @@ HRESULT Device::draw(const DrawCall &call)
             return D3D_OK;
         }
     }
-    const uint32_t fs_id = ps_port ? s.ps->port->shader_id() : fx_draw.active ? fx_draw.fs_id : id_fs_ff[fs_variant];
+    uint32_t fs_id = ps_port ? s.ps->port->shader_id() : fx_draw.active ? fx_draw.fs_id : id_fs_ff[fs_variant];
+    // Nothing of this draw can be discarded (no user clip plane, no alpha test): its shader's opaque twin, which
+    // keeps early depth and the tile GPUs' hidden-surface removal (ff_finish.sh FF_OPAQUE).
+    if (!ps_port && !(s.rs[D3DRS_CLIPPLANEENABLE] & 1) &&
+        !(s.rs[D3DRS_ALPHATESTENABLE] && s.rs[D3DRS_ALPHAFUNC] != D3DCMP_ALWAYS))
+        if (const uint32_t twin = opaque_twin(fs_id); twin != UINT32_MAX)
+            fs_id = twin;
     const bgfx::ProgramHandle handle = program(vs_id, fs_id);
     if (!bgfx::isValid(handle))
     {

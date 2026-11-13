@@ -120,6 +120,20 @@ foreach(suffix _l _s _sl _n _nl _sn _snl _h _lh _sh _slh _nh _nlh _snh _snlh _o 
         list(APPEND ff_fx_variants "fs_ff_baked${suffix}|${CMAKE_CURRENT_SOURCE_DIR}/shaders/fs_ff_baked.sc|${defines}")
     endif()
 endforeach()
+# Opaque twins (FF_OPAQUE, ff_finish.sh without its discards) of every fixed-function fragment shader the shim
+# chooses: draw.cpp uses "<name>_opaque" when the draw has no clip plane and no alpha test, so early depth stays on.
+set(ff_opaque_variants)
+foreach(base fs_ff fs_ff_cube0 fs_ff_cube1 fs_ff_cube2 fs_ff_lit fs_ff_baked)
+    list(APPEND ff_opaque_variants "${base}_opaque|${CMAKE_CURRENT_SOURCE_DIR}/shaders/${base}.sc|FF_OPAQUE")
+endforeach()
+foreach(variant ${ff_fx_variants})
+    string(REPLACE "|" ";" fields "${variant}")
+    list(GET fields 0 name)
+    list(GET fields 1 source)
+    list(GET fields 2 defines)
+    list(APPEND ff_opaque_variants "${name}_opaque|${source}|${defines},FF_OPAQUE")
+endforeach()
+list(APPEND ff_fx_variants ${ff_opaque_variants})
 storm_bgfx_embed_shaders(TARGET storm_bgfx_shaders NAMESPACE storm_shaders
     VARYING "${CMAKE_CURRENT_SOURCE_DIR}/shaders/varying.def.sc" SOURCES ${shader_sources}
     INCLUDES "${CMAKE_CURRENT_SOURCE_DIR}/fx/shaders/include" VARIANTS ${ff_fx_variants})

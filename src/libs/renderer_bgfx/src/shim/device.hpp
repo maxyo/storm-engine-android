@@ -431,6 +431,8 @@ struct Device final : Object
 
 uint32_t shader_id_by_name(const char *name);
 bgfx::ShaderHandle create_embedded_shader(uint32_t id);
+// The FF_OPAQUE twin (no discard: early depth stays on) of a fixed-function fragment shader, UINT32_MAX if none.
+uint32_t opaque_twin(uint32_t fs_id);
 uint32_t embedded_shader_count();
 
 } // namespace storm::shim

@@ -18,6 +18,7 @@
 #include <map>
 #include <mutex>
 #include <string>
+#include <vector>
 #include <thread>
 #ifdef STORM_TRACY
 #include <unistd.h>
@@ -859,6 +860,22 @@ uint32_t shader_id_by_name(const char *name)
             return i;
     logf("missing embedded shader %s", name);
     return UINT32_MAX;
+}
+
+uint32_t opaque_twin(uint32_t fs_id)
+{
+    static const std::vector<uint32_t> twins = [] {
+        std::vector<uint32_t> result(std::size(embedded), UINT32_MAX);
+        for (uint32_t i = 0; i < std::size(embedded); ++i)
+        {
+            const std::string twin = std::string(embedded[i].name) + "_opaque";
+            for (uint32_t j = 0; j < std::size(embedded); ++j)
+                if (twin == embedded[j].name)
+                    result[i] = j;
+        }
+        return result;
+    }();
+    return fs_id < twins.size() ? twins[fs_id] : UINT32_MAX;
 }
 
 bgfx::ShaderHandle create_embedded_shader(uint32_t id)
