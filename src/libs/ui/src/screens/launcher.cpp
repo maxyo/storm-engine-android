@@ -373,12 +373,12 @@ class LauncherScreen final : public Screen
                                std::end(kReasons);
             if (!known)
                 bindings.Error("launcher: unknown exit reason " + Str(exit, "reason"));
-            view["notices"].push_back(Json{{"tone", "warn"},
+            view["notices"].push_back(bindings.Notice(Json{{"tone", "warn"},
                                            {"text", Fill(bindings.Text("launcher.exit_previous"),
-                                                         {known ? bindings.Text(reason) : Str(exit, "reason"), Str(exit, "when")})}});
+                                                         {known ? bindings.Text(reason) : Str(exit, "reason"), Str(exit, "when")})}}));
         }
         if (!result.is_null())
-            view["notices"].push_back(result);
+            view["notices"].push_back(bindings.Notice(result));
 
         if (phase == "ready")
         {
@@ -399,7 +399,7 @@ class LauncherScreen final : public Screen
         view["title"] = bindings.Text("launcher.title_setup");
         const std::string problem = Str(state, "problem");
         if (problem == "recovery_required" || problem == "start_failed")
-            view["notices"].push_back(ResultNotice(bindings, Json{{"key", problem}}, false));
+            view["notices"].push_back(bindings.Notice(ResultNotice(bindings, Json{{"key", problem}}, false)));
         else if (!problem.empty() && problem != "no_game")
             bindings.Error("launcher: unknown storage problem " + problem);
         if (Flag(state, "files"))
@@ -566,6 +566,7 @@ class DownloadsScreen final : public Screen
         view["empty"] = sets.empty();
         view["emptyText"] = bindings.Text("downloads.empty");
         view["error"] = Str(state, "error");
+        bindings.Shown("danger", Str(state, "error"));
         view["actions"] = sets.empty() ? Json::array() : Json::array({Json{{"id", "add"}, {"icon", "plus"}, {"label", bindings.Text("downloads.add")}}});
         view["sources"] = Sources(bindings);
         view["sheet"] = nullptr;
@@ -676,6 +677,13 @@ class DownloadsScreen final : public Screen
         }
         if (!error.empty())
             meta += ": " + (Str(set, "errorKind") == "storage-full" ? bindings.Text("downloads.storage_full") + " — " : std::string()) + error;
+        // The set's problems, without the progress that changes every build.
+        if (stalled)
+            bindings.Shown("warn", Str(set, "name") + ": " +
+                                       bindings.Text(Num(set, "peers") > 0 ? "downloads.stalled_no_data" : "downloads.stalled_no_peers") +
+                                       (Str(set, "networkError").empty() ? std::string() : ": " + Str(set, "networkError")));
+        if (!error.empty())
+            bindings.Shown("danger", Str(set, "name") + ": " + error);
         Json row = Json{{"id", id},
                         {"icon", state == "complete" ? "check" : kind == "magnet" ? "magnet" : kind == "archive" ? "archive" : "download"},
                         {"title", Str(set, "name")},
@@ -808,7 +816,10 @@ class DownloadsScreen final : public Screen
                 text += Fill(bindings.Text("downloads.details_total"), {std::to_string(static_cast<long long>(Num(dialog, "count"))), Size(bindings, Num(dialog, "bytes"))});
             }
             else
+            {
                 text = Str(dialog, "text");
+                bindings.Shown("danger", bindings.Text("downloads.error") + ": " + text);
+            }
             return Json{{"kind", "info"},
                         {"title", kind == "details" ? Str(dialog, "title") : bindings.Text("downloads.error")},
                         {"text", text},

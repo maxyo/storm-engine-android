@@ -844,7 +844,7 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
         OverlayToast(text, tone, hud::ToastSeconds(text));
     }
 
-    void Shown(const std::string &source, const std::string &tone, const std::string &text) const
+    void Shown(const std::string &source, const std::string &tone, const std::string &text) const override
     {
         if (text.empty())
             return;

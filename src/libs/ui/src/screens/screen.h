@@ -127,6 +127,12 @@ class Bindings
     // Shows a long text on a parchment sheet over the screen.
     void Read(const std::string &title, const std::string &text);
     void Toast(const std::string &text);
+    // A notice the view shows in place (a C-Notice: {tone, text, lead?}), returned for the view. Every notice of a
+    // view goes through here: it is logged when it appears (Surface::Shown), once while it stays.
+    Json Notice(Json notice);
+    // Any other text of the view that tells the player about a problem or a result (an error line, an error
+    // dialog's text): logged the same way, when it appears.
+    void Shown(const std::string &tone, const std::string &text);
     // Something the screen cannot do as designed: an error line (a toast in debug hosts).
     void Error(const std::string &text);
     // Local state of the screen changed: build the view again from the same model.
@@ -225,6 +231,8 @@ class Surface
     virtual void SetLanguage(const std::string &game_language) = 0;
     virtual std::string Text(const std::string &key) = 0;
     virtual void Log(const std::string &line) = 0;
+    // Logs a text put on the screen (the log line every shown text has): `source` is where it came from.
+    virtual void Shown(const std::string &source, const std::string &tone, const std::string &text) const = 0;
     // Something is wrong with the data or the pack: an error log line, and in debug hosts
     // a visible notice. Never a quiet drop.
     virtual void Error(const std::string &line) = 0;
@@ -318,6 +326,9 @@ class Router
     std::vector<PendingMark> pending_;
     std::vector<Waiting> waiting_;
     std::set<std::string> logged_; // once per (screen, node set): extras, generic use, rejections
+    // The notices (Bindings::Notice) of the view on the screen and of the one being built: a notice is logged when
+    // it appears, not again at every build while it stays.
+    std::set<std::string> notices_shown_, notices_building_;
     std::string rejection_;
     // Shared «Прочее» sheet and reading sheet.
     bool extras_open_ = false;

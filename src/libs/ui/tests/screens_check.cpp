@@ -41,6 +41,7 @@ struct FakeSurface final : Surface
     std::vector<std::string> logs;
     std::vector<std::string> errors;
     std::vector<std::string> toasts;
+    mutable std::vector<std::string> shown; // "<tone> (<source>): <text>", as the host logs them
     std::string language;
     TextRequest text;
     double now = 0.0;
@@ -78,6 +79,10 @@ struct FakeSurface final : Surface
     std::string Text(const std::string &key) override
     {
         return "<" + key + ">"; // the tables live in the pack; screens only name keys
+    }
+    void Shown(const std::string &source, const std::string &tone, const std::string &line) const override
+    {
+        shown.push_back(tone + " (" + source + "): " + line);
     }
     void Log(const std::string &line) override
     {
@@ -2283,8 +2288,27 @@ static void Launcher()
     router.Back();
     ExpectEqual(verb(), "APP files-close ", "← returns to the ready launcher");
 
+    // Nothing reaches the screen unlogged, the launcher's notices included: each is logged when it appears,
+    // once while it stays, and again when it comes back.
+    const auto shownCount = [&surface](const std::string &line) {
+        return std::count(surface.shown.begin(), surface.shown.end(), line);
+    };
+    const std::string volumes = "danger (notice on screen app:launcher): <launcher.failed> "
+                                "<launcher.result.import_archive_volumes> setup-2.bin <launcher.kept>";
+    Expect(shownCount(volumes) == 1, "a failed import's notice is logged");
+    for (const char *key : {"picker_unavailable", "exit_game_first", "picker_unavailable"})
+    {
+        router.SetState("launcher", launcher({{"phase", "setup"}, {"library", true}, {"hasGame", true}, {"files", true},
+                                              {"result", {{"key", key}, {"args", Json::array()}}}}));
+        router.SetState("launcher", launcher({{"phase", "setup"}, {"library", true}, {"hasGame", true}, {"files", true},
+                                              {"result", {{"key", key}, {"args", Json::array()}}}}));
+    }
+    Expect(shownCount("info (notice on screen app:launcher): <launcher.result.picker_unavailable>") == 2,
+                "picker_unavailable is logged at each appearance, not at each build");
+    Expect(shownCount("info (notice on screen app:launcher): <launcher.result.exit_game_first>") == 1, "exit_game_first is logged");
     router.SetState("launcher", launcher({{"phase", "ready"}, {"library", true}, {"hasGame", true},
                                           {"exit", {{"reason", "anr"}, {"when", "today"}}}}));
+    Expect(shownCount("warn (notice on screen app:launcher): <launcher.exit_previous>") == 1, "the previous exit's notice is logged");
     ExpectEqual(surface.props["view"].get<std::string>(), "ready", "ready view");
     ExpectEqual(surface.props["notices"][0]["text"].get<std::string>(), "<launcher.exit_previous>", "previous exit noticed");
     router.OnEvent({"play", "click", ""});
@@ -2347,6 +2371,9 @@ static void Launcher()
            "a stalled set says why");
     Expect(surface.props["sets"][3]["meta"].get<std::string>().find("<downloads.storage_full> — No space left on device") != std::string::npos,
            "a full disk is named");
+    Expect(shownCount("danger (notice on screen app:downloads): Full disk: No space left on device") == 1, "a set's error is logged");
+    Expect(shownCount("warn (notice on screen app:downloads): Quiet: <downloads.stalled_no_peers>: Tracker x: 404") == 1,
+                "a stalled set's reason is logged");
     router.OnEvent({"set-1", "action", "pause"});
     ExpectEqual(verb(), "APP pause 1", "pause glyph");
     router.OnEvent({"btn-2", "click", ""});
