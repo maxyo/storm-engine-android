@@ -20,6 +20,10 @@ namespace
 constexpr double kIdle = 3600.0;
 constexpr size_t kLines = 3;
 constexpr double kDialogueWait = 0.5; // s: a dialogue hides the HUD by then even if its panel has not come
+// s: a dialogue no screen shows for this long is ended (WatchDialogue). Measured: the panel follows
+// the game's dialogue start in 0.1–0.6 s on the emulator (DialogMain, 3 frames, the dialogue file
+// compiled); 3 s leaves a slow phone's first dialogue load room.
+constexpr double kDialogueLost = 3.0;
 constexpr double kLeaveSeconds = 0.22; // a line animates out this long (pack time.toastLeave), then goes
 // The layout scene under the spyglass when no ported scene owns the mode (the platform still
 // draws the sea HUD): the overlay alone, no elements.
@@ -531,6 +535,7 @@ double Hud::Tick()
     for (const Line &line : lines_)
         if (line.held < 0.0)
             next = std::min(next, std::max(0.0, (line.leaving >= 0.0 ? line.leaving + kLeaveSeconds : line.until) - now));
+    next = std::min(next, WatchDialogue(now));
     // A dialogue whose panel has not come: the HUD goes at kDialogueWait.
     if (visible_ && states_.presentation.dialogue && dialogue_since_ >= 0.0 && !interface_)
     {
@@ -544,6 +549,39 @@ double Hud::Tick()
             next = std::min(next, dialogue_since_ + kDialogueWait - now);
     }
     return next;
+}
+
+// The softlock safety net: the game in a dialogue (its panel's state, or a game blocked by its
+// dialogRun) while no screen is mounted means a dialogue the player cannot see or answer and that
+// nothing else ends. After kDialogueLost: an ERROR, the player's notice, and the engine ends it
+// ("dialogue-lost", engine android_dialogue_watchdog.hpp). Never the fix: each trigger is a bug.
+double Hud::WatchDialogue(double now)
+{
+    const Presentation &shown = states_.presentation;
+    const bool blocked = states_.gameplay.blocked == "dialogue";
+    // A game interface open (shown.screen) or loading is not this: the dialogue waits under it.
+    const bool unseen = shown.known && (shown.dialogue || blocked) && shown.screen.empty() && !shown.loading && !mount_.ScreenMounted();
+    if (!unseen)
+    {
+        unseen_since_ = -1.0;
+        unseen_ended_ = false;
+        return kIdle;
+    }
+    if (unseen_since_ < 0.0)
+        unseen_since_ = now;
+    if (unseen_ended_)
+        return kIdle;
+    if (now < unseen_since_ + kDialogueLost)
+        return unseen_since_ + kDialogueLost - now;
+    unseen_ended_ = true;
+    char seconds[16];
+    std::snprintf(seconds, sizeof(seconds), "%.1f", now - unseen_since_);
+    const std::string report = std::string("no dialogue panel for ") + seconds + " s (panel state " + (shown.dialogue ? "active" : "none") +
+                               ", gameplay blocked '" + states_.gameplay.blocked + "')";
+    mount_.Error("dialogue watchdog: the game is in a dialogue nobody sees: " + report + "; the engine ends it");
+    mount_.Alert(mount_.Text("dialogue.lost"));
+    Send("dialogue-lost", report);
+    return kIdle;
 }
 
 void Hud::Drawn()

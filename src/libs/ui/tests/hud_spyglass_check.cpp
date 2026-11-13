@@ -78,6 +78,13 @@ struct FakeMount final : Mount
     {
         return false;
     }
+    bool ScreenMounted() const override
+    {
+        return false;
+    }
+    void Alert(const std::string &) override
+    {
+    }
 };
 
 struct QuietSurface final : screens::Surface

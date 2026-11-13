@@ -2,6 +2,7 @@
 // layout file, which scene draws which gameplay mode and when it is visible, event
 // dispatch, the event log and the calls a scene gets. Synthetic states only
 // (tests/states); no GL context, no pack, no game data.
+#include <algorithm>
 #include "../src/hud/hud.h"
 
 #include <cstdio>
@@ -94,6 +95,15 @@ struct FakeMount final : Mount
     {
         return interface;
     }
+    bool ScreenMounted() const override
+    {
+        return interface;
+    }
+    void Alert(const std::string &text) override
+    {
+        alerts.push_back(text);
+    }
+    std::vector<std::string> alerts;
     bool Measure(const std::string &, const std::string &, Placement &) const override
     {
         return false;
@@ -501,8 +511,64 @@ static void CheckScenes()
             hud.Tick();
             Expect(!hud.Visible() && !mount.errors.empty() && mount.errors.back().find("no dialogue panel") != std::string::npos,
                    "a dialogue whose panel never comes hides the HUD after the wait, said");
+            // The softlock net (#18b: the chest's late close took the owner's dialogue panel):
+            // 3 s in a dialogue no screen shows ends it, loudly, once.
+            const auto lost = [&] { return std::count_if(mount.commands.begin(), mount.commands.end(), [](const std::string &c) { return c.starts_with("dialogue-lost:"); }); };
+            mount.now += 2.3; // 2.9 s
+            hud.Tick();
+            Expect(lost() == 0, "a dialogue unseen for 2.9 s: not yet");
+            mount.now += 0.2; // 3.1 s
+            hud.Tick();
+            Expect(lost() == 1 && mount.commands.back().find("no dialogue panel for 3.1 s (panel state active") != std::string::npos,
+                   "unseen for 3 s: the engine is told to end it, with what was seen: " + mount.commands.back());
+            Expect(!mount.errors.empty() && mount.errors.back().starts_with("dialogue watchdog: the game is in a dialogue nobody sees"),
+                   "as an error");
+            Expect(mount.alerts.size() == 1 && mount.alerts.back() == "<dialogue.lost>", "and a notice for the player");
+            mount.now += 10.0;
+            hud.Tick();
+            Expect(lost() == 1 && mount.alerts.size() == 1, "once per dialogue");
             bench.Game();
             hud.Tick();
+
+            // The game blocked by its dialogue (dialogRun) whose panel state never came at all.
+            Json blocked = State("gameplay-explore");
+            blocked["mode"] = "unknown";
+            blocked["blocked"] = "dialogue";
+            bench.Feed("gameplay", blocked);
+            hud.Tick();
+            mount.now += 3.1;
+            hud.Tick();
+            Expect(lost() == 2 && mount.commands.back().find("panel state none, gameplay blocked 'dialogue'") != std::string::npos,
+                   "a dialogue that published no panel at all is ended too: " + mount.commands.back());
+            bench.Feed("gameplay", State("gameplay-explore"));
+            hud.Tick();
+
+            // A normal dialogue: its panel within 0.6 s, a long talk, a game interface it opens, its end.
+            bench.Feed("presentation", talking);
+            hud.Tick();
+            mount.now += 0.6;
+            hud.Tick();
+            mount.interface = true;
+            for (int i = 0; i < 20; ++i)
+            {
+                mount.now += 1.0;
+                hud.Tick();
+            }
+            Json store = talking;
+            store["screen"] = "store";
+            bench.Feed("presentation", store);
+            mount.interface = false; // the store between its close and the panel's return
+            mount.now += 5.0;
+            hud.Tick();
+            bench.Feed("presentation", talking);
+            mount.interface = true;
+            mount.now += 1.0;
+            hud.Tick();
+            mount.interface = false;
+            bench.Game();
+            mount.now += 5.0;
+            hud.Tick();
+            Expect(lost() == 2 && mount.alerts.size() == 2, "a normal dialogue never trips it");
         }
         for (const char *cover : {"loading", "cinematic"})
         {

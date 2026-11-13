@@ -1028,6 +1028,11 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
         router_->SubmitText(token, text, accepted);
     }
 
+    bool ScreenMounted() const override
+    {
+        return router_->Active() || document_ != nullptr;
+    }
+
     bool InterfaceActive() const override
     {
         // hud::Mount too: a plain document covers the game as well; a full-screen video covers both

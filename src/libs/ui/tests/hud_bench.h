@@ -96,6 +96,16 @@ struct FakeMount final : Mount
     {
         return false;
     }
+    bool ScreenMounted() const override
+    {
+        return screen;
+    }
+    void Alert(const std::string &text) override
+    {
+        alerts.push_back(text);
+    }
+    bool screen = false; // a screen mounted (a game interface, the dialogue panel)
+    std::vector<std::string> alerts;
     // What a test says is on the screen, by "<id> <selector>".
     bool Measure(const std::string &id, const std::string &selector, Placement &out) const override
     {
