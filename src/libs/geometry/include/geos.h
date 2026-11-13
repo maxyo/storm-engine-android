@@ -299,6 +299,8 @@ class GEOS
     // appends, like AppendTriangles, the visible objects that the lightmap covers with their lightmap texture
     // coordinates; false, with nothing appended, when a buffer cannot be read or the model has no lightmap.
     virtual const std::string &LightmapFile() const = 0;
+    // The renderer's id of that lightmap's texture (-1: none).
+    virtual int32_t LightmapTexture() const = 0;
     virtual bool AppendLightmapTriangles(std::vector<glm::vec3> &positions, std::vector<glm::vec2> &uvs,
                                          std::vector<uint32_t> &indices) const = 0;
 

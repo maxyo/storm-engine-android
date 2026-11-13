@@ -107,6 +107,10 @@ class GEOM : public GEOS
                          SurfaceData *surface) const override;
     bool HasCollision() const override;
     const std::string &LightmapFile() const override;
+    int32_t LightmapTexture() const override
+    {
+        return lightmap_id_;
+    }
     bool AppendLightmapTriangles(std::vector<glm::vec3> &positions, std::vector<glm::vec2> &uvs,
                                  std::vector<uint32_t> &indices) const override;
 };

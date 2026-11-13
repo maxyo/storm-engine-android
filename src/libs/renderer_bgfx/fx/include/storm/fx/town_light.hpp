@@ -1,0 +1,77 @@
+// Our own lightmaps for the towns (Средняя / Высокая): the sun's shadows of the real hour and the sky's occlusion
+// (alleys, under awnings, by the walls), on the texels of the game's lightmaps (the same texture stage and texture
+// coordinates, one texture fetch as before).
+//
+// The game's lightmaps (lighting\<time>\...\shadow.tga) were baked by hand for a near-noon sun, whatever the hour:
+// a 8:00 street has noon shadows. Measured on FortFrance / SentJons ground: luminance = 0.04 + 0.14 sun + 0.26 sky
+// (R² 0.46; sun alone 0.38), the sun's visibility along their bake direction (fx/sun_fit.hpp) and the sky's from
+// ray casting the place's geometry. The rest is texture-like variation in the paint.
+//
+// Here:
+//   * RasterizeLightmap: the texels a lightmap's triangles cover (world position and normal of each), plus a
+//     gutter of texels outside the triangles that take their nearest covered texel (bilinear filtering reads them);
+//   * SkyVisibility (once per place) and SunVisibility (per sun direction, soft: a few rays over the sun's disk and
+//     the texel) by ray casting the place's still geometry (fx::Occluders);
+//   * CalibrateTownLight: how the game's lightmap was lit, fitted on its texels to its sun (the fitted bake
+//     direction) and sky;
+//   * ComposeTownLight: the game's lightmap relit for the hour's sun (blended between two sun directions as the hour
+//     runs): its paint (the ground's colours are painted into it) and tone stay, its shadows move.
+#pragma once
+
+#include "storm/fx/sky_model.hpp"
+#include "storm/fx/sun_fit.hpp"
+
+#include <array>
+#include <cstdint>
+#include <span>
+#include <vector>
+
+namespace storm::fx
+{
+
+struct LightmapTexels
+{
+    int width = 0, height = 0;
+    std::vector<uint32_t> texel;  // y * width + x of each covered texel
+    std::vector<Vec3> position;   // its world position (on the surface)
+    std::vector<Vec3> normal;     // the surface's unit normal there (the side the lightmap lights)
+    std::vector<uint32_t> gutter; // texels outside every triangle: [2i] the texel, [2i + 1] the covered one it copies
+};
+
+// The texels of lightmap `lightmap` (`triangle_lightmap` per triangle) at `width` x `height`.
+LightmapTexels RasterizeLightmap(std::span<const Vec3> positions, std::span<const std::array<float, 2>> uvs,
+                                 std::span<const uint32_t> indices, std::span<const uint32_t> triangle_lightmap,
+                                 uint32_t lightmap, int width, int height, int gutter = 2);
+
+// 0..1 per texel: the share of the sky (cosine weighted, within `reach` metres) each texel sees.
+std::vector<uint8_t> SkyVisibility(const Occluders &occluders, const LightmapTexels &texels, float reach = 10.0f,
+                                   int rays = 32, unsigned threads = 1);
+// 0..1 per texel: the sun's direct light on it, the share of `sun` (unit, towards the sun) the texel sees (over
+// `samples` rays spread across the sun's disk and the texel) times the cosine to its normal; 0 facing away.
+std::vector<uint8_t> SunVisibility(const Occluders &occluders, const LightmapTexels &texels, const Vec3 &sun,
+                                   float texel_metres, int samples = 4, unsigned threads = 1);
+
+// How the game's lightmap was lit: its luminance = a + b sun + c sky on its texels (the sun's visibility along the
+// direction it was baked with, the sky's visibility). The rest is its paint: the ground's colours (grass, sand, the
+// paths) are painted into the same texture.
+struct TownLightTone
+{
+    float a = 0.0f, b = 0.0f, c = 0.0f;
+    float r2 = 0.0f; // how much of the game lightmap's luminance the least squares explain
+    uint32_t edges = 0; // shadow edge pairs b was measured at (too few: b from the least squares)
+    bool valid = false;
+};
+
+// The game lightmap's lighting (`rgba`: its texels, RGBA8 at the same size) from its sun visibility along the direction
+// it was baked with and its sky visibility.
+TownLightTone CalibrateTownLight(const LightmapTexels &texels, std::span<const uint8_t> rgba,
+                                 std::span<const uint8_t> sun, std::span<const uint8_t> sky);
+
+// Our lightmap (RGBA8, width x height, the gutter filled): the game's (`game`) relit, its paint kept: each texel times
+// the lighting of the hour's sun (`sun_a` blended towards `sun_b` by `t`) over the lighting it was baked with
+// (`baked`), both from `tone` and the sky visibility.
+void ComposeTownLight(const LightmapTexels &texels, const TownLightTone &tone, std::span<const uint8_t> game,
+                      std::span<const uint8_t> baked, std::span<const uint8_t> sun_a, std::span<const uint8_t> sun_b,
+                      float t, std::span<const uint8_t> sky, std::span<uint8_t> rgba);
+
+} // namespace storm::fx

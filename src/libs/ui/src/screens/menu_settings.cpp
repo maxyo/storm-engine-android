@@ -218,6 +218,12 @@ class SettingsScreen final : public Screen
                 if (Known("fx_sail_light"))
                     DebugSegment(bindings, debug, "fx_sail_light", "Свет сквозь паруса", {-1, 0, 100, 200, 300},
                                  {"пресет", "выкл", "100%", "200%", "300%"});
+                // Our town lightmaps for the live sun (effects/town_light.hpp) against the game's, and what they hold.
+                if (Known("fx_town_light"))
+                {
+                    DebugSegment(bindings, debug, "fx_town_light", "Свет городов", {-1, 0, 1}, {"пресет", "игра", "наш"});
+                    DebugSegment(bindings, debug, "fx_town_light_debug", "Свет городов: отладка", {-1, 0, 1}, onOff);
+                }
                 sections.push_back({"", {debug}});
             }
         }

@@ -144,6 +144,10 @@ struct Settings
     float sail_light = 1.0f;
     uint16_t normal_map_size = 512;   // with kLightingNormalMap: larger side of the resident normal maps (EAC RG11 + mips)
     ShadowQuality shadows = ShadowQuality::Off; // sun shadows on per-pixel lit surfaces (needs kLightingPerPixel)
+    // Towns light their lightmapped surfaces with our own bake for the live sun instead of the game's lightmaps
+    // (needs kLightingPerPixel; src/effects/town_light.hpp).
+    bool town_light = false;
+    bool town_light_debug = false; // our town lightmaps show their sun visibility (grey) instead of the relit paint
     // Ambient-occlusion volume of interiors (ao_volume.hpp): 0 off, else one of the strengths AoVolumeLevel names.
     uint8_t ao_volume = 0;
     // The lamps of a location relight it with shadows (lamp_shadows.hpp): how many lamps around the camera take

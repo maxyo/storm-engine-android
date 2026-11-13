@@ -55,6 +55,7 @@ Settings Settings::FromPreset(QualityPreset preset)
         s.point_lights = 4;
         s.normal_map_size = 256; // the prepared 512 maps from their second mip: a quarter of High's memory
         s.shadows = ShadowQuality::Low;
+        s.town_light = true;
         s.ao_volume = 2;
         s.lamp_shadows = 8;
         s.lamp_moving = 1;
@@ -74,6 +75,7 @@ Settings Settings::FromPreset(QualityPreset preset)
                        kLightingRim | kLightingAerial;
     s.point_lights = 8;
     s.shadows = ShadowQuality::Soft;
+    s.town_light = true;
     s.ao_volume = 2; // the owner: the strong look left the rooms too dark
     s.lamp_shadows = 16;
     s.lamp_moving = 2;
@@ -192,6 +194,8 @@ constexpr Rule kRules[] = {
      "hemisphere ambient, specular and translucency need per-pixel lighting: switched off"},
     {[](const Settings &s, const Support &) { return s.shadows != ShadowQuality::Off && !(s.lighting_flags & kLightingPerPixel); },
      [](Settings &s) { s.shadows = ShadowQuality::Off; }, "sun shadows need per-pixel lighting: switched off"},
+    {[](const Settings &s, const Support &) { return s.town_light && !(s.lighting_flags & kLightingPerPixel); },
+     [](Settings &s) { s.town_light = false; }, "our own town light needs per-pixel lighting: switched off"},
     {[](const Settings &s, const Support &c) { return s.shadows != ShadowQuality::Off && !c.shadow_map; },
      [](Settings &s) { s.shadows = ShadowQuality::Off; }, "sun shadows need a D16 depth render target: switched off"},
     {[](const Settings &s, const Support &c) { return (s.lighting_flags & kLightingNormalMap) && !c.normal_map; },

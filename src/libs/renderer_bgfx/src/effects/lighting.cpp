@@ -86,6 +86,9 @@ void Lighting::configure(const fx::Settings &settings, const fx::RendererState &
     coverage_ = state.alpha_to_coverage;
     budget_ = fx::PointLightBudget(settings);
     shadows_.configure(settings);
+    // Our own lightmaps for the towns with the per-pixel lighting (Средняя / Высокая); Низкая keeps the game's.
+    town_light_.set_enabled(settings.town_light);
+    town_light_.set_debug(settings.town_light_debug);
     lamps_.configure(settings);
     normal_maps_.configure(lighting_ && (flags_ & fx::kLightingNormalMap), settings.normal_map_size);
     find_shaders();
@@ -289,6 +292,12 @@ void Lighting::prepare(const shim::Device &device, const shim::LayoutInfo &layou
     }
     draw.lit = true;
     draw.vs_id = vs_lit_;
+    // Under a location lightmap (ours in its place: the shim binds TownLight::replacement): no cascade, see below.
+    bool lightmapped = false;
+    for (int stage = 0; stage < 4 && !lightmapped; ++stage)
+        if (device.s.tss[stage][D3DTSS_COLOROP] != D3DTOP_DISABLE)
+            if (const shim::TexStore *store = shim::store_of(device.s.textures[stage]); store && store->lightmap)
+                lightmapped = true;
     if (ao)
     {
         draw.ao = true;
@@ -459,17 +468,13 @@ void Lighting::prepare(const shim::Device &device, const shim::LayoutInfo &layou
         }
         draw.points = fx::PackPointLights(selection, input.view);
         // Sun shadows: lit draws into the game picture (the first one of a frame prepares the map with its camera).
-        if (per_pixel && sun_slot >= 0 && target && target == picture && !indoor_sun)
+        // Surfaces under a location lightmap carry the sun's shadows already (ours: the same sun, TownLight) and the
+        // place's still geometry casts from its own tiles: they neither receive nor cast.
+        if (per_pixel && sun_slot >= 0 && target && target == picture && !indoor_sun && !lightmapped)
         {
             memcpy(draw.view.data(), &device.s.view.m[0][0], sizeof(float) * 16);
-            draw.shadow = draw.sun_caster = shadows_.prepare(draw.view);
+            draw.shadow = draw.sun_caster = shadows_.prepare(const_cast<shim::Device &>(device), draw.view, origin_, casters_);
             draw.caster |= draw.sun_caster;
-            if (draw.shadow && shadows_.has_ground() && sphere_source.get().valid)
-            {
-                const DrawSphere &sphere = sphere_source.get();
-                draw.ground_sun = shadows_.ground_sun({sphere.center[0] + origin_[0], sphere.center[1] + origin_[1],
-                                                       sphere.center[2] + origin_[2]}); // the lightmaps are absolute
-            }
         }
         // How the draw's material casts (effects/casters.hpp): cut where the colour pass's alpha test discards,
         // nothing for a blended material that writes no depth.
@@ -509,7 +514,7 @@ void Lighting::submit(const FfDraw &draw)
     if (bgfx::isValid(draw.normal_map))
         fx_.BindNormalMap(draw.normal_map, draw.normal_map_flags);
     if (draw.shadow)
-        shadows_.bind(draw.view, draw.ground_sun);
+        shadows_.bind(draw.view);
     bind_ao_volume(draw);
     lamps_.bind(draw.lamps, draw.world_view, draw.room_light);
 }
@@ -601,6 +606,7 @@ void Lighting::end_frame()
 {
     last_frame_ = frame_;
     frame_ = {};
+    town_light_.end_frame();
     shadows_.end_frame();
     normal_maps_.end_frame();
     lamps_.end_frame();
@@ -615,6 +621,7 @@ void Lighting::shutdown()
 {
     fx_.Shutdown();
     shadows_.shutdown();
+    town_light_.shutdown();
     lamps_.shutdown();
     casters_.shutdown();
     if (bgfx::isValid(ao_open_))
@@ -632,6 +639,7 @@ void Lighting::on_device_lost()
 {
     fx_.OnDeviceLost();
     shadows_.on_device_lost();
+    town_light_.on_device_lost();
     lamps_.on_device_lost();
     casters_.on_device_lost();
     u_coverage_ = u_ff_ = u_aerial_up_ = s_ao_volume_ = u_ao_matrix_ = u_ao_params_ = BGFX_INVALID_HANDLE;

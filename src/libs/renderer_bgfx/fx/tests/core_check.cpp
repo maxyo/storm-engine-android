@@ -5,7 +5,8 @@
 #include "storm/fx/cutout.hpp"
 #include "storm/fx/capabilities.hpp"
 #include "storm/fx/lamp_shadows.hpp"
-#include "storm/fx/ground_light.hpp"
+#include "storm/fx/sun_fit.hpp"
+#include "storm/fx/town_light.hpp"
 #include "storm/fx/color_lut.hpp"
 #include "storm/fx/light_set.hpp"
 #include "storm/fx/lighting_model.hpp"
@@ -88,6 +89,7 @@ void CheckSettings()
     CHECK(!medium.ssao && high.ssao && !original.ssao);
     CHECK(original.ao_volume == 0 && medium.ao_volume == 2 && high.ao_volume == 2); // Низкая: no shadows, as the original
     CHECK(original.lamp_shadows == 0 && medium.lamp_shadows == 8 && high.lamp_shadows == 16);
+    CHECK(!original.town_light && medium.town_light && high.town_light); // Низкая keeps the game's town lightmaps
     CHECK(!medium.lamp_soft && high.lamp_soft && high.lamp_baked == 0.25f && high.lamp_gain == 1.0f && high.lamp_debug == 0);
     CHECK(medium.lamp_model_lift == 0.2f && high.lamp_model_lift == 0.2f); // the owner: characters a little above the room
     CHECK(original.lamp_moving == 0 && medium.lamp_moving == 1 && high.lamp_moving == 2); // carried lanterns, ship lanterns
@@ -385,12 +387,21 @@ void CheckSupport()
     unlit.lighting_flags = kLightingNone;
     unlit.shadows = ShadowQuality::Off;
     unlit.lamp_shadows = 0;
+    unlit.town_light = false;
     changes.clear();
     CHECK(ConstrainSettings(unlit, all, changes).ao_volume == 0 && changes.size() == 1);
     Settings too_strong = high;
     too_strong.ao_volume = 9;
     changes.clear();
     CHECK(ConstrainSettings(too_strong, all, changes).ao_volume == kAoVolumeLevels && changes.size() == 1);
+    // Our own town light relights through the fx lighting path: without it, switched off, said.
+    Settings flat_town = high;
+    flat_town.lighting_flags = kLightingNone;
+    flat_town.shadows = ShadowQuality::Off;
+    flat_town.lamp_shadows = 0;
+    flat_town.ao_volume = 0;
+    changes.clear();
+    CHECK(!ConstrainSettings(flat_town, all, changes).town_light && changes.size() == 1);
 
     // No 3D textures: the post chain is reduced to its plain copy; MSAA is the renderer's and stays.
     Support no_lut = all;
@@ -1207,37 +1218,6 @@ void AddBox(std::vector<Vec3> &p, std::vector<uint32_t> &i, Vec3 lo, Vec3 hi)
             i.push_back(base + t);
 }
 
-void CheckGroundLight()
-{
-    // A 20 x 20 m street (y = 0) whose lightmap is in shade west of x = 0 and in sun east of it; a roof 3 m up over
-    // the east half, its lightmap all dark, and a wall: neither is ground under a character standing on the street.
-    std::vector<Vec3> p{{-10.0f, 0.0f, -10.0f}, {10.0f, 0.0f, -10.0f}, {10.0f, 0.0f, 10.0f}, {-10.0f, 0.0f, 10.0f},
-                        {0.0f, 3.0f, -10.0f}, {10.0f, 3.0f, -10.0f}, {10.0f, 3.0f, 10.0f}, {0.0f, 3.0f, 10.0f},
-                        {-5.0f, 0.0f, -10.0f}, {-5.0f, 4.0f, -10.0f}, {-5.0f, 4.0f, 10.0f}};
-    std::vector<std::array<float, 2>> uv{{0.0f, 0.0f}, {1.0f, 0.0f}, {1.0f, 1.0f}, {0.0f, 1.0f}, {0.0f, 0.0f}, {1.0f, 0.0f},
-                                         {1.0f, 1.0f}, {0.0f, 1.0f}, {0.0f, 0.0f}, {0.0f, 0.0f}, {0.0f, 0.0f}};
-    std::vector<uint32_t> idx{0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7, 8, 9, 10};
-    std::vector<uint32_t> map{0, 0, 1, 1, 1};
-    GroundLightmap street{64, 64, std::vector<uint8_t>(64 * 64)};
-    for (int y = 0; y < 64; ++y)
-        for (int x = 0; x < 64; ++x)
-            street.luminance[y * 64 + x] = x < 32 ? 60 : 200;
-    GroundLightmap roof{4, 4, std::vector<uint8_t>(16, 10)};
-    GroundLight ground;
-    ground.Build(p, uv, idx, map, {street, roof});
-    std::printf("ground light: %zu ground triangles, street shade %.2f sun %.2f\n", ground.Triangles(), ground.Levels(0)[0],
-                ground.Levels(0)[1]);
-    CHECK(ground.Triangles() == 4); // the wall is no ground
-    CHECK(Near(ground.Levels(0)[0], 60.0f / 255.0f, 0.01f) && Near(ground.Levels(0)[1], 200.0f / 255.0f, 0.01f));
-    const auto shade = ground.SunAt({-6.0f, 0.9f, 2.0f}), sun = ground.SunAt({6.0f, 0.9f, 2.0f});
-    CHECK(shade && sun && Near(*shade, 0.0f, 0.02f) && Near(*sun, 1.0f, 0.02f)); // the roof above does not count
-    const auto edge = ground.SunVisibility({0.0f, 0.9f, 2.0f}), near_edge = ground.SunVisibility({0.2f, 0.9f, 2.0f});
-    CHECK(edge && near_edge && *edge > 0.3f && *edge < 0.7f && *near_edge > *edge); // a soft edge, no step
-    CHECK(Near(*ground.SunVisibility({6.0f, 0.9f, 2.0f}), 1.0f, 0.02f));
-    CHECK(!ground.SunAt({30.0f, 0.9f, 0.0f}) && !ground.SunAt({6.0f, 7.0f, 0.0f})); // off the street; 4 m above the roof
-    CHECK(Near(*ground.SunAt({6.0f, 3.5f, 2.0f}), 0.0f, 0.02f)); // on the roof
-}
-
 void CheckLampShadows()
 {
     // Three candles of one candlestick become one lamp; the fireplace stays apart.
@@ -1590,6 +1570,102 @@ void CheckCutout()
     CHECK(under_plate < open - 0.15f && under_grating > under_plate + 0.03f && under_grating < open - 0.03f);
 }
 
+void CheckSunFit()
+{
+    // A 40 x 40 m square with three houses; its "lightmap" is dark where the houses shade it from a sun 200° round
+    // and 60° up, with some noise. The fit finds that sun, not the one of the hour.
+    std::vector<Vec3> p;
+    std::vector<uint32_t> idx;
+    AddBox(p, idx, {-8.0f, 0.0f, -6.0f}, {-2.0f, 6.0f, 0.0f});
+    AddBox(p, idx, {4.0f, 0.0f, 3.0f}, {9.0f, 9.0f, 7.0f});
+    AddBox(p, idx, {-3.0f, 0.0f, 8.0f}, {1.0f, 4.0f, 12.0f});
+    const Occluders occluders(p, idx);
+    Occluders::Scratch scratch;
+    const float az = 200.0f * 0.017453293f, el = 60.0f * 0.017453293f;
+    const Vec3 baked{std::cos(el) * std::sin(az), std::sin(el), std::cos(el) * std::cos(az)};
+    std::vector<SunFitSample> samples;
+    uint32_t seed = 7;
+    auto random = [&] { seed = seed * 1664525u + 1013904223u; return static_cast<float>(seed >> 8) / 16777216.0f; };
+    for (int i = 0; i < 1500; ++i)
+    {
+        const Vec3 q{-20.0f + 40.0f * random(), 0.0f, -20.0f + 40.0f * random()};
+        const bool shade = occluders.Occluded({q[0], 0.05f, q[2]}, baked, 200.0f, scratch);
+        samples.push_back({q, (shade ? 0.25f : 0.7f) + 0.15f * (random() - 0.5f)});
+    }
+    const SunFit fit = FitBakedSun(occluders, samples, 200.0f, 4);
+    const float off = std::acos(std::clamp(fit.dir[0] * baked[0] + fit.dir[1] * baked[1] + fit.dir[2] * baked[2], -1.0f, 1.0f)) * 57.29578f;
+    std::printf("sun fit: %.1f° off the bake, r %.2f, %.0f %% shaded\n", off, fit.r, 100.0f * fit.shadowed);
+    CHECK(fit.valid && off < 3.0f && fit.r > 0.9f);
+    CHECK(!FitBakedSun(occluders, {}).valid); // no samples: no direction
+}
+
+void CheckTownLight()
+{
+    // A 20 x 20 m square (its lightmap: u = (x + 10) / 20, v = (z + 10) / 20) and a 4 m cube in the middle. The sun
+    // from 45° up in the west (-x): the cube's shadow falls east of it.
+    std::vector<Vec3> p{{-10.0f, 0.0f, -10.0f}, {10.0f, 0.0f, -10.0f}, {10.0f, 0.0f, 10.0f}, {-10.0f, 0.0f, 10.0f}};
+    std::vector<std::array<float, 2>> uv{{0.0f, 0.0f}, {1.0f, 0.0f}, {1.0f, 1.0f}, {0.0f, 1.0f}};
+    std::vector<uint32_t> idx{0, 2, 1, 0, 3, 2};
+    std::vector<uint32_t> map{0, 0};
+    const LightmapTexels texels = RasterizeLightmap(p, uv, idx, map, 0, 64, 64);
+    CHECK(texels.texel.size() == 64 * 64 && texels.gutter.empty()); // the whole square: no gutter left
+    std::vector<Vec3> occ;
+    std::vector<uint32_t> occ_idx;
+    AddBox(occ, occ_idx, {-2.0f, 0.0f, -2.0f}, {2.0f, 4.0f, 2.0f});
+    const Occluders occluders(occ, occ_idx);
+    const Vec3 sun{-0.7071f, 0.7071f, 0.0f};
+    const std::vector<uint8_t> vis = SunVisibility(occluders, texels, sun, 20.0f / 64.0f, 4, 2);
+    const std::vector<uint8_t> sky = SkyVisibility(occluders, texels, 10.0f, 32, 2);
+    auto at = [&](const std::vector<uint8_t> &v, float x, float z) {
+        const int tx = static_cast<int>((x + 10.0f) / 20.0f * 64.0f), tz = static_cast<int>((z + 10.0f) / 20.0f * 64.0f);
+        for (size_t i = 0; i < texels.texel.size(); ++i)
+            if (texels.texel[i] == static_cast<uint32_t>(tz * 64 + tx))
+                return v[i] / 255.0f;
+        return -1.0f;
+    };
+    std::printf("town light: sun east of the cube %.2f, west %.2f; sky by the cube %.2f, open %.2f\n", at(vis, 4.0f, 0.0f),
+                at(vis, -6.0f, 0.0f), at(sky, 2.4f, 0.0f), at(sky, -8.0f, -8.0f));
+    CHECK(at(vis, 4.0f, 0.0f) < 0.1f && std::fabs(at(vis, -6.0f, 0.0f) - 0.707f) < 0.01f && at(vis, 8.0f, 6.0f) > 0.69f);
+    // A low sun lights the open ground less: 15° up, the cosine.
+    const std::vector<uint8_t> low = SunVisibility(occluders, texels, {-0.9659f, 0.2588f, 0.0f}, 20.0f / 64.0f, 4, 2);
+    CHECK(std::fabs(at(low, -8.0f, 6.0f) - 0.2588f) < 0.01f);
+    CHECK(at(sky, 2.4f, 0.0f) < at(sky, -8.0f, -8.0f) - 0.2f && at(sky, -8.0f, -8.0f) > 0.8f);
+    // A "game" lightmap: paint (stripes of grass and sand) under a known light, 0.06 + 0.28 sun + 0.06 sky.
+    std::vector<uint8_t> game(64 * 64 * 4, 255);
+    for (size_t i = 0; i < texels.texel.size(); ++i)
+    {
+        const float paint = (texels.texel[i] / 64) % 8 < 4 ? 1.0f : 0.6f;
+        const float light = 0.06f + 0.28f * vis[i] / 255.0f + 0.06f * sky[i] / 255.0f;
+        for (int ch = 0; ch < 3; ++ch)
+            game[texels.texel[i] * 4 + ch] = static_cast<uint8_t>(std::lround(paint * light * 255.0f));
+    }
+    const TownLightTone tone = CalibrateTownLight(texels, game, vis, sky);
+    std::printf("town light tone: %.3f + %.3f sun + %.3f sky (R² %.2f, %u shadow edges)\n", tone.a, tone.b, tone.c, tone.r2, tone.edges);
+    // The game's shadow depth under open sky (shadowed over lit, the sun 45° up), taken from its edges: the least
+    // squares alone (a, c low, b 0.22) would make it shallower.
+    const float depth = (tone.a + tone.c) / (tone.a + tone.c + tone.b * 0.7071f);
+    CHECK(tone.valid && tone.edges >= 50 && std::fabs(depth - 0.12f / (0.12f + 0.28f * 0.7071f)) < 0.02f);
+    // Relit for the sun it was baked with: the game's lightmap again; for a sun from the east the cube's shadow falls
+    // west of it, the paint stays.
+    std::vector<uint8_t> same(64 * 64 * 4, 0), east(64 * 64 * 4, 0);
+    ComposeTownLight(texels, tone, game, vis, vis, vis, 0.0f, sky, same);
+    double error = 0.0;
+    for (size_t i = 0; i < texels.texel.size(); ++i)
+        error += std::fabs(same[texels.texel[i] * 4 + 1] - game[texels.texel[i] * 4 + 1]);
+    error /= static_cast<double>(texels.texel.size());
+    const std::vector<uint8_t> morning = SunVisibility(occluders, texels, {0.7071f, 0.7071f, 0.0f}, 20.0f / 64.0f, 4, 2);
+    ComposeTownLight(texels, tone, game, vis, morning, morning, 0.0f, sky, east);
+    auto pixel = [&](const std::vector<uint8_t> &img, float x, float z) {
+        const int tx = static_cast<int>((x + 10.0f) / 20.0f * 64.0f), tz = static_cast<int>((z + 10.0f) / 20.0f * 64.0f);
+        return static_cast<float>(img[(tz * 64 + tx) * 4 + 1]);
+    };
+    std::printf("town light: relit for its own sun, mean error %.1f / 255; for the morning sun east of the cube %.0f "
+                "(was %.0f), west %.0f (was %.0f)\n",
+                error, pixel(east, 4.0f, 0.0f), pixel(game, 4.0f, 0.0f), pixel(east, -4.0f, 0.0f), pixel(game, -4.0f, 0.0f));
+    CHECK(error < 2.0);
+    CHECK(pixel(east, 4.0f, 0.0f) > 2.0f * pixel(game, 4.0f, 0.0f) && pixel(east, -4.0f, 0.0f) < 0.5f * pixel(game, -4.0f, 0.0f));
+}
+
 int main()
 {
     CheckSettings();
@@ -1610,6 +1686,8 @@ int main()
     CheckAoVolume();
     CheckLampShadows();
     CheckCutout();
+    CheckSunFit();
+    CheckTownLight();
     if (failures)
     {
         std::printf("%d check(s) failed\n", failures);

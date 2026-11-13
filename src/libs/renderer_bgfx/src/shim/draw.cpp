@@ -1449,12 +1449,16 @@ HRESULT Device::draw(const DrawCall &call)
                 continue;
         }
         const uint32_t flags = sampler_flags(stage, *store);
-        bgfx::setTexture(static_cast<uint8_t>(unit), Context::instance().sampler(unit), store->handle, flags);
+        bgfx::TextureHandle handle = store->handle;
+        if (store->lightmap) // a town's lightmap: ours for the hour's sun in its place (effects/town_light.hpp)
+            if (const bgfx::TextureHandle ours = fx_lighting.town_light().replacement(store); bgfx::isValid(ours))
+                handle = ours;
+        bgfx::setTexture(static_cast<uint8_t>(unit), Context::instance().sampler(unit), handle, flags);
         ++perf().texture_binds;
-        if (last_draw.texture[unit] != store->handle.idx || last_draw.sampler[unit] != flags)
+        if (last_draw.texture[unit] != handle.idx || last_draw.sampler[unit] != flags)
         {
             ++perf().texture_changes;
-            last_draw.texture[unit] = store->handle.idx;
+            last_draw.texture[unit] = handle.idx;
             last_draw.sampler[unit] = flags;
         }
     }

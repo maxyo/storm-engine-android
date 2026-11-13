@@ -265,7 +265,6 @@ vec3 fxPointSpecular(vec3 N, vec3 P, vec3 V)
 SAMPLER2DSHADOW(s_fxShadowMap, 15);
 uniform mat4 u_fxShadowMtx; // view space -> shadow map uv and depth
 uniform vec4 u_fxShadow;    // x: one texel in uv, y: shadow strength, z: normal offset in view units, w: depth bias
-uniform vec4 u_fxGroundSun; // x: the draw's sun as the location's lightmaps show it under it (1: none, fx/ground_light.hpp)
 
 // 1 = fully lit by the sun, 1 - strength = fully shadowed. P and N in view space.
 float fxSunShadow(vec3 P, vec3 N)
@@ -286,8 +285,7 @@ float fxSunShadow(vec3 P, vec3 N)
     // Outside the map (and beyond its far plane) everything is lit; fade out over the last tenth.
     vec2 edge = abs(coord.xy - vec2_splat(0.5)) * 2.0;
     float inside = clamp((1.0 - max(max(edge.x, edge.y), coord.z)) * 10.0, 0.0, 1.0);
-    // Characters cast on each other through the map; the buildings' shade is the ground's own, under the draw.
-    lit = min(1.0 - (1.0 - lit) * inside, u_fxGroundSun.x);
+    lit = 1.0 - (1.0 - lit) * inside;
     return 1.0 - (1.0 - lit) * u_fxShadow.y;
 }
 #else

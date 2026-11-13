@@ -201,19 +201,22 @@ class EffectsShipDraw
 };
 
 
-// Location, once an outdoor location is loaded: its lightmapped ground (the still models with a shadow.tga lightmap:
-// world positions, lightmap texture coordinates, triangle list, the lightmap of each triangle) and those lightmaps
-// (one mip level of each, as stored: DXT1/3/5). Lit models (characters, props) take the sun as the ground under
-// them shows it (fx/ground_light.hpp) instead of a shadow map of the location. Interiors and when leaving: empty.
+// Location, once an outdoor location is loaded: its lightmapped triangles (the still models with a shadow.tga
+// lightmap: world positions, lightmap texture coordinates, triangle list, the lightmap of each triangle) and those
+// lightmaps (one mip level of each, as stored: DXT1/3/5, and the game's texture of it). On Средняя / Высокая our own
+// lightmaps take their place in the draws: the sun's shadows of the hour and the sky's occlusion from the place's
+// still geometry (SetEffectsLocationGeometry), in the game lightmaps' tone (effects/town_light.hpp). Interiors and when
+// leaving: empty.
 struct EffectsLightmap
 {
     uint32_t width = 0, height = 0;
     std::array<char, 4> format{}; // the .tx format tag: 'D','X','T','1' / '3' / '5'
     std::vector<uint8_t> data;
+    shim::BaseTexture *texture = nullptr; // the game's texture of this lightmap (alive while the location is)
 };
-void SetEffectsGroundLight(std::string_view name, std::span<const std::array<float, 3>> positions,
-                           std::span<const std::array<float, 2>> uvs, std::span<const uint32_t> indices,
-                           std::span<const uint32_t> triangle_lightmap, std::span<const EffectsLightmap> lightmaps);
+void SetEffectsLightmaps(std::string_view name, std::span<const std::array<float, 3>> positions,
+                         std::span<const std::array<float, 2>> uvs, std::span<const uint32_t> indices,
+                         std::span<const uint32_t> triangle_lightmap, std::span<const EffectsLightmap> lightmaps);
 
 // The texture's name and the game file it was loaded from (Renderer::TextureLoad, after its levels are filled). Stone,
 // wood, plaster and ground textures and grey height ("bump") textures get a normal map for the per-pixel lighting's
