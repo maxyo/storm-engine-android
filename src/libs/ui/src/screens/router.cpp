@@ -443,6 +443,19 @@ void Router::CloseInterface()
     surface_.Hide();
 }
 
+void Router::CloseGameInterface(const std::string &screen)
+{
+    if (!model_.screen.empty() && model_.screen != screen)
+    {
+        surface_.Log("interface " + (screen.empty() ? std::string("(not modelled yet)") : screen) + " closed under the " + model_.screen +
+                     " screen: that screen stays");
+        return;
+    }
+    CloseInterface();
+    for (const auto &consumer : consumers_)
+        consumer->Resume(*this);
+}
+
 void Router::SetState(const std::string &channel, const Json &state)
 {
     bool consumed = false;
