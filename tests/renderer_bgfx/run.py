@@ -3,10 +3,10 @@
 the draw/state counter check of a fixed synthetic frame (perf_check.cpp, bgfx Noop backend) and the
 GPU skinning parity check against the CPU kernel (skinning_check.cpp, OpenGL ES in an SDL window: needs an X display, e.g. xvfb-run).
 
-Uses the pinned bgfx (src/libs/renderer_bgfx/cmake/bgfx_pin.cmake) and etcpak, the shared host shaderc
+Uses the pinned bgfx (src/libs/renderer_bgfx/cmake/bgfx_pin.cmake), the shared host shaderc
 of that pin (STORM_SHADERC overrides it) and the Storm ccache launcher (tools/ccache/README.md); the kept
-build directory makes repeated runs incremental. Offline: set FETCHCONTENT_SOURCE_DIR_STORM_BGFX_UPSTREAM /
-FETCHCONTENT_SOURCE_DIR_STORM_ETCPAK in the environment.
+build directory makes repeated runs incremental. Offline: set FETCHCONTENT_SOURCE_DIR_STORM_BGFX_UPSTREAM in the
+environment.
 """
 import argparse
 import os
@@ -26,7 +26,7 @@ if not (sdl / 'SDL2').exists():
     (sdl / 'SDL2').symlink_to(a.sdl_source.resolve() / 'include', target_is_directory=True)
 configure = ['cmake', '-S', str(here), '-B', str(build), '-G', 'Ninja', '-DCMAKE_BUILD_TYPE=Release',
              f'-DSTORM_SDL_INCLUDE={sdl}']
-for name in ('STORM_SHADERC', 'FETCHCONTENT_SOURCE_DIR_STORM_BGFX_UPSTREAM', 'FETCHCONTENT_SOURCE_DIR_STORM_ETCPAK'):
+for name in ('STORM_SHADERC', 'FETCHCONTENT_SOURCE_DIR_STORM_BGFX_UPSTREAM'):
     if os.environ.get(name):
         configure.append(f'-D{name}={os.environ[name]}')
 # Each vertex port declares the constant registers it reads (PORT_VSC_COUNT); the shim uploads the count

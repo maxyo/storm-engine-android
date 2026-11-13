@@ -135,7 +135,7 @@ void test_decoder()
         CHECK(rgba[t * 4 + 3] == expect6[t]);
 }
 
-// etcpak's pixel convention, checked through bimg's reference ETC2 decoder.
+// The ETC2 encoder's channel order, checked through bimg's reference ETC2 decoder.
 void test_channel_order()
 {
     std::vector<uint8_t> image(16 * 4);
@@ -147,8 +147,7 @@ void test_channel_order()
             for (int i = 0; i < 16; ++i)
                 image[i * 4 + 3] = 90;
         uint8_t block[16];
-        EncodeScratch scratch;
-        encode_level(format, image.data(), 4, 4, block, scratch);
+        encode_etc(format, image.data(), 4, 4, block);
         uint8_t decoded[64];
         bimg::imageDecodeToRgba8(&allocator, decoded, block, 4, 4, 16,
                                  format == EtcFormat::Rgb8 ? bimg::TextureFormat::ETC2 : bimg::TextureFormat::ETC2A);
@@ -157,28 +156,36 @@ void test_channel_order()
     }
 }
 
-// EAC RG11 of a derived normal map level (etcpak CompressEacRg) through bimg's reference decoder: R and G land in
-// the right channels, smooth gradients stay within a few steps, and a level that is no multiple of 4 is padded.
-void test_eac_rg11()
+// EAC R11 and RG11 of a derived map level through bimg's reference decoder: R and G land in the right channels,
+// smooth gradients stay within a few steps, and a level that is no multiple of 4 is padded.
+void test_eac()
 {
     const uint32_t w = 8, h = 6;
-    std::vector<uint8_t> rg(size_t(w) * h * 2);
-    for (uint32_t y = 0; y < h; ++y)
-        for (uint32_t x = 0; x < w; ++x)
-        {
-            rg[(y * w + x) * 2 + 0] = static_cast<uint8_t>(40 + x * 20);
-            rg[(y * w + x) * 2 + 1] = static_cast<uint8_t>(200 - y * 25);
-        }
-    std::vector<uint8_t> blocks(size_t(blocks_x(w)) * blocks_x(h) * 16);
-    encode_eac_rg11(rg.data(), w, h, blocks.data());
-    std::vector<uint8_t> decoded(size_t(w) * 8 * 4);
-    bimg::imageDecodeToRgba8(&allocator, decoded.data(), blocks.data(), w, 8, w * 4, bimg::TextureFormat::EACRG11);
-    int worst = 0;
-    for (uint32_t y = 0; y < h; ++y)
-        for (uint32_t x = 0; x < w; ++x)
-            for (int c = 0; c < 2; ++c)
-                worst = std::max(worst, std::abs(decoded[(y * w + x) * 4 + c] - rg[(y * w + x) * 2 + c]));
-    CHECK(worst <= 4);
+    for (EacFormat format : {EacFormat::R11, EacFormat::Rg11})
+    {
+        const uint32_t channels = eac_channels(format);
+        std::vector<uint8_t> texels(size_t(w) * h * channels);
+        for (uint32_t y = 0; y < h; ++y)
+            for (uint32_t x = 0; x < w; ++x)
+            {
+                texels[(y * w + x) * channels + 0] = static_cast<uint8_t>(40 + x * 20);
+                if (channels == 2)
+                    texels[(y * w + x) * channels + 1] = static_cast<uint8_t>(200 - y * 25);
+            }
+        std::vector<uint8_t> blocks(size_t(blocks_x(w)) * blocks_x(h) * eac_block_bytes(format));
+        encode_eac(format, texels.data(), w, h, blocks.data());
+        std::vector<uint8_t> decoded(size_t(w) * 8 * 4);
+        bimg::imageDecodeToRgba8(&allocator, decoded.data(), blocks.data(), w, 8, w * 4,
+                                 format == EacFormat::R11 ? bimg::TextureFormat::EACR11 : bimg::TextureFormat::EACRG11);
+        int worst = 0;
+        for (uint32_t y = 0; y < h; ++y)
+            for (uint32_t x = 0; x < w; ++x)
+                for (uint32_t c = 0; c < channels; ++c)
+                    worst = std::max(worst, std::abs(decoded[(y * w + x) * 4 + c] - texels[(y * w + x) * channels + c]));
+        CHECK(worst <= 4);
+        const std::vector<uint8_t> chain = encode_eac_chain(format, texels.data(), w, h, 1);
+        CHECK(chain == blocks);
+    }
 }
 
 // The game's uncompressed .tx formats decode to RGBA8 (R first) as the renderer uploads them.
@@ -447,7 +454,7 @@ int main()
     fs::create_directories(directory);
     test_decoder();
     test_channel_order();
-    test_eac_rg11();
+    test_eac();
     test_tx_formats();
     test_hash();
     test_quality();

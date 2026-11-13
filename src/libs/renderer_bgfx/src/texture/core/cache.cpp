@@ -131,7 +131,6 @@ Blob transcode_to_ktx(const Layout &layout, const uint8_t *payload, EtcFormat fo
         }
 
     std::vector<uint8_t> rgba;
-    EncodeScratch scratch;
     for (uint32_t level = 0; level < layout.levels; ++level)
     {
         const uint32_t w = layout.level_width(level), h = layout.level_height(level);
@@ -143,7 +142,7 @@ Blob transcode_to_ktx(const Layout &layout, const uint8_t *payload, EtcFormat fo
         for (uint32_t face = 0; face < layout.faces; ++face)
         {
             decode_level(layout.format, payload + source_offset[face * layout.levels + level], w, h, rgba.data());
-            encode_level(format, rgba.data(), aw, ah, out, scratch);
+            encode_etc(format, rgba.data(), aw, ah, out);
             out += face_bytes;
         }
     }

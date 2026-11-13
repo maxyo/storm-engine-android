@@ -1,10 +1,13 @@
 #include "formats.hpp"
 
-#include <ProcessRGB.hpp>
 #include <bimg/bimg.h>
+#include <bimg/encode.h>
 #include <bx/allocator.h>
+#include <bx/error.h>
 
 #include <algorithm>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 
 namespace storm::texture
@@ -13,7 +16,7 @@ namespace
 {
 uint16_t read16(const uint8_t *p) { return uint16_t(p[0] | p[1] << 8); }
 uint32_t read32(const uint8_t *p) { return uint32_t(p[0]) | uint32_t(p[1]) << 8 | uint32_t(p[2]) << 16 | uint32_t(p[3]) << 24; }
-bx::DefaultAllocator allocator; // bimg needs one only for formats that are not BC
+bx::DefaultAllocator allocator; // stateless (malloc); shared by the transcode workers
 } // namespace
 
 size_t dxt_payload_size(const Layout &layout)
@@ -156,56 +159,61 @@ bool decode_tx_level(uint32_t format, const uint8_t *data, uint32_t width, uint3
     return false;
 }
 
-void encode_eac_rg11(const uint8_t *rg, uint32_t width, uint32_t height, uint8_t *out)
+namespace
 {
-    // etcpak reads R from bits 16..23 and G from bits 8..15 of each uint32 texel (see encode_level).
-    const uint32_t aligned_width = blocks_x(width) * 4, aligned_height = blocks_x(height) * 4;
-    std::vector<uint32_t> texels(size_t(aligned_width) * aligned_height);
-    for (uint32_t y = 0; y < aligned_height; ++y)
-        for (uint32_t x = 0; x < aligned_width; ++x)
-        {
-            const uint8_t *t = rg + (size_t(std::min(y, height - 1)) * width + std::min(x, width - 1)) * 2;
-            texels[size_t(y) * aligned_width + x] = uint32_t(t[0]) << 16 | uint32_t(t[1]) << 8;
-        }
-    CompressEacRg(texels.data(), reinterpret_cast<uint64_t *>(out), (aligned_width / 4) * (aligned_height / 4), aligned_width);
+// Encodes RGBA8 with bimg (etcpak inside); an encoder error is a programming error (sizes and formats are ours).
+void encode(bimg::TextureFormat::Enum dst, const uint8_t *rgba, uint32_t width, uint32_t height, uint8_t *out)
+{
+    bx::Error error;
+    bimg::imageEncodeFromRgba8(&allocator, out, rgba, width, height, 1, dst, bimg::Quality::Default, &error);
+    if (!error.isOk())
+    {
+        fprintf(stderr, "bimg encode to format %d failed: %.*s\n", int(dst), int(error.getMessage().getLength()),
+                error.getMessage().getCPtr());
+        abort();
+    }
+}
+} // namespace
+
+void encode_eac(EacFormat format, const uint8_t *texels, uint32_t width, uint32_t height, uint8_t *out)
+{
+    // Widened to RGBA8 here: bimg's own R8/RG8 input path converts every texel through floats, ~1.5x the time of
+    // the whole encode.
+    const uint32_t channels = eac_channels(format);
+    const size_t count = size_t(width) * height;
+    thread_local std::vector<uint32_t> rgba; // reused: the chains of a texture encode level after level
+    rgba.resize(count);
+    if (channels == 1)
+        for (size_t i = 0; i < count; ++i)
+            rgba[i] = texels[i];
+    else
+        for (size_t i = 0; i < count; ++i)
+            rgba[i] = uint32_t(texels[i * 2]) | uint32_t(texels[i * 2 + 1]) << 8; // R, G first in memory (little-endian)
+    encode(format == EacFormat::R11 ? bimg::TextureFormat::EACR11 : bimg::TextureFormat::EACRG11,
+           reinterpret_cast<const uint8_t *>(rgba.data()), width, height, out);
 }
 
-std::vector<uint8_t> encode_eac_rg11_chain(const uint8_t *rg, uint32_t width, uint32_t height, uint32_t levels)
+std::vector<uint8_t> encode_eac_chain(EacFormat format, const uint8_t *texels, uint32_t width, uint32_t height,
+                                      uint32_t levels)
 {
     size_t total = 0;
     for (uint32_t level = 0, w = width, h = height; level < levels; ++level, w = std::max(w / 2, 1u), h = std::max(h / 2, 1u))
-        total += size_t(blocks_x(w)) * blocks_x(h) * 16;
+        total += size_t(blocks_x(w)) * blocks_x(h) * eac_block_bytes(format);
     std::vector<uint8_t> out(total);
     size_t in = 0, at = 0;
     for (uint32_t level = 0, w = width, h = height; level < levels; ++level, w = std::max(w / 2, 1u), h = std::max(h / 2, 1u))
     {
-        encode_eac_rg11(rg + in, w, h, out.data() + at);
-        in += size_t(w) * h * 2;
-        at += size_t(blocks_x(w)) * blocks_x(h) * 16;
+        encode_eac(format, texels + in, w, h, out.data() + at);
+        in += size_t(w) * h * eac_channels(format);
+        at += size_t(blocks_x(w)) * blocks_x(h) * eac_block_bytes(format);
     }
     return out;
 }
 
-void encode_level(EtcFormat format, const uint8_t *rgba, uint32_t aligned_width, uint32_t aligned_height,
-                  uint8_t *out, EncodeScratch &scratch)
+void encode_etc(EtcFormat format, const uint8_t *rgba, uint32_t aligned_width, uint32_t aligned_height, uint8_t *out)
 {
-    // etcpak reads pixels as uint32 0xAARRGGBB (BGRA bytes in memory, verified by
-    // the channel-order unit test); the decoded image is RGBA in memory.
-    const size_t texels = size_t(aligned_width) * aligned_height;
-    scratch.pixels.resize(texels);
-    for (size_t i = 0; i < texels; ++i)
-    {
-        const uint8_t *p = rgba + i * 4;
-        scratch.pixels[i] = uint32_t(p[2]) | uint32_t(p[1]) << 8 | uint32_t(p[0]) << 16 | uint32_t(p[3]) << 24;
-    }
-    const uint32_t blocks = (aligned_width / 4) * (aligned_height / 4);
-    const uint32_t words = format == EtcFormat::Rgb8 ? 1 : 2;
-    scratch.blocks.resize(size_t(blocks) * words);
-    if (format == EtcFormat::Rgb8)
-        CompressEtc2Rgb(scratch.pixels.data(), scratch.blocks.data(), blocks, aligned_width, true);
-    else
-        CompressEtc2Rgba(scratch.pixels.data(), scratch.blocks.data(), blocks, aligned_width, true);
-    memcpy(out, scratch.blocks.data(), scratch.blocks.size() * sizeof(uint64_t));
+    encode(format == EtcFormat::Rgb8 ? bimg::TextureFormat::ETC2 : bimg::TextureFormat::ETC2A, rgba, aligned_width,
+           aligned_height, out);
 }
 
 } // namespace storm::texture

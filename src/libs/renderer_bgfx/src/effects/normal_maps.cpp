@@ -167,7 +167,7 @@ void NormalMaps::look_up(const std::shared_ptr<NormalMapEntry> &entry)
         options.max_size = fx::kReliefMapSize;
         const fx::NormalMap rg8 = fx::DeriveNormalMap(rgba, width, height, options);
         fx::NormalMap map{rg8.width, rg8.height, rg8.mip_count, fx::NormalMapFormat::EacRg11,
-                          texture::encode_eac_rg11_chain(rg8.rg.data(), rg8.width, rg8.height, rg8.mip_count)};
+                          texture::encode_eac_chain(texture::EacFormat::Rg11, rg8.rg.data(), rg8.width, rg8.height, rg8.mip_count)};
         counters->derive_us += static_cast<uint64_t>(
             std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - start).count());
         ++counters->derived;

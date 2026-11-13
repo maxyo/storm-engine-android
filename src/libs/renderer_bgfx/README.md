@@ -31,7 +31,7 @@ on Android and on the Linux development host alike.
   view order, client views for the UI). The header is the documentation.
 - `host-tools/` — builds only the host `shaderc` from the same pin (`cmake/storm_shaderc.cmake` builds it
   once per machine and pin for every host and cross build).
-- `src/texture/` — DXT → ETC2 transcode (etcpak, pinned in this CMakeLists) with an on-device cache for
+- `src/texture/` — DXT → ETC2 transcode (bimg: its BC decoder and its ETC2 encoder, bimg_encode) with an on-device cache for
   GPUs without S3TC. The tier (bc / etc2 / rgba8) is fixed per GPU at startup and logged once;
   `texture_compression` and `texture_cache_mb` in engine.ini override it. Tests and the benchmark build with
   `-DSTORM_BGFX_BUILD_TESTS=ON` (`storm_texture_tests`, `storm_texture_bench`).

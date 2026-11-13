@@ -418,7 +418,7 @@ Outcome Session::PrepareFile(const std::filesystem::path &textures, const std::f
     const fx::NormalMap rg8 = fx::DeepBumpNormalMap(normals, mw, mh, target);
     const double mips_ms = lap();
     const fx::NormalMap map{rg8.width, rg8.height, rg8.mip_count, fx::NormalMapFormat::EacRg11,
-                            texture::encode_eac_rg11_chain(rg8.rg.data(), rg8.width, rg8.height, rg8.mip_count)};
+                            texture::encode_eac_chain(texture::EacFormat::Rg11, rg8.rg.data(), rg8.width, rg8.height, rg8.mip_count)};
     const double encode_ms = lap();
     if (!fx::WriteReliefMap(output, *key, map))
     {
