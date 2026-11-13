@@ -334,6 +334,23 @@ void Bindings::Toast(const std::string &text)
     router_.surface_.Toast(text);
 }
 
+Json Bindings::Notice(Json notice)
+{
+    const std::string tone = notice.value("tone", std::string("info"));
+    std::string text = notice.value("text", std::string());
+    if (notice.contains("lead") && notice["lead"].is_string())
+        text = notice["lead"].get<std::string>() + " " + text;
+    Shown(tone, text);
+    return notice;
+}
+
+void Bindings::Shown(const std::string &tone, const std::string &text)
+{
+    const std::string key = router_.using_ + "\n" + tone + "\n" + text;
+    if (!text.empty() && router_.notices_building_.insert(key).second && !router_.notices_shown_.count(key))
+        router_.surface_.Shown("notice on screen " + router_.using_, tone, text);
+}
+
 void Bindings::Error(const std::string &text)
 {
     router_.surface_.Error("screen " + router_.using_ + ": " + text);
@@ -481,6 +498,8 @@ void Router::Alert(const std::string &key, const std::string &subject)
 
 void Router::Build()
 {
+    notices_shown_ = std::move(notices_building_);
+    notices_building_.clear();
     rebuild_ = false;
     rebuild_at_ = 0.0;
     bindings_.handlers_.clear();

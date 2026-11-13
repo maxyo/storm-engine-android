@@ -144,6 +144,9 @@ struct QuietSurface final : screens::Surface
     {
         return key;
     }
+    void Shown(const std::string &, const std::string &, const std::string &) const override
+    {
+    }
     void Log(const std::string &) override
     {
     }
