@@ -46,15 +46,21 @@ logger_ptr getOrCreateLogger(const std::string &name, const spdlog::level::level
     if (logcat)
         logger->sinks().push_back(std::make_shared<spdlog::sinks::android_sink_mt>("StormEngine"));
     // Flushing on info wrote the file on every Trace() of the game thread.
-    // Warnings and errors are still flushed immediately; everything else is
-    // flushed periodically by LifecycleDiagnosticsService::notifyAfterRun, when
-    // the app goes to the background, on a fatal error and by the crash handler.
+    // Warnings and errors are still flushed immediately; everything else every
+    // kFlushPeriod (startPeriodicFlush), when the app goes to the background, on
+    // a fatal error and by the crash handler.
     logger->flush_on(spdlog::level::warn);
 #else
     (void)logcat; // stdout/stderr carry nothing of these loggers off Android
 #endif
 
     return logger;
+}
+
+void startPeriodicFlush()
+{
+    // spdlog's periodic worker: its own thread, not the game thread, which a hang stops.
+    spdlog::flush_every(kFlushPeriod);
 }
 
 } // namespace storm::logging

@@ -2,9 +2,13 @@
 #include <algorithm>
 #include <ctime>
 #include <filesystem>
+#include <cstdlib>
 #include <fstream>
+#include <iterator>
 #include <map>
+#include <mutex>
 #include <optional>
+#include <sstream>
 #include <string>
 #include <system_error>
 #include <vector>
@@ -137,44 +141,150 @@ inline std::string logTime(std::time_t time)
     return std::strftime(text, sizeof(text), "%Y-%m-%d %H:%M:%S", &local) ? text : "?";
 }
 
-// The running session's marker: written at start and when the game comes back to the foreground, removed on a clean
-// exit and when it goes to the background (from the game thread, so a hung game keeps it). Returns "" or a failure.
-inline std::string markSessionRunning(const std::filesystem::path &logs, const std::string &started, long pid)
-{
-    std::error_code error;
-    std::filesystem::create_directories(logs, error);
-    std::ofstream marker(logs / kRunningMarker, std::ios::binary | std::ios::trunc);
-    marker << "started " << started << ", pid " << pid << '\n';
-    marker.flush();
-    return marker ? std::string() : "cannot write " + (logs / kRunningMarker).string();
-}
+// The running session's marker (kRunningMarker): which session runs, when its game thread last showed it was alive
+// (heartbeat) and whether the app went to the background. At the next start it tells a clean end from an unclean
+// one (uncleanEnd). The game thread beats; the platform's lifecycle events (the SDL event watch, on the Java thread
+// on Android) mark the background and the foreground without waiting for the game thread, which may be stuck.
+// Every write replaces the file whole (a temporary renamed over it). Thread-safe.
+inline constexpr std::time_t kHeartbeatSeconds = 2;
+// A heartbeat older than this when the app went to the background: the game thread was stuck already.
+inline constexpr std::time_t kStuckSeconds = 15;
 
-inline std::string clearSessionRunning(const std::filesystem::path &logs)
+class SessionMarker
 {
-    std::error_code error;
-    if (!std::filesystem::remove(logs / kRunningMarker, error) && error)
-        return "cannot remove " + (logs / kRunningMarker).string() + ": " + error.message();
+  public:
+    SessionMarker(std::filesystem::path logs, std::string started, long pid)
+        : logs_(std::move(logs)), started_(std::move(started)), pid_(pid)
+    {
+    }
+
+    // Each returns "" or what failed.
+    std::string Start(std::time_t now)
+    {
+        std::lock_guard lock(mutex_);
+        active_ = true;
+        heartbeat_ = now;
+        background_ = 0;
+        return Write();
+    }
+    // The game thread, every frame: written every kHeartbeatSeconds.
+    std::string Beat(std::time_t now)
+    {
+        std::lock_guard lock(mutex_);
+        if (!active_ || now - heartbeat_ < kHeartbeatSeconds)
+            return {};
+        heartbeat_ = now;
+        return Write();
+    }
+    // The app goes to the background or the OS ends it: a kill from here on is a regular stop.
+    std::string Background(std::time_t now)
+    {
+        std::lock_guard lock(mutex_);
+        if (!active_)
+            return {};
+        background_ = now;
+        return Write();
+    }
+    // Back in the foreground: a kill is unclean again.
+    std::string Foreground(std::time_t now)
+    {
+        std::lock_guard lock(mutex_);
+        if (!active_)
+            return {};
+        background_ = 0;
+        heartbeat_ = now;
+        return Write();
+    }
+    // A clean exit.
+    std::string Clear()
+    {
+        std::lock_guard lock(mutex_);
+        active_ = false;
+        std::error_code error;
+        if (!std::filesystem::remove(logs_ / kRunningMarker, error) && error)
+            return "cannot remove " + (logs_ / kRunningMarker).string() + ": " + error.message();
+        return {};
+    }
+
+  private:
+    std::string Write() const
+    {
+        std::error_code error;
+        std::filesystem::create_directories(logs_, error);
+        const auto path = logs_ / kRunningMarker, temporary = logs_ / (std::string(kRunningMarker) + ".new");
+        {
+            std::ofstream marker(temporary, std::ios::binary | std::ios::trunc);
+            marker << "started " << started_ << ", pid " << pid_ << "\nheartbeat " << heartbeat_ << '\n';
+            if (background_)
+                marker << "background " << background_ << '\n';
+            marker.flush();
+            if (!marker)
+                return "cannot write " + temporary.string();
+        }
+        std::filesystem::rename(temporary, path, error);
+        return error ? "cannot replace " + path.string() + ": " + error.message() : std::string();
+    }
+
+    std::mutex mutex_;
+    const std::filesystem::path logs_;
+    const std::string started_;
+    const long pid_;
+    bool active_ = false;
+    std::time_t heartbeat_ = 0, background_ = 0;
+};
+
+// The decision for a marker the previous session left ("" when there was none): "" for a clean end (it went to the
+// background with its game thread alive: the system or the player ended it there), else how it ended uncleanly.
+inline std::string uncleanEnd(const std::string &marker)
+{
+    if (marker.empty())
+        return {};
+    std::string session;
+    long long heartbeat = -1, background = -1;
+    std::istringstream lines(marker);
+    for (std::string line; std::getline(lines, line);)
+    {
+        if (line.rfind("started ", 0) == 0)
+            session = line;
+        else if (line.rfind("heartbeat ", 0) == 0)
+            heartbeat = std::atoll(line.c_str() + 10);
+        else if (line.rfind("background ", 0) == 0)
+            background = std::atoll(line.c_str() + 11);
+    }
+    if (session.empty())
+        session = "an unreadable marker";
+    const auto time = [](long long at) { return logTime(static_cast<std::time_t>(at)); };
+    if (background < 0)
+        return session + "; ended in the foreground (a hang, a crash or a kill)" +
+               (heartbeat >= 0 ? "; game thread last alive " + time(heartbeat) : std::string());
+    if (heartbeat < 0 || background - heartbeat > kStuckSeconds)
+        return session + "; its game thread was stuck when it went to the background at " + time(background) +
+               (heartbeat >= 0 ? " (last alive " + time(heartbeat) + ")" : std::string(" (never alive)"));
     return {};
 }
 
-// At start, before the rotation: the record of a previous session that ended without a clean exit (its marker is
-// still there): "started <time>, pid <pid>; its last log line: <line of system.log>", or "" after a clean exit. The
-// marker is consumed.
+// At start, before the rotation: the previous session's marker, decided (uncleanEnd) and consumed. Unclean: the
+// record with the last line of its system.log; "" for a clean end or none.
 inline std::string takeUncleanEnd(const std::filesystem::path &logs, std::vector<std::string> &failures)
 {
     const auto path = logs / kRunningMarker;
-    std::ifstream in(path, std::ios::binary);
-    if (!in)
+    std::string marker;
+    {
+        std::ifstream in(path, std::ios::binary);
+        if (!in)
+            return {};
+        marker.assign(std::istreambuf_iterator<char>(in), {});
+    }
+    std::error_code error;
+    if (!std::filesystem::remove(path, error) && error)
+        failures.push_back("cannot remove " + path.string() + ": " + error.message());
+    if (marker.empty())
+        marker = "started ?, an empty marker";
+    const std::string unclean = uncleanEnd(marker);
+    if (unclean.empty())
         return {};
-    std::string session;
-    std::getline(in, session);
-    in.close();
-    if (session.empty())
-        session = "an empty marker";
     const std::string line = detail::lastLine(logs / sessionLogName("system", 0));
-    if (const auto failure = clearSessionRunning(logs); !failure.empty())
-        failures.push_back(failure);
-    return session + "; its last log line: " + (line.empty() ? "(none)" : line);
+    return unclean + "; its last log line: " + (line.empty() ? "(none)" : line);
 }
 
 } // namespace storm::logging
