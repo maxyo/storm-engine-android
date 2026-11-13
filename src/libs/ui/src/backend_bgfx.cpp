@@ -18,8 +18,11 @@
 // left over by the frame do not suffice; the element draws without the shadow until then.
 //
 // Coordinates follow the GL conventions of bgfx's GLES backend (bottom-left texture
-// origin, BGFX_CONFIG_GL_NORMALIZE_NDC_CONVENTIONS=0), the only bgfx backend the engine
-// builds.
+// origin, BGFX_CONFIG_GL_NORMALIZE_NDC_CONVENTIONS=0). On a backend whose render targets
+// have the origin at the top (Vulkan) every pass into a layer or post buffer is drawn
+// upside down (Executor::UpsideDown: clip space, view rectangle and scissor mirrored top
+// to bottom), so the buffers hold the same texels at the same texture coordinates as on
+// GL and nothing else differs. The final target is drawn as it is on both.
 #include "storm_ui/backend_bgfx.h"
 
 #include "storm_ui/ui.h"
@@ -297,8 +300,8 @@ enum class ProgramId
 
 struct Uniforms
 {
-    bgfx::UniformHandle transform, translate, gradient, gradient_pv, stop_colors, stop_positions, factor, color_matrix, blur_weights,
-        texel_offset, region, shadow_color, tex, mask;
+    bgfx::UniformHandle transform, translate, clip, gradient, gradient_pv, stop_colors, stop_positions, factor, color_matrix,
+        blur_weights, texel_offset, region, shadow_color, tex, mask;
 };
 
 struct FrameBuffer
@@ -684,7 +687,7 @@ class Executor
     bgfx::FrameBufferHandle Handle(Target target) const;
     bgfx::TextureHandle Color(Target target) const;
 
-    bool SetScissor(const Rml::Rectanglei &rect) const;
+    bool SetScissor(int slot, const Rml::Rectanglei &rect) const;
     void Geometry(int slot, const Command &command, ProgramId program, uint64_t state, uint32_t stencil);
     void Quad(int slot, ProgramId program, uint64_t state, Rml::Vector2f ndc0, Rml::Vector2f ndc1, Rml::Vector2f uv0, Rml::Vector2f uv1,
               const Rml::Rectanglei &scissor, uint32_t stencil = BGFX_STENCIL_NONE);
@@ -693,6 +696,11 @@ class Executor
     {
         Quad(slot, program, state, Rml::Vector2f(-1.f), Rml::Vector2f(1.f), uv_offset, uv_offset + uv_scaling, scissor, stencil);
     }
+    // The pass of `slot` draws its target upside down (see the head of this file).
+    bool UpsideDown(int slot) const;
+    // A bgfx rectangle (top-left origin) of the slot's target, mirrored top to bottom where it is drawn upside down.
+    ViewRect Placed(int slot, ViewRect rect) const;
+    void SetClip(int slot) const;
     void BindTexture(uint8_t stage, Target source) const;
     void SetFactor(float factor) const;
     void SetRegion(Rml::Rectanglei rect_gl) const;
@@ -1157,6 +1165,7 @@ bool BgfxBackendImpl::CreateGpu()
     using T = bgfx::UniformType;
     uniforms_.transform = bgfx::createUniform("u_ui_transform", T::Mat4);
     uniforms_.translate = bgfx::createUniform("u_ui_translate", T::Vec4);
+    uniforms_.clip = bgfx::createUniform("u_ui_clip", T::Vec4);
     uniforms_.gradient = bgfx::createUniform("u_ui_gradient", T::Vec4);
     uniforms_.gradient_pv = bgfx::createUniform("u_ui_gradient_pv", T::Vec4);
     uniforms_.stop_colors = bgfx::createUniform("u_ui_stop_colors", T::Vec4, kMaxStops);
@@ -1198,7 +1207,7 @@ void BgfxBackendImpl::DestroyGpu()
         set.Destroy();
     for (bgfx::ProgramHandle &program : programs_)
         DestroyIfCurrent(program, g_epoch);
-    for (bgfx::UniformHandle *uniform : {&uniforms_.transform, &uniforms_.translate, &uniforms_.gradient, &uniforms_.gradient_pv,
+    for (bgfx::UniformHandle *uniform : {&uniforms_.transform, &uniforms_.translate, &uniforms_.clip, &uniforms_.gradient, &uniforms_.gradient_pv,
                                           &uniforms_.stop_colors, &uniforms_.stop_positions, &uniforms_.factor, &uniforms_.color_matrix,
                                           &uniforms_.blur_weights, &uniforms_.texel_offset, &uniforms_.region, &uniforms_.shadow_color,
                                           &uniforms_.tex, &uniforms_.mask})
@@ -1787,7 +1796,8 @@ Executor::Executor(BgfxBackendImpl &backend, const Executor &plan, uint16_t firs
         bgfx::setViewName(view, "ui");
         bgfx::setViewMode(view, bgfx::ViewMode::Sequential);
         bgfx::setViewFrameBuffer(view, Handle(slot.target));
-        bgfx::setViewRect(view, uint16_t(slot.rect.x), uint16_t(slot.rect.y), uint16_t(slot.rect.w), uint16_t(slot.rect.h));
+        const ViewRect rect = Placed(int(s), slot.rect);
+        bgfx::setViewRect(view, uint16_t(rect.x), uint16_t(rect.y), uint16_t(rect.w), uint16_t(rect.h));
         bgfx::setViewScissor(view, 0, 0, 0, 0);
         bgfx::setViewTransform(view, nullptr, nullptr);
         bgfx::setViewClear(view, slot.clear | discard[s], 0, 1.0f, 0);
@@ -1862,15 +1872,34 @@ Region Executor::DrawRegion(const Command &command) const
     return region.Intersect({int(std::floor(min.x)) - 1, int(std::floor(min.y)) - 1, int(std::ceil(max.x)) + 1, int(std::ceil(max.y)) + 1});
 }
 
-bool Executor::SetScissor(const Rml::Rectanglei &rect) const
+bool Executor::SetScissor(int slot, const Rml::Rectanglei &rect) const
 {
     if (!rect.Valid())
         return true;
     const Region region = Clip(rect);
     if (region.Empty())
         return false;
-    bgfx::setScissor(uint16_t(region.x0), uint16_t(region.y0), uint16_t(region.x1 - region.x0), uint16_t(region.y1 - region.y0));
+    const ViewRect placed = Placed(slot, {region.x0, region.y0, region.x1 - region.x0, region.y1 - region.y0});
+    bgfx::setScissor(uint16_t(placed.x), uint16_t(placed.y), uint16_t(placed.w), uint16_t(placed.h));
     return true;
+}
+
+bool Executor::UpsideDown(int slot) const
+{
+    return !bgfx::getCaps()->originBottomLeft && schedule_.Slots()[size_t(slot)].target.kind != TargetKind::Final;
+}
+
+ViewRect Executor::Placed(int slot, ViewRect rect) const
+{
+    if (UpsideDown(slot))
+        rect.y = b_->sets_[schedule_.Slots()[size_t(slot)].target.set].height - rect.y - rect.h;
+    return rect;
+}
+
+void Executor::SetClip(int slot) const
+{
+    const float clip[4] = {UpsideDown(slot) ? -1.f : 1.f, 0.f, 0.f, 0.f};
+    bgfx::setUniform(b_->uniforms_.clip, clip);
 }
 
 void Executor::BindTexture(uint8_t stage, Target source) const
@@ -1897,7 +1926,7 @@ void Executor::SetRegion(Rml::Rectanglei rect_gl) const
 // Live runs only; the caller has set textures and uniforms for this draw.
 void Executor::Geometry(int slot, const Command &command, ProgramId program, uint64_t state, uint32_t stencil)
 {
-    if (!SetScissor(command.state.scissor))
+    if (!SetScissor(slot, command.state.scissor))
     {
         bgfx::discard();
         return;
@@ -1907,6 +1936,7 @@ void Executor::Geometry(int slot, const Command &command, ProgramId program, uin
     bgfx::setUniform(b_->uniforms_.transform, (projection_ ? *projection_ : command.state.transform).data());
     const float translate[4] = {command.translation.x, command.translation.y, 0.f, 0.f};
     bgfx::setUniform(b_->uniforms_.translate, translate);
+    SetClip(slot);
     bgfx::setState(state);
     bgfx::setStencil(stencil);
     bgfx::submit(View(slot), b_->programs_[size_t(program)]);
@@ -1915,7 +1945,7 @@ void Executor::Geometry(int slot, const Command &command, ProgramId program, uin
 void Executor::Quad(int slot, ProgramId program, uint64_t state, Rml::Vector2f ndc0, Rml::Vector2f ndc1, Rml::Vector2f uv0,
                     Rml::Vector2f uv1, const Rml::Rectanglei &scissor, uint32_t stencil)
 {
-    if (!SetScissor(scissor) || bgfx::getAvailTransientVertexBuffer(6, Layout()) < 6)
+    if (!SetScissor(slot, scissor) || bgfx::getAvailTransientVertexBuffer(6, Layout()) < 6)
     {
         bgfx::discard();
         return;
@@ -1932,6 +1962,7 @@ void Executor::Quad(int slot, ProgramId program, uint64_t state, Rml::Vector2f n
     for (int i = 0; i < 6; ++i)
         v[i] = corners[order[i]];
     bgfx::setVertexBuffer(0, &buffer);
+    SetClip(slot);
     bgfx::setState(state);
     bgfx::setStencil(stencil);
     bgfx::submit(View(slot), b_->programs_[size_t(program)]);
