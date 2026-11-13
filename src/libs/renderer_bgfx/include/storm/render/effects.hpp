@@ -233,6 +233,10 @@ struct ReliefConfig
 void ConfigureRelief(const ReliefConfig &config);
 // Before the renderer goes: stops the generator (the texture in progress is abandoned, its map made next time).
 void ShutdownRelief();
+// Main thread, at start: removes the stores of normal maps earlier builds kept elsewhere (the files directory's
+// "relief" before the relief maps moved to the cache, the "NormalMaps" cache before the relief directory), each if it
+// is still there (logged with what it held).
+void RemoveOldReliefStores(const std::vector<std::filesystem::path> &directories);
 
 // ---- World passes: contact shadows ----
 // The consumer entities (shadow, SUNGLOW) ask which parts are on and then either call the fx pass below

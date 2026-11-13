@@ -979,12 +979,24 @@ void CheckDeepBump()
     CHECK(ReliefProbeLevel(256, 256, 1) == 0 && ReliefProbeLevel(512, 256, 3) == 2 && ReliefProbeLevel(512, 512, 3) == 2);
     // Keys follow the path, the probe bytes and the method.
     const uint8_t probe[4] = {1, 2, 3, 4};
-    const uint64_t key = ReliefKey("a/b", probe, 4, 4, kReliefMethodVersion, kReliefMapSize);
+    const uint64_t stone = ReliefMethod(ReliefClass::Stone);
+    const uint64_t key = ReliefKey("a/b", probe, 4, 4, stone, kReliefMapSize);
     const uint8_t other[4] = {1, 2, 3, 5};
-    CHECK(key == ReliefKey("a/b", probe, 4, 4, kReliefMethodVersion, kReliefMapSize));
-    CHECK(key != ReliefKey("a/c", probe, 4, 4, kReliefMethodVersion, kReliefMapSize));
-    CHECK(key != ReliefKey("a/b", other, 4, 4, kReliefMethodVersion, kReliefMapSize));
-    CHECK(key != ReliefKey("a/b", probe, 4, 4, kReliefHeightMethod, kReliefMapSize));
+    CHECK(key == ReliefKey("a/b", probe, 4, 4, stone, kReliefMapSize));
+    CHECK(key != ReliefKey("a/c", probe, 4, 4, stone, kReliefMapSize));
+    CHECK(key != ReliefKey("a/b", other, 4, 4, stone, kReliefMapSize));
+    CHECK(key != ReliefKey("a/b", probe, 4, 4, ReliefMethod(ReliefClass::HeightMap), kReliefMapSize));
+    // The method covers what makes the map: each class's options (its strength reference), the derivation of height
+    // maps, the model and the version. The maps of the method before it (version 3 alone, no model or options in the
+    // key: the owner's phone kept them after «Очистить кэш») are never found again.
+    CHECK(ReliefMethod(ReliefClass::None) == 0);
+    const ReliefClass classes[] = {ReliefClass::HeightMap, ReliefClass::Stone, ReliefClass::Wood, ReliefClass::Building,
+                                   ReliefClass::Plaster};
+    for (const ReliefClass a : classes)
+        for (const ReliefClass b : classes)
+            CHECK((a == b) == (ReliefMethod(a) == ReliefMethod(b)));
+    CHECK(ReliefMethod(ReliefClass::Stone) != 3 && key != ReliefKey("a/b", probe, 4, 4, 3, kReliefMapSize));
+    CHECK(kDeepBumpModelDigest == 0x24b0975701c94500ull); // the model file's sha256 prefix (checked by CMake too)
 
     // The store: a written map reads back; a damaged file is deleted and reported.
     const std::filesystem::path dir = std::filesystem::temp_directory_path() / "storm_fx_relief_check";

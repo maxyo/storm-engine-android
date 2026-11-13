@@ -13,7 +13,14 @@ requested; one worker thread (nice 10, onnxruntime on all cores but two, paused 
 MODERATE up) makes the most recently drawn first, then the rest of the location, then, while relief is on and 30 s
 after the last request (not while a location loads), the other relief textures of the game by name (`List()`). A map
 that becomes ready is uploaded and its relief fades in over 0.3 s. A complete pass prunes stale maps (other games,
-older methods) and leaves `complete.txt` (`MarkComplete`): the next starts skip the pass while it matches. The model
+older methods) and leaves `complete.txt` (`MarkComplete`): the next starts skip the pass while it matches. A map's key holds its method (`fx::ReliefMethod`: the method version, the
+model's digest `fx::kDeepBumpModelDigest`, the class's options with the derivation's version, the map size), so a
+change never reuses a map made before it; a pass that starts without a matching mark first prunes the maps of other
+methods. The maps are a cache: on Android the relief directory is in the app's cache, so «Очистить кэш» (or the
+system evicting it) removes them and the game makes them again lazily; a complete pass whose maps went missing
+since is resumed (logged with their count). At start the stores of earlier builds are removed (logged): the files
+directory's `relief`, kept across «Очистить кэш», and the `NormalMaps` cache before it. Each texture logs the key and method of its map when it is
+looked up (`effects: relief <name> (<class>): map <key> of method <method>`). The model
 is loaded at the first job and released after 10 s with no work left. The "effects relief:" log line counts the
 textures waiting and the rest still to make; each map logs its stages (`relief <name>: WxH, N ms (read, decode,
 strength reference, model of which inference, mips, encode, write)`).
@@ -40,4 +47,4 @@ with engine.ini `relief_model = <path of model/deepbump256-int8.onnx>`; without 
 The engine build puts `libonnxruntime.so` (libengine.so links it) and `assets/deepbump256-int8.onnx` into
 `<build>/game`. The app packages the library next to libengine.so, the model as the asset `deepbump256-int8.onnx`
 (the engine reads it through SDL_RWFromFile), and the four licence files above on its licences screen. The relief
-directory: `(getExternalFilesDir(null) ?: getFilesDir()) + "/relief"` (engine `Renderer`).
+directory: the app's cache (`Context.getCacheDir()`, the engine's cache root) + `/relief` (engine `Renderer`).

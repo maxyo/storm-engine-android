@@ -13,6 +13,7 @@
 #include <chrono>
 #include <cstdarg>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <fstream>
 #include <memory>
@@ -143,7 +144,7 @@ std::optional<uint64_t> Key(const Candidate &candidate, const TxFile &tx, int ma
     const int pw = static_cast<int>(tx.width >> probe), ph = static_cast<int>(tx.height >> probe);
     if (bytes.size() != texture::d3d_level_bytes(tx.format, pw, ph))
         return std::nullopt;
-    return fx::ReliefKey(candidate.name, bytes, pw, ph, fx::kReliefMethodVersion, map_size);
+    return fx::ReliefKey(candidate.name, bytes, pw, ph, fx::ReliefMethod(candidate.relief), map_size);
 }
 
 // A grey "bump" texture: a height map the game derives itself (the runtime classifier decides from the same level).
@@ -443,9 +444,19 @@ int Prune(const std::filesystem::path &textures, const std::filesystem::path &ou
     for (const Candidate &candidate : Candidates(textures))
     {
         TxFile tx;
+        if (!tx.Load(candidate.file))
+            continue;
         fx::ReliefClass relief;
-        if (const std::optional<uint64_t> key = tx.Load(candidate.file) ? PreparedKey(candidate, tx, map_size, relief) : std::nullopt)
+        if (const std::optional<uint64_t> key = PreparedKey(candidate, tx, map_size, relief))
             current.push_back(fx::ReliefFile(output, *key));
+        else if (GreyHeightMap(candidate, tx))
+        {
+            // The game's own map of a grey "bump" texture, under the height maps' method: kept while it is current.
+            Candidate height = candidate;
+            height.relief = fx::ReliefClass::HeightMap;
+            if (const std::optional<uint64_t> height_key = Key(height, tx, fx::kReliefMapSize))
+                current.push_back(fx::ReliefFile(output, *height_key));
+        }
     }
     std::sort(current.begin(), current.end());
     int removed = 0;
@@ -463,12 +474,28 @@ namespace
 {
 std::string CompleteMark(const std::filesystem::path &textures, int map_size)
 {
-    return "method " + std::to_string(fx::kReliefMethodVersion) + " size " + std::to_string(map_size) + " textures " +
+    // Every class's method (model, options, versions): another build's maps never count as complete.
+    uint64_t methods = 0;
+    for (const fx::ReliefClass relief : {fx::ReliefClass::Stone, fx::ReliefClass::Wood, fx::ReliefClass::Building,
+                                         fx::ReliefClass::Plaster, fx::ReliefClass::HeightMap})
+        methods = (methods ^ fx::ReliefMethod(relief)) * 0x100000001b3ull;
+    char hex[24];
+    std::snprintf(hex, sizeof(hex), "%016llx", static_cast<unsigned long long>(methods));
+    return std::string("method ") + hex + " size " + std::to_string(map_size) + " textures " +
            std::to_string(Candidates(textures).size()) + "\n";
 }
 std::filesystem::path CompleteFile(const std::filesystem::path &output)
 {
     return output / "complete.txt";
+}
+
+int CountMaps(const std::filesystem::path &output)
+{
+    int maps = 0;
+    std::error_code error;
+    for (const auto &entry : std::filesystem::directory_iterator(output, error))
+        maps += entry.path().extension() == ".relief" ? 1 : 0;
+    return maps;
 }
 } // namespace
 
@@ -476,14 +503,26 @@ void MarkComplete(const std::filesystem::path &textures, const std::filesystem::
 {
     std::error_code error;
     std::filesystem::create_directories(output, error);
-    std::ofstream(CompleteFile(output), std::ios::trunc) << CompleteMark(textures, map_size);
+    std::ofstream(CompleteFile(output), std::ios::trunc) << CompleteMark(textures, map_size) << "maps " << CountMaps(output)
+                                                         << "\n";
 }
 
-bool Complete(const std::filesystem::path &textures, const std::filesystem::path &output, int map_size)
+bool Complete(const std::filesystem::path &textures, const std::filesystem::path &output, int map_size, int *missing)
 {
+    if (missing)
+        *missing = 0;
     std::ifstream in(CompleteFile(output));
-    const std::string mark{std::istreambuf_iterator<char>(in), {}};
-    return !mark.empty() && mark == CompleteMark(textures, map_size);
+    std::string method, maps;
+    if (!std::getline(in, method) || !std::getline(in, maps) || method + "\n" != CompleteMark(textures, map_size) ||
+        maps.rfind("maps ", 0) != 0)
+        return false;
+    // The system may evict a cache: maps of a complete pass gone since are made again.
+    const int marked = std::atoi(maps.c_str() + 5), present = CountMaps(output);
+    if (present >= marked)
+        return true;
+    if (missing)
+        *missing = marked - present;
+    return false;
 }
 
 std::string Result::Json() const

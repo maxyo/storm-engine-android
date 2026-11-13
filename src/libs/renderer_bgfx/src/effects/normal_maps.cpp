@@ -126,9 +126,7 @@ void NormalMaps::on_texture_loaded(shim::TexStore &store, const char *path, cons
     entry->relief = verdict.relief;
     entry->file = file;
     entry->key = fx::ReliefKey(name, {probe_data->data(), probe_bytes}, static_cast<int>(pw), static_cast<int>(ph),
-                               verdict.relief == fx::ReliefClass::HeightMap ? fx::kReliefHeightMethod
-                                                                            : fx::kReliefMethodVersion,
-                               fx::kReliefMapSize);
+                               fx::ReliefMethod(verdict.relief), fx::kReliefMapSize);
     store.normal_map = entry;
     entries_.push_back(entry);
     if (enabled_)
@@ -139,14 +137,19 @@ void NormalMaps::look_up(const std::shared_ptr<NormalMapEntry> &entry)
 {
     entry->state = NormalMapEntry::Pending;
     texture::Service::instance().post([entry, relief_dir = directory(), counters = counters_] {
+        // Which map the texture takes, for the diagnostics: its key and the method it was (or will be) made with.
+        const unsigned long long key = entry->key, method = fx::ReliefMethod(entry->relief);
         if (fx::HasReliefMap(relief_dir, entry->key))
         {
+            shim::logf("effects: relief %s (%s): map %016llx of method %016llx", entry->name.c_str(),
+                       fx::ReliefClassName(entry->relief), key, method);
             entry->state = NormalMapEntry::Stored;
             return;
         }
         if (entry->relief != fx::ReliefClass::HeightMap)
         {
-            shim::logd("effects: relief: %s has no map yet: requested", entry->name.c_str());
+            shim::logf("effects: relief %s (%s): no map %016llx of method %016llx yet: requested", entry->name.c_str(),
+                       fx::ReliefClassName(entry->relief), key, method);
             entry->state = NormalMapEntry::Waiting; // counted in the "effects relief:" line
             ReliefGenerator::instance().request(entry, entry->file);
             return;
@@ -163,6 +166,8 @@ void NormalMaps::look_up(const std::shared_ptr<NormalMapEntry> &entry)
             entry->state = NormalMapEntry::Failed;
             return;
         }
+        shim::logf("effects: relief %s (height map): no map %016llx of method %016llx yet: derived", entry->name.c_str(),
+                   key, method);
         fx::NormalMapOptions options = fx::ReliefOptions(fx::ReliefClass::HeightMap);
         options.max_size = fx::kReliefMapSize;
         const fx::NormalMap rg8 = fx::DeriveNormalMap(rgba, width, height, options);

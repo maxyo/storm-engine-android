@@ -89,14 +89,20 @@ int main(int argc, char **argv)
         const std::vector<std::filesystem::path> order = relief::List(game / "RESOURCE/Textures");
         CHECK(order.size() == 2 && order[0].filename() == "StoneA.tga.tx" && order[1].filename() == "StoneB.tga.tx");
     }
-    // The game's key: path, probe level (64x64 here), method, size.
-    const uint64_t key = fx::ReliefKey("locations/stonewall", probe, 64, 64, fx::kReliefMethodVersion, job.map_size);
+    // The game's key: path, probe level (64x64 here), the stone class's method, size.
+    const uint64_t key = fx::ReliefKey("locations/stonewall", probe, 64, 64, fx::ReliefMethod(fx::ReliefClass::Stone), job.map_size);
     const std::optional<fx::NormalMap> map = fx::ReadReliefMap(output, key);
     CHECK(map && map->width == 128 && map->mip_count == 8 && map->format == fx::NormalMapFormat::EacRg11);
     // Resumed: nothing to do; a stale map from another game is pruned after the complete run.
     fx::WriteReliefMap(output, 42, *map);
     result = relief::Prepare(job, nullptr);
     CHECK(result.status == 0 && result.prepared == 0 && result.existing == 1 && result.removed == 1 && !fx::HasReliefMap(output, 42));
+    // The system evicts part of the cache: the pass is no longer complete, and says how many maps went.
+    std::filesystem::remove(fx::ReliefFile(output, key));
+    int missing = 0;
+    CHECK(!relief::Complete(textures, output, job.map_size, &missing) && missing == 1);
+    result = relief::Prepare(job, nullptr);
+    CHECK(result.status == 0 && result.prepared == 1 && relief::Complete(textures, output, job.map_size, &missing) && missing == 0);
     // Cancelled at the start: nothing prepared, nothing pruned.
     std::filesystem::remove(fx::ReliefFile(output, key));
     fx::WriteReliefMap(output, 42, *map);

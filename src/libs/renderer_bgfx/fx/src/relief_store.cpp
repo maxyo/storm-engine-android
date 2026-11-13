@@ -1,5 +1,7 @@
 #include "storm/fx/relief_store.hpp"
 
+#include "storm/fx/deepbump.hpp"
+
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
@@ -46,12 +48,31 @@ int ReliefProbeLevel(int width, int height, int levels)
     return -1;
 }
 
+uint64_t ReliefMethod(ReliefClass relief)
+{
+    if (relief == ReliefClass::None)
+        return 0;
+    NormalMapOptions options = ReliefOptions(relief);
+    uint64_t method = 0xcbf29ce484222325ull;
+    if (relief == ReliefClass::HeightMap)
+    {
+        options.max_size = kReliefMapSize; // as the game derives them (effects/normal_maps.cpp)
+        const uint64_t parts[2] = {kReliefHeightMethod, NormalMapCacheKey(options)};
+        return Mix(method, parts, sizeof(parts));
+    }
+    // DeepBump's strength comes from the class's own derivation at the reference size (src/libs/relief).
+    options.max_size = kNormalMapReferenceSize;
+    const uint64_t parts[4] = {kReliefMethodVersion, kDeepBumpModelDigest, NormalMapCacheKey(options),
+                               static_cast<uint64_t>(kReliefMapSize)};
+    return Mix(method, parts, sizeof(parts));
+}
+
 uint64_t ReliefKey(std::string_view normalized_path, std::span<const uint8_t> probe_level, int probe_width,
-                   int probe_height, uint32_t method, int map_size)
+                   int probe_height, uint64_t method, int map_size)
 {
     uint64_t key = 0xcbf29ce484222325ull;
-    const uint32_t parts[4] = {method, static_cast<uint32_t>(probe_width), static_cast<uint32_t>(probe_height),
-                               static_cast<uint32_t>(map_size)};
+    const uint64_t parts[4] = {method, static_cast<uint64_t>(probe_width), static_cast<uint64_t>(probe_height),
+                               static_cast<uint64_t>(map_size)};
     key = Mix(key, parts, sizeof(parts));
     key = Mix(key, normalized_path.data(), normalized_path.size());
     return Mix(key, probe_level.data(), probe_level.size());

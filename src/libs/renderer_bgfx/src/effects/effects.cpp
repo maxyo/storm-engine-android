@@ -817,6 +817,30 @@ void ShutdownRelief()
     effects::ReliefGenerator::instance().shutdown();
 }
 
+void RemoveOldReliefStores(const std::vector<std::filesystem::path> &directories)
+{
+    for (const std::filesystem::path &old : directories)
+    {
+        std::error_code error;
+        if (!std::filesystem::is_directory(old, error))
+            continue;
+        uintmax_t bytes = 0, files = 0;
+        for (const auto &entry : std::filesystem::recursive_directory_iterator(old, error))
+            if (entry.is_regular_file(error))
+            {
+                bytes += entry.file_size(error);
+                ++files;
+            }
+        std::filesystem::remove_all(old, error);
+        if (error)
+            shim::logf("ERROR: effects: the old relief store %s could not be removed (%s)", old.string().c_str(),
+                       error.message().c_str());
+        else
+            shim::logf("effects: the old relief store %s of earlier builds removed (%ju files, %.1f MB)", old.string().c_str(),
+                       files, static_cast<double>(bytes) / 1048576.0);
+    }
+}
+
 std::string TakeEffectsNotice()
 {
     return effects::Host::instance().take_notice();
