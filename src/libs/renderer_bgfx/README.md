@@ -43,6 +43,10 @@ on Android and on the Linux development host alike.
   `-DSTORM_BGFX_BUILD_TESTS=ON` (`storm_texture_tests`, `storm_texture_bench`).
 - `patches/` — fixes applied to the pinned bgfx in each build directory's patched view of its shared source copy
   (`bgfx_pin.cmake`, `storm_patched_view`); the configure fails when a patch does not apply or changes nothing.
+  `bgfx-gl-msaa-render-to-texture.patch`: offscreen MSAA targets (scene, UI layers) are attached through
+  EXT_multisampled_render_to_texture where the driver has it, so a tile GPU keeps the samples on chip and writes only
+  resolved pixels; a framebuffer with a sampled multisampled depth keeps renderbuffers and the blit resolve. The path
+  is logged at start ("BGFX offscreen MSAA: ..."). Upstream uses the extension only for the back buffer.
   `bgfx-anisotropy-level.patch`: the GL backend applies one anisotropy level to every sampler, the device
   maximum; the patch caps it with `bgfx::gl::g_stormMaxAnisotropy` so the presets get 4x / 8x (set by
   `src/effects`). Upstream bgfx has no per-level API; keep it until it does.
