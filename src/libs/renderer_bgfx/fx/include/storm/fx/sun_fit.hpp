@@ -18,11 +18,16 @@
 #include <memory>
 
 #include <cstdint>
+#include <functional>
 #include <span>
 #include <vector>
 
 namespace storm::fx
 {
+
+// Runs `work(first, last)` over [0, count) split on `threads` threads (at least 256 items each); returns when all are
+// done. The bakes over an Occluders (one Scratch per range).
+void ParallelRanges(size_t count, unsigned threads, const std::function<void(size_t, size_t)> &work);
 
 // Triangles on a uniform grid for any-hit rays (3D DDA).
 class Occluders

@@ -49,6 +49,30 @@ float ffAoVolume(vec3 P, vec3 Ng, vec3 Nw)
     return mix(1.0, pow(ao, u_fxAoParams.y), u_fxAoParams.x);
 }
 
+// How open to the sky the pixel's place is (src/effects/visibility.hpp, fx/visibility.hpp; stage 5 =
+// fx::kVisibilityStage, the stage 0 cube map's unit, which no lit or baked variant has): x sky (cosine-weighted, to the
+// place's bounds), y open (the share of directions more than 15° up that reach out). u_fxVisibility: view space ->
+// volume uvw; u_fxVisibilityParams: x 1 = this place has a volume (0: everything counts as under open sky; 2: the
+// debug view, fx_visibility_debug), yzw half a
+// cell in uvw (the clamp to the cell centres at the faces).
+// A stage 0 cube map takes the unit: such a draw has no lit or baked variant, and its place counts as open.
+#ifndef STAGE0_CUBE
+SAMPLER3D(s_fxVisibility, 5);
+uniform mat4 u_fxVisibility;
+uniform vec4 u_fxVisibilityParams;
+#endif
+vec2 ffVisibility(vec3 P)
+{
+#ifdef STAGE0_CUBE
+    return vec2(1.0, 1.0);
+#else
+    if (u_fxVisibilityParams.x <= 0.0)
+        return vec2(1.0, 1.0);
+    vec3 uvw = clamp(mul(u_fxVisibility, vec4(P, 1.0)).xyz, u_fxVisibilityParams.yzw, vec3_splat(1.0) - u_fxVisibilityParams.yzw);
+    return texture3D(s_fxVisibility, uvw).xy;
+#endif
+}
+
 // The lamps of a location, per pixel and with their shadows (src/effects/lamp_shadows.hpp; fx/lamp_shadows.hpp for
 // the face convention). All of it in absolute world space.
 // u_fxLampView: view space -> world.
@@ -489,6 +513,14 @@ void main()
         else
             current.rgb = vec3_splat(lamps.a > 1e-4 ? dot(lamps.rgb, vec3(0.299, 0.587, 0.114)) / lamps.a : 0.5);
     }
+#ifndef STAGE0_CUBE
+    if (u_fxVisibilityParams.x > 1.5)
+    {
+        // Debug view (fx_visibility_debug): red the sky, green the openness above 15°, over a grey picture.
+        vec2 vis = ffVisibility(P);
+        current.rgb = vec3(vis.x, vis.y, 0.15) * (0.35 + 0.65 * dot(current.rgb, vec3(0.299, 0.587, 0.114)));
+    }
+#endif
 #endif
     gl_FragColor = ffFinish(current);
     FF_SLOPE_DEPTH();

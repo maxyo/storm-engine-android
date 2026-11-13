@@ -100,6 +100,8 @@ const Option kOptions[] = {
      [](fx::Settings &s, int v) { s.shadows = static_cast<fx::ShadowQuality>(std::clamp(v, 0, 2)); }},
     {"fx_town_light", "0 the game's town lightmaps, 1 our own for the live sun",
      [](fx::Settings &s, int v) { s.town_light = on(v); }},
+    {"fx_visibility_debug", "0 off, 1 lit and baked surfaces show the visibility volume (red sky, green open)",
+     [](fx::Settings &s, int v) { s.visibility_debug = on(v); }},
     {"fx_town_light_debug", "0 off, 1 our town lightmaps show the sun's visibility",
      [](fx::Settings &s, int v) { s.town_light_debug = on(v); }},
     {"fx_point_lights", "4, 8", [](fx::Settings &s, int v) { s.point_lights = static_cast<uint8_t>(v >= 8 ? 8 : 4); }},
@@ -203,6 +205,8 @@ void Host::on_device_lost()
     ao_.on_device_lost();
     ao_bound_ = nullptr;
     lighting_.set_ao_volume(nullptr);
+    visibility_.on_device_lost();
+    lighting_.set_visibility(nullptr);
     device_ready_ = false;
 }
 
@@ -225,6 +229,8 @@ void Host::shutdown()
     ao_.shutdown();
     ao_bound_ = nullptr;
     lighting_.set_ao_volume(nullptr);
+    visibility_.shutdown();
+    lighting_.set_visibility(nullptr);
     device_ready_ = false;
 }
 
@@ -556,6 +562,7 @@ void Host::end_frame(bool scene_frame, uint32_t frame)
     }
     ao_bound_ = ao_.update(settings_.ao_volume > 0); // for the next frame's draws
     lighting_.set_ao_volume(ao_bound_);
+    lighting_.set_visibility(visibility_.update()); // for the next frame's draws
     transform_view_ = UINT16_MAX; // the shim's views start again next frame
     times_ = {};
     if (!profile_)
@@ -668,6 +675,16 @@ void SetEffectsLightmaps(std::string_view name, std::span<const std::array<float
                          std::span<const uint32_t> triangle_lightmap, std::span<const EffectsLightmap> lightmaps)
 {
     effects::Host::instance().lighting().town_light().set_lightmaps(name, positions, uvs, indices, triangle_lightmap, lightmaps);
+    // The lightmapped ground is where one walks: the visibility volume covers it.
+    std::array<float, 3> lo{1e30f, 1e30f, 1e30f}, hi{-1e30f, -1e30f, -1e30f};
+    for (const uint32_t i : indices)
+        if (i < positions.size())
+            for (int k = 0; k < 3; ++k)
+            {
+                lo[k] = std::min(lo[k], positions[i][k]);
+                hi[k] = std::max(hi[k], positions[i][k]);
+            }
+    effects::Host::instance().visibility().set_focus(name, lo, hi);
 }
 
 void SetEffectsLocationGeometry(const EffectsLocationGeometry &geometry)
@@ -699,6 +716,12 @@ void SetEffectsLocationGeometry(const EffectsLocationGeometry &geometry)
     effects::Lighting &lighting = effects::Host::instance().lighting();
     std::vector<fx::Vec3> points;
     std::vector<uint32_t> triangles;
+    // The visibility volume rays through the collision data, as the location's own traces do.
+    effects::Host::instance().visibility().set_geometry(
+        std::string(geometry.name),
+        std::vector<fx::Vec3>(geometry.collision_positions.begin(), geometry.collision_positions.end()),
+        std::vector<uint32_t>(geometry.collision_indices.begin(), geometry.collision_indices.end()), geometry.interior,
+        geometry.room_lo, geometry.room_hi);
     if (geometry.interior)
     {
         lighting.shadows().set_casters({});
