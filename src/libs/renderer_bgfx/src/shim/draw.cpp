@@ -240,6 +240,86 @@ void Device::set_uniform(UniformId id, const float *data, uint16_t count)
     uniforms_changed = true;
 }
 
+// Buffers drawn in a later frame than they were written in. Written once so far: an immutable static buffer. Written
+// again: a dedicated dynamic buffer (own GL buffer, so the layouts the game draws it with keep their offsets; bgfx
+// pools other dynamic buffers at offsets of the creation stride), and every later rewrite updates the written range in
+// place. Re-creating a static buffer for each rewrite made a new bgfx handle, a GL buffer and its allocation each time.
+namespace
+{
+// A dedicated GL buffer: bgfx gives buffers with a compute flag their own (bgfx_p.h allocVertexBuffer); the GL
+// backend creates such a buffer exactly like any other.
+constexpr uint16_t kDedicated = BGFX_BUFFER_COMPUTE_READ;
+} // namespace
+
+void Device::upload_buffer(VertexBuffer &vb)
+{
+    const bool fresh = !bgfx::isValid(vb.handle) && !bgfx::isValid(vb.dynamic);
+    if (!fresh && vb.dirty_begin >= vb.dirty_end)
+        return;
+    const uint32_t size = static_cast<uint32_t>(vb.shadow.size());
+    if (fresh)
+    {
+        vb.handle = bgfx::createVertexBuffer(bgfx::copy(vb.shadow.data(), size), byte_layout);
+        ++perf().buffer_creates;
+        perf().buffer_upload_bytes += size;
+    }
+    else if (bgfx::isValid(vb.handle))
+    {
+        bgfx::destroy(vb.handle);
+        vb.handle = BGFX_INVALID_HANDLE;
+        vb.dynamic = bgfx::createDynamicVertexBuffer(bgfx::copy(vb.shadow.data(), size), byte_layout, kDedicated);
+        ++perf().buffer_creates;
+        perf().buffer_upload_bytes += size;
+    }
+    else
+    {
+        const uint32_t begin = vb.dirty_begin, end = std::min(vb.dirty_end, size);
+        bgfx::update(vb.dynamic, begin, bgfx::copy(vb.shadow.data() + begin, end - begin)); // byte layout: vertex = byte
+        perf().buffer_upload_bytes += end - begin;
+    }
+    ++perf().buffer_uploads;
+    perf_resize(&render::PerfCounters::buffer_gpu_bytes, vb.gpu_bytes, size);
+    vb.gpu_bytes = size;
+    vb.dirty_begin = UINT32_MAX;
+    vb.dirty_end = 0;
+}
+
+void Device::upload_buffer(IndexBuffer &ib, bool index32)
+{
+    const bool fresh = !bgfx::isValid(ib.handle) && !bgfx::isValid(ib.dynamic);
+    if (!fresh && ib.dirty_begin >= ib.dirty_end)
+        return;
+    const uint32_t size = static_cast<uint32_t>(ib.shadow.size());
+    const uint16_t format = index32 ? BGFX_BUFFER_INDEX32 : BGFX_BUFFER_NONE;
+    if (fresh)
+    {
+        ib.handle = bgfx::createIndexBuffer(bgfx::copy(ib.shadow.data(), size), format);
+        ++perf().buffer_creates;
+        perf().buffer_upload_bytes += size;
+    }
+    else if (bgfx::isValid(ib.handle))
+    {
+        bgfx::destroy(ib.handle);
+        ib.handle = BGFX_INVALID_HANDLE;
+        ib.dynamic = bgfx::createDynamicIndexBuffer(bgfx::copy(ib.shadow.data(), size), format | kDedicated);
+        ++perf().buffer_creates;
+        perf().buffer_upload_bytes += size;
+    }
+    else
+    {
+        const uint32_t index_size = index32 ? 4 : 2;
+        const uint32_t begin = ib.dirty_begin / index_size * index_size;
+        const uint32_t end = std::min((ib.dirty_end + index_size - 1) / index_size * index_size, size);
+        bgfx::update(ib.dynamic, begin / index_size, bgfx::copy(ib.shadow.data() + begin, end - begin));
+        perf().buffer_upload_bytes += end - begin;
+    }
+    ++perf().buffer_uploads;
+    perf_resize(&render::PerfCounters::buffer_gpu_bytes, ib.gpu_bytes, size);
+    ib.gpu_bytes = size;
+    ib.dirty_begin = UINT32_MAX;
+    ib.dirty_end = 0;
+}
+
 void Device::forget_transient(const VertexBuffer *vb)
 {
     std::erase_if(transient_ranges, [vb](const TransientRange &r) { return r.vb == vb; });
@@ -1298,24 +1378,13 @@ HRESULT Device::draw(const DrawCall &call)
         for (uint32_t i = 0; i < layout->stream_count; ++i)
         {
             VertexBuffer *vb = s.stream[i];
-            // bgfx sub-allocates dynamic buffers from shared pools, which breaks layout aliasing;
-            // a stable buffer is therefore an immutable snapshot that is replaced when it goes stale.
-            if (!bgfx::isValid(vb->handle) || vb->dirty_begin < vb->dirty_end)
-            {
-                if (bgfx::isValid(vb->handle))
-                    bgfx::destroy(vb->handle);
-                vb->handle = bgfx::createVertexBuffer(
-                    bgfx::copy(vb->shadow.data(), static_cast<uint32_t>(vb->shadow.size())), byte_layout);
-                ++perf().buffer_uploads;
-                perf().buffer_upload_bytes += vb->shadow.size();
-                perf_resize(&render::PerfCounters::buffer_gpu_bytes, vb->gpu_bytes, vb->shadow.size());
-                vb->gpu_bytes = vb->shadow.size();
-                vb->dirty_begin = UINT32_MAX;
-                vb->dirty_end = 0;
-            }
+            upload_buffer(*vb);
             const uint32_t start = s.stream_offset[i] / layout->stride[i] + first_vertex;
-            bgfx::setVertexBuffer(static_cast<uint8_t>(i), vb->handle, start, call.indexed ? UINT32_MAX : vertex_count,
-                                  layout->handle[i]);
+            const uint32_t count = call.indexed ? UINT32_MAX : vertex_count;
+            if (bgfx::isValid(vb->handle))
+                bgfx::setVertexBuffer(static_cast<uint8_t>(i), vb->handle, start, count, layout->handle[i]);
+            else
+                bgfx::setVertexBuffer(static_cast<uint8_t>(i), vb->dynamic, start, count, layout->handle[i]);
         }
     }
 
@@ -1359,20 +1428,11 @@ HRESULT Device::draw(const DrawCall &call)
     }
     else if (call.indexed)
     {
-        if (!bgfx::isValid(ib->handle) || ib->dirty_begin < ib->dirty_end)
-        {
-            if (bgfx::isValid(ib->handle))
-                bgfx::destroy(ib->handle);
-            ib->handle = bgfx::createIndexBuffer(bgfx::copy(ib->shadow.data(), static_cast<uint32_t>(ib->shadow.size())),
-                                                 index32 ? BGFX_BUFFER_INDEX32 : BGFX_BUFFER_NONE);
-            ++perf().buffer_uploads;
-            perf().buffer_upload_bytes += ib->shadow.size();
-            perf_resize(&render::PerfCounters::buffer_gpu_bytes, ib->gpu_bytes, ib->shadow.size());
-            ib->gpu_bytes = ib->shadow.size();
-            ib->dirty_begin = UINT32_MAX;
-            ib->dirty_end = 0;
-        }
-        bgfx::setIndexBuffer(ib->handle, call.start_index, element_count);
+        upload_buffer(*ib, index32);
+        if (bgfx::isValid(ib->handle))
+            bgfx::setIndexBuffer(ib->handle, call.start_index, element_count);
+        else
+            bgfx::setIndexBuffer(ib->dynamic, call.start_index, element_count);
     }
 
     // ---- textures ----

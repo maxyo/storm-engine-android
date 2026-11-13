@@ -429,6 +429,9 @@ struct Device final : Object
     };
     std::vector<TransientRange> transient_ranges;
     void forget_transient(const VertexBuffer *vb);
+    // The GPU copy of a buffer drawn from its own storage (not as transient data): see draw.cpp.
+    void upload_buffer(VertexBuffer &vb);
+    void upload_buffer(IndexBuffer &ib, bool index32);
     bool uniforms_changed = false; // a uniform was set since the previous submit
 
 };
