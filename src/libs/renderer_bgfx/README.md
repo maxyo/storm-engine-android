@@ -57,6 +57,8 @@ on Android and on the Linux development host alike.
   present hook; keep it until it does.
   `bgfx-render-thread-hooks.patch`: `bgfx::setRenderFrameDone` reports each frame the render thread has
   finished (rendered and presented), which bgfx has no API for; see "Threads" below.
+  `bgfx-shaderc-point-size.patch` (shaderc only): `gl_PointSize` in the SPIR-V build of a vertex shader;
+  Vulkan leaves a point's size undefined without it (the stars are a point list).
 
 ## Threads
 
@@ -118,9 +120,17 @@ ninja -C build/android engine
 ## Shaders
 
 `cmake/storm_shaders.cmake` (`storm_bgfx_embed_shaders`) compiles every `shaders/*.sc` and
-`shaders/ports/*.sc` with `shaderc` for the `300_es` profile (`STORM_BGFX_SHADER_PROFILE`) at
-build time and embeds the blobs (`--bin2c`) into the `storm_bgfx_shaders` library; the shim
-looks them up by name. Nothing is compiled at run time and no shader files ship in the APK.
+`shaders/ports/*.sc` with `shaderc` at build time, each variant twice: for OpenGL ES (the `300_es`
+profile, `STORM_BGFX_SHADER_PROFILE`) and for Vulkan (`spirv`), and embeds the blobs (`--bin2c`,
+`<name>` and `<name>_spv`) into the `storm_bgfx_shaders` library; the shim looks them up by name and
+takes the blob of the running backend (`storm/render/shader_blob.hpp`; the effects package and the UI
+do the same with theirs). Nothing is compiled at run time and no shader files ship in the APK.
+
+The SPIR-V build compiles the sources as HLSL: stage inputs and outputs (`v_*`, `a_*`, `i_data*`,
+`gl_Position`, `gl_FragCoord` ...) exist in `main()` only, and a global that is written is not possible.
+A helper function gets what it needs as parameters or is a macro expanded in `main()`
+(`shaders/include/storm_common.sh`). `cmake/shader_precision_check.py` fails the build on anything
+that is not highp, in either blob.
 
 ## D3D9 conventions handled by the shim
 

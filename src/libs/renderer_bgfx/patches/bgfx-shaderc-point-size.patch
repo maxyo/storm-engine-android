@@ -1,0 +1,36 @@
+shaderc, HLSL path (SPIR-V for Vulkan): a vertex shader that writes gl_PointSize gets the output
+`float gl_PointSize : PSIZE`, which glslang turns into the PointSize built-in. Without it the name does not
+exist there and the shader does not compile; and Vulkan leaves the size of a point undefined when the vertex
+shader does not write it (the fixed-function emulation draws D3DPT_POINTLIST with D3DRS_POINTSIZE: the stars).
+The GLSL path is untouched. Upstream bgfx has no point size on this path; keep the patch until it does.
+
+diff --git a/tools/shaderc/shaderc.cpp b/tools/shaderc/shaderc.cpp
+index 8b7dc2d..b90efa2 100644
+--- a/tools/shaderc/shaderc.cpp
++++ b/tools/shaderc/shaderc.cpp
+@@ -2135,6 +2135,8 @@ namespace bgfx
+ 						const bool hasInstanceId = !bx::strFind(input, "gl_InstanceID").isEmpty();
+ 						const bool hasViewportId = !bx::strFind(input, "gl_ViewportIndex").isEmpty();
+ 						const bool hasLayerId    = !bx::strFind(input, "gl_Layer").isEmpty();
++						// Storm Engine patch (renderer_bgfx/patches/bgfx-shaderc-point-size.patch).
++						const bool hasPointSize  = !bx::strFind(input, "gl_PointSize").isEmpty();
+ 
+ 						bx::StringView brace = bx::strFind(bx::StringView(entry.getPtr(), shader.getTerm() ), "{");
+ 						if (!brace.isEmpty() )
+@@ -2206,6 +2208,16 @@ namespace bgfx
+ 							}
+ 						}
+ 
++						if (hasPointSize)
++						{
++							// Storm Engine patch: Vulkan rasterises a point list with the vertex shader's PointSize
++							// (undefined when it is not written); glslang maps the PSIZE semantic to that built-in.
++							preprocessor.writef(
++								"\tfloat gl_PointSize : PSIZE;\n"
++								"#define gl_PointSize _varying_.gl_PointSize\n"
++								);
++						}
++
+ 						preprocessor.writef(
+ 							"};\n"
+ 							);

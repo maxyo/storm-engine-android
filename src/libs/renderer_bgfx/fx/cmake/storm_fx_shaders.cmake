@@ -7,12 +7,13 @@
 #                        INCLUDES <dir>... SHADERS <entries>)
 #
 # Compiles every registered variant with the pinned bgfx shaderc:
-#   * STORM_FX_SHADER_PROFILE (default 300_es) as `--bin2c` headers under
-#     <build>/shaders-gen/<NAMESPACE>/<name>.bin.h, exposed through the
-#     INTERFACE target together with includes.inc (every blob) and table.inc
-#     (one FX_SHADER(name) line per blob);
-#   * target `<TARGET>_all_profiles` additionally compiles each variant for
-#     SPIR-V and Metal so that no shader silently becomes GLES-only.
+#   * for both backends of the engine as `--bin2c` headers under <build>/shaders-gen/<NAMESPACE>/:
+#     <name>.bin.h (OpenGL ES, STORM_FX_SHADER_PROFILE, default 300_es, array <name>) and <name>.spv.bin.h
+#     (Vulkan, profile spirv, array <name>_spv), exposed through the INTERFACE target together with
+#     includes.inc (every blob) and table.inc (one FX_SHADER(name) line per variant);
+#     storm/render/shader_blob.hpp picks the blob of the running backend;
+#   * target `<TARGET>_all_profiles` additionally compiles each variant for Metal so that no shader
+#     silently loses that backend.
 function(storm_fx_add_shader list_var name source)
     cmake_parse_arguments(arg "" "" "DEFINES" ${ARGN})
     string(REPLACE ";" "," defines "${arg_DEFINES}")
@@ -23,7 +24,7 @@ function(storm_fx_build_shaders)
     cmake_parse_arguments(arg "" "TARGET;NAMESPACE;VARYING" "INCLUDES;SHADERS" ${ARGN})
     set(gen_dir "${CMAKE_CURRENT_BINARY_DIR}/shaders-gen/${arg_NAMESPACE}")
     set(check_dir "${CMAKE_CURRENT_BINARY_DIR}/shaders-check/${arg_NAMESPACE}")
-    file(MAKE_DIRECTORY "${gen_dir}" "${check_dir}/spirv" "${check_dir}/metal")
+    file(MAKE_DIRECTORY "${gen_dir}" "${check_dir}/metal")
     set(include_args -i "${STORM_FX_BGFX_SHADER_INCLUDE}")
     set(header_deps)
     foreach(dir ${arg_INCLUDES})
@@ -58,27 +59,29 @@ function(storm_fx_build_shaders)
                 --platform android -p ${STORM_FX_SHADER_PROFILE} -O 3 ${common} --define "${defines}"
             DEPENDS ${deps} VERBATIM)
         list(APPEND outputs "${output}")
-        add_custom_command(OUTPUT "${check_dir}/spirv/${name}.bin"
-            COMMAND "${STORM_FX_SHADERC_COMMAND}" -f "${source}" -o "${check_dir}/spirv/${name}.bin"
-                --platform linux -p spirv ${common} --define "${defines}"
+        set(output_spirv "${gen_dir}/${name}.spv.bin.h")
+        add_custom_command(OUTPUT "${output_spirv}"
+            COMMAND "${STORM_FX_SHADERC_COMMAND}" -f "${source}" -o "${output_spirv}" --bin2c "${name}_spv"
+                --platform android -p spirv -O 3 ${common} --define "${defines}"
             DEPENDS ${deps} VERBATIM)
+        list(APPEND outputs "${output_spirv}")
         add_custom_command(OUTPUT "${check_dir}/metal/${name}.bin"
             COMMAND "${STORM_FX_SHADERC_COMMAND}" -f "${source}" -o "${check_dir}/metal/${name}.bin"
                 --platform ios -p metal ${common} --define "${defines}"
             DEPENDS ${deps} VERBATIM)
-        list(APPEND check_outputs "${check_dir}/spirv/${name}.bin" "${check_dir}/metal/${name}.bin")
-        string(APPEND includes "#include \"${arg_NAMESPACE}/${name}.bin.h\"\n")
+        list(APPEND check_outputs "${check_dir}/metal/${name}.bin")
+        string(APPEND includes "#include \"${arg_NAMESPACE}/${name}.bin.h\"\n#include \"${arg_NAMESPACE}/${name}.spv.bin.h\"\n")
         string(APPEND table "FX_SHADER(${name})\n")
     endforeach()
     file(GENERATE OUTPUT "${gen_dir}/includes.inc" CONTENT "${includes}")
     file(GENERATE OUTPUT "${gen_dir}/table.inc" CONTENT "${table}")
-    # Every blob is highp (renderer_bgfx/cmake/essl_precision_check.py) when the renderer provides the check.
-    if(STORM_ESSL_PRECISION_CHECK)
+    # Every blob is highp (renderer_bgfx/cmake/shader_precision_check.py) when the renderer provides the check.
+    if(STORM_SHADER_PRECISION_CHECK)
         find_package(Python3 REQUIRED COMPONENTS Interpreter)
         set(precision_stamp "${gen_dir}/precision-check.stamp")
         add_custom_command(OUTPUT "${precision_stamp}"
-            COMMAND Python3::Interpreter "${STORM_ESSL_PRECISION_CHECK}" "${precision_stamp}" ${outputs}
-            DEPENDS ${outputs} "${STORM_ESSL_PRECISION_CHECK}" VERBATIM)
+            COMMAND Python3::Interpreter "${STORM_SHADER_PRECISION_CHECK}" "${precision_stamp}" ${outputs}
+            DEPENDS ${outputs} "${STORM_SHADER_PRECISION_CHECK}" VERBATIM)
         list(APPEND outputs "${precision_stamp}")
     endif()
     add_custom_target(${arg_TARGET}_build DEPENDS ${outputs})

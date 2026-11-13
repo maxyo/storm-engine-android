@@ -29,6 +29,8 @@
 #include <tuple>
 #include <vector>
 
+#include "storm/render/shader_blob.hpp"
+
 #include "preview_shaders/includes.inc"
 
 using namespace storm;
@@ -136,13 +138,10 @@ struct Shot
 struct MeshVariant
 {
     const char *defines;
-    const uint8_t *vs;
-    uint32_t vs_size;
-    const uint8_t *fs;
-    uint32_t fs_size;
+    render::ShaderBlob vs, fs;
 };
 constexpr MeshVariant kMeshVariants[] = {
-#define PREVIEW_VARIANT(defines, vs, fs) {defines, vs, sizeof(vs), fs, sizeof(fs)},
+#define PREVIEW_VARIANT(defines, vs, fs) {defines, STORM_SHADER_BLOB(vs), STORM_SHADER_BLOB(fs)},
 #include "preview_shaders/variants.inc"
 #undef PREVIEW_VARIANT
 };
@@ -179,8 +178,8 @@ class Preview
     Preview(std::string out_dir, const std::string &height_map_dir) : out_dir_(std::move(out_dir))
     {
         for (const MeshVariant &variant : kMeshVariants)
-            programs_.push_back(bgfx::createProgram(bgfx::createShader(bgfx::makeRef(variant.vs, variant.vs_size)),
-                                                    bgfx::createShader(bgfx::makeRef(variant.fs, variant.fs_size)), true));
+            programs_.push_back(bgfx::createProgram(render::CreateShader(variant.vs, "vs_preview_mesh"),
+                                                    render::CreateShader(variant.fs, "fs_preview_mesh"), true));
         u_point_ = bgfx::createUniform("u_previewPoint", bgfx::UniformType::Vec4, fx::kMaxPointLights * 4);
         u_point_count_ = bgfx::createUniform("u_previewPointCount", bgfx::UniformType::Vec4);
         s_detail_ = bgfx::createUniform("s_previewDetail", bgfx::UniformType::Sampler);

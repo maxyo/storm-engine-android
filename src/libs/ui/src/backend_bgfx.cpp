@@ -28,17 +28,10 @@
 #include <RmlUi/Core/DecorationTypes.h>
 #include <bgfx/bgfx.h>
 
-#include "storm_ui_shaders/fs_ui_blend_mask.bin.h"
-#include "storm_ui_shaders/fs_ui_blur.bin.h"
-#include "storm_ui_shaders/fs_ui_color.bin.h"
-#include "storm_ui_shaders/fs_ui_color_matrix.bin.h"
-#include "storm_ui_shaders/fs_ui_drop_shadow.bin.h"
-#include "storm_ui_shaders/fs_ui_gradient.bin.h"
-#include "storm_ui_shaders/fs_ui_passthrough.bin.h"
-#include "storm_ui_shaders/fs_ui_texture.bin.h"
-#include "storm_ui_shaders/fs_ui_texture_straight.bin.h"
-#include "storm_ui_shaders/vs_ui.bin.h"
-#include "storm_ui_shaders/vs_ui_quad.bin.h"
+#include "storm/render/shader_blob.hpp"
+
+// Every shader of shaders/, for OpenGL ES and for Vulkan (renderer_bgfx cmake/storm_shaders.cmake).
+#include "storm_ui_shaders/includes.inc"
 
 #include <algorithm>
 #include <array>
@@ -1134,22 +1127,14 @@ class BgfxBackendImpl final : public BgfxBackend, public Rml::RenderInterface
     };
     std::unordered_map<std::string, PictureRef> pictures_;
 };
-bgfx::ShaderHandle MakeShader(const uint8_t *data, uint32_t size, const char *name)
-{
-    bgfx::ShaderHandle shader = bgfx::createShader(bgfx::makeRef(data, size));
-    if (bgfx::isValid(shader))
-        bgfx::setName(shader, name);
-    return shader;
-}
-
 bool BgfxBackendImpl::CreateGpu()
 {
     // Programs keep their shaders referenced; our own references go once all are linked.
     std::vector<bgfx::ShaderHandle> shaders;
-    const auto shader = [&shaders](const uint8_t *data, uint32_t size, const char *name) {
-        return shaders.emplace_back(MakeShader(data, size, name));
+    const auto shader = [&shaders](const storm::render::ShaderBlob &blob, const char *name) {
+        return shaders.emplace_back(storm::render::CreateShader(blob, name));
     };
-#define STORM_UI_SHADER(name) shader(name, sizeof(name), #name)
+#define STORM_UI_SHADER(name) shader(STORM_SHADER_BLOB(name), #name)
     const bgfx::ShaderHandle vs = STORM_UI_SHADER(vs_ui), vs_quad = STORM_UI_SHADER(vs_ui_quad);
     const auto link = [&](ProgramId id, bgfx::ShaderHandle vertex, bgfx::ShaderHandle fragment) {
         programs_[size_t(id)] = bgfx::createProgram(vertex, fragment, false);

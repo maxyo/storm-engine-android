@@ -61,9 +61,9 @@ vec4 stageCoord(int i, vec4 t0, vec4 t1, vec4 t2, vec4 t3, vec3 P, vec3 N)
 void main()
 {
 #ifdef FF_SKIN
-    vec4 r0 = blendedRow(0, a_indices.x, a_indices.y, a_weight.x);
-    vec4 r1 = blendedRow(1, a_indices.x, a_indices.y, a_weight.x);
-    vec4 r2 = blendedRow(2, a_indices.x, a_indices.y, a_weight.x);
+    vec4 r0 = blendedRow(i_data0.xy, 0, a_indices.x, a_indices.y, a_weight.x);
+    vec4 r1 = blendedRow(i_data0.xy, 1, a_indices.x, a_indices.y, a_weight.x);
+    vec4 r2 = blendedRow(i_data0.xy, 2, a_indices.x, a_indices.y, a_weight.x);
     vec3 modelPos = skinPoint(r0, r1, r2, a_position.xyz);
     vec3 modelNormal = skinPoint(r0, r1, r2, a_normal);
 #else

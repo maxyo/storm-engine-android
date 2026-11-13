@@ -6,6 +6,7 @@
 #include "program_cache.hpp"
 #include "storm/render/d3d_interop.hpp"
 #include "storm/render/log.hpp"
+#include "storm/render/shader_blob.hpp"
 
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_syswm.h>
@@ -1065,10 +1066,9 @@ namespace
 struct EmbeddedShader
 {
     const char *name;
-    const uint8_t *data;
-    uint32_t size;
+    render::ShaderBlob blob;
 };
-#define STORM_SHADER(name) {#name, name, sizeof(name)},
+#define STORM_SHADER(name) {#name, STORM_SHADER_BLOB(name)},
 const EmbeddedShader embedded[] = {
 #include "storm_shaders/table.inc"
 };
@@ -1109,9 +1109,7 @@ bgfx::ShaderHandle create_embedded_shader(uint32_t id)
 {
     if (id >= std::size(embedded))
         return BGFX_INVALID_HANDLE;
-    const bgfx::ShaderHandle handle = bgfx::createShader(bgfx::makeRef(embedded[id].data, embedded[id].size));
-    bgfx::setName(handle, embedded[id].name);
-    return handle;
+    return render::CreateShader(embedded[id].blob, embedded[id].name);
 }
 
 } // namespace storm::shim

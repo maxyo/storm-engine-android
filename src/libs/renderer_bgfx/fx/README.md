@@ -93,9 +93,9 @@ is not wired into the game. `Shadows::CasterProgram`,
 
 ## Build
 
-Built with the renderer (see above). Shaders are compiled offline with the pinned shaderc into embedded blobs
-(`STORM_FX_SHADER_PROFILE`, default `300_es`); the target `storm_fx_shaders_all_profiles` also compiles every
-variant for SPIR-V and Metal. Unit checks of the CPU side: `storm_fx_core_check`, run by
+Built with the renderer (see above). Shaders are compiled offline with the pinned shaderc into embedded blobs, each
+variant for OpenGL ES (`STORM_FX_SHADER_PROFILE`, default `300_es`) and for Vulkan (SPIR-V); the target
+`storm_fx_shaders_all_profiles` also compiles every variant for Metal. Unit checks of the CPU side: `storm_fx_core_check`, run by
 `tests/renderer_bgfx/run.py`. Stand-alone preview of every effect: `tools/fx-preview/README.md`.
 
 ## Use

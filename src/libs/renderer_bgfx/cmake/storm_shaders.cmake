@@ -1,13 +1,15 @@
 # storm_bgfx_embed_shaders(TARGET <interface target> NAMESPACE <id> VARYING <varying.def.sc>
 #                          SOURCES vs_*.sc fs_*.sc ... [DEFINES "A;B=1"] [INCLUDES dir...]
 #                          [VARIANTS "<name>|<source>|A,B=1" ...])
-# Compiles each bgfx shader with the pinned host shaderc for STORM_BGFX_SHADER_PROFILE
-# and exposes `<build>/<NAMESPACE>/<name>.bin.h` (a `static const uint8_t <name>[]`)
-# through the INTERFACE target's include path as "<NAMESPACE>/<name>.bin.h".
+# Compiles each bgfx shader with the pinned host shaderc for both backends of the engine: OpenGL ES
+# (STORM_BGFX_SHADER_PROFILE, `<name>.bin.h`, a `static const uint8_t <name>[]`) and Vulkan (profile spirv,
+# `<name>.spv.bin.h`, `<name>_spv[]`), and exposes them through the INTERFACE target's include path as
+# "<NAMESPACE>/<name>.bin.h" / "<NAMESPACE>/<name>.spv.bin.h". includes.inc pulls in both of every shader;
+# storm/render/shader_blob.hpp (STORM_SHADER_BLOB) picks the one of the running backend.
 # File names must start with vs_ or fs_; a variant compiles <source> again with extra
 # defines under its own <name>. Other libraries (e.g. the UI) call this with their own
 # sources and varying.def.sc; see renderer_bgfx/README.md.
-set(STORM_ESSL_PRECISION_CHECK "${CMAKE_CURRENT_LIST_DIR}/essl_precision_check.py" CACHE INTERNAL "")
+set(STORM_SHADER_PRECISION_CHECK "${CMAKE_CURRENT_LIST_DIR}/shader_precision_check.py" CACHE INTERNAL "")
 function(storm_bgfx_embed_shaders)
     cmake_parse_arguments(arg "" "TARGET;NAMESPACE;VARYING" "SOURCES;DEFINES;INCLUDES;VARIANTS" ${ARGN})
     set(out_dir "${CMAKE_CURRENT_BINARY_DIR}/shaders-gen/${arg_NAMESPACE}")
@@ -46,31 +48,36 @@ function(storm_bgfx_embed_shaders)
             message(FATAL_ERROR "Shader file must be named vs_* or fs_*: ${source}")
         endif()
         set(output "${out_dir}/${name}.bin.h")
+        set(output_spirv "${out_dir}/${name}.spv.bin.h")
         set(define_args)
         set(all_defines ${arg_DEFINES} ${variant_defines})
         if(all_defines)
             list(JOIN all_defines "$<SEMICOLON>" joined) # one shaderc argument
             set(define_args --define "${joined}")
         endif()
+        set(common --type ${type} --platform android -O 3 --varyingdef "${arg_VARYING}" ${include_args} ${define_args})
+        set(deps ${STORM_SHADERC_DEPENDS} "${source}" "${arg_VARYING}" ${common_deps})
         add_custom_command(OUTPUT "${output}"
             COMMAND "${STORM_SHADERC_COMMAND}" -f "${source}" -o "${output}" --bin2c "${name}"
-                --type ${type} --platform android -p ${STORM_BGFX_SHADER_PROFILE} -O 3
-                --varyingdef "${arg_VARYING}" ${include_args} ${define_args}
-            DEPENDS ${STORM_SHADERC_DEPENDS} "${source}" "${arg_VARYING}" ${common_deps}
-            VERBATIM)
-        list(APPEND outputs "${output}")
-        string(APPEND include_lines "#include \"${arg_NAMESPACE}/${name}.bin.h\"\n")
+                -p ${STORM_BGFX_SHADER_PROFILE} ${common}
+            DEPENDS ${deps} VERBATIM)
+        add_custom_command(OUTPUT "${output_spirv}"
+            COMMAND "${STORM_SHADERC_COMMAND}" -f "${source}" -o "${output_spirv}" --bin2c "${name}_spv"
+                -p spirv ${common}
+            DEPENDS ${deps} VERBATIM)
+        list(APPEND outputs "${output}" "${output_spirv}")
+        string(APPEND include_lines "#include \"${arg_NAMESPACE}/${name}.bin.h\"\n#include \"${arg_NAMESPACE}/${name}.spv.bin.h\"\n")
         string(APPEND table_lines "STORM_SHADER(${name})\n")
     endforeach()
-    # includes.inc pulls in every blob; table.inc lists STORM_SHADER(name) entries.
+    # includes.inc pulls in every blob (both backends); table.inc lists STORM_SHADER(name) entries.
     file(GENERATE OUTPUT "${out_dir}/includes.inc" CONTENT "${include_lines}")
     file(GENERATE OUTPUT "${out_dir}/table.inc" CONTENT "${table_lines}")
-    # Every blob is highp (cmake/essl_precision_check.py): the build fails otherwise.
+    # Every blob is highp (cmake/shader_precision_check.py): the build fails otherwise.
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
     set(precision_stamp "${out_dir}/precision-check.stamp")
     add_custom_command(OUTPUT "${precision_stamp}"
-        COMMAND Python3::Interpreter "${STORM_ESSL_PRECISION_CHECK}" "${precision_stamp}" ${outputs}
-        DEPENDS ${outputs} "${STORM_ESSL_PRECISION_CHECK}" VERBATIM)
+        COMMAND Python3::Interpreter "${STORM_SHADER_PRECISION_CHECK}" "${precision_stamp}" ${outputs}
+        DEPENDS ${outputs} "${STORM_SHADER_PRECISION_CHECK}" VERBATIM)
     add_custom_target(${arg_TARGET}_build DEPENDS ${outputs} "${precision_stamp}")
     add_library(${arg_TARGET} INTERFACE)
     add_dependencies(${arg_TARGET} ${arg_TARGET}_build)

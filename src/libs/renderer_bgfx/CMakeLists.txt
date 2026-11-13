@@ -26,10 +26,11 @@ set(BGFX_CONFIG_MAX_TRANSIENT_INDEX_BUFFER_SIZE 8388608 CACHE STRING "" FORCE)
 set(BGFX_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
 # The pinned bgfx/bx/bimg.
 include("${CMAKE_CURRENT_LIST_DIR}/cmake/bgfx_upstream.cmake")
-# Android and the Linux development host both run the GLES 3.0 backend so the
-# same ESSL shader blobs and code paths are exercised. Selecting one renderer
-# explicitly disables all the others (bgfx/src/config.h).
-target_compile_definitions(bgfx PRIVATE BGFX_CONFIG_RENDERER_OPENGLES=30)
+# Two backends, on Android and on the Linux development host alike, so the same shader blobs and code paths are
+# exercised: OpenGL ES 3.0 and Vulkan (which one a device runs: src/shim/backend_select.hpp). Selecting renderers
+# explicitly disables all the others (bgfx/src/config.h). bgfx loads libvulkan itself at run time: no link
+# dependency, and a system without Vulkan runs OpenGL ES.
+target_compile_definitions(bgfx PRIVATE BGFX_CONFIG_RENDERER_OPENGLES=30 BGFX_CONFIG_RENDERER_VULKAN=1)
 # Tracy builds (cmake/tracy.cmake): bgfx reports its own scopes through the callback's profiler functions
 # (shim/program_cache.cpp).
 if(STORM_TRACY)

@@ -1,5 +1,6 @@
 #include "gpu_util.hpp"
 #include "storm/fx/log.hpp"
+#include "storm/render/shader_blob.hpp"
 
 #include <cstring>
 
@@ -12,12 +13,11 @@ namespace
 struct Blob
 {
     const char *name;
-    const uint8_t *data;
-    uint32_t size;
+    render::ShaderBlob blob;
 };
 
 constexpr Blob kBlobs[] = {
-#define FX_SHADER(name) {#name, name, sizeof(name)},
+#define FX_SHADER(name) {#name, STORM_SHADER_BLOB(name)},
 #include "storm_fx_shaders/table.inc"
 #undef FX_SHADER
 };
@@ -26,11 +26,7 @@ bgfx::ShaderHandle LoadShader(const char *name)
 {
     for (const Blob &blob : kBlobs)
         if (std::strcmp(blob.name, name) == 0)
-        {
-            const bgfx::ShaderHandle shader = bgfx::createShader(bgfx::makeRef(blob.data, blob.size));
-            bgfx::setName(shader, name);
-            return shader;
-        }
+            return render::CreateShader(blob.blob, name);
     return BGFX_INVALID_HANDLE;
 }
 

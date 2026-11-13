@@ -57,6 +57,9 @@ add_library(storm_bgfx_fx STATIC
     src/contact_shadows.cpp src/self_test.cpp)
 target_link_libraries(storm_bgfx_fx PUBLIC storm_bgfx_fx_core storm_bgfx_runtime PRIVATE storm_fx_shaders)
 target_include_directories(storm_bgfx_fx SYSTEM PRIVATE "${storm_smaa_SOURCE_DIR}/Textures" "${storm_fidelityfx_fsr_SOURCE_DIR}/ffx-fsr")
+# storm/render/shader_blob.hpp (header only): the embedded blob of the running backend; also for the tools that
+# embed their own shaders with storm_fx_build_shaders.
+target_include_directories(storm_bgfx_fx PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/../include")
 set_target_properties(storm_bgfx_fx PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 if(NOT CMAKE_CROSSCOMPILING)

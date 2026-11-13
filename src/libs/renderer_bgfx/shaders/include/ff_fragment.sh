@@ -27,7 +27,6 @@
 // x: two-sided surface whose back side shows the light passing through (normal flipped towards the viewer)
 // y: FX_LIGHT_NORMALMAP: the texture stage (0 or 1) whose coordinates the normal map follows
 uniform vec4 u_fxFf;
-vec4 ffDiffuse;
 
 // Ambient-occlusion volume of the interior (src/effects/ao_volume.hpp; stage 12 = fx::kAoVolumeStage).
 // u_fxAoVolume: view space -> volume uvw. u_fxAoParams: x strength (0 = no volume for this draw), y contrast,
@@ -259,14 +258,14 @@ void ffLampAdd(float id, vec3 Pw, vec3 Ng, vec3 N, inout vec4 sum)
 }
 
 // The light of the lights that move (a carried lantern, a ship's lanterns) at the pixel, with their shadows. The
-// bake holds nothing of them: it is plain added light, as the game's own point lights, not a part of the relit sum.
-vec3 ffLampMoved;
+// bake holds nothing of them: it is plain added light, as the game's own point lights, not a part of the relit sum:
+// `lampMoved` of ffLampLight.
 
-// The lamps that reach Pw, from the lamp grid (up to eight per cell); sets ffLampMoved.
-vec4 ffLampLight(vec3 Pw, vec3 Ng, vec3 N)
+// The lamps that reach Pw, from the lamp grid (up to eight per cell).
+vec4 ffLampLight(vec3 Pw, vec3 Ng, vec3 N, out vec3 lampMoved)
 {
     vec4 sum = vec4_splat(0.0);
-    ffLampMoved = vec3_splat(0.0);
+    lampMoved = vec3_splat(0.0);
     if (u_fxLamps[0].x < 0.5)
         return sum;
     // The lights that move (at most two) are few and anywhere: every pixel asks them, without the grid.
@@ -279,7 +278,7 @@ vec4 ffLampLight(vec3 Pw, vec3 Ng, vec3 N)
     if (u_fxLampGrid[0].w > 0.5)
         sum = moved;
     else
-        ffLampMoved = moved.rgb;
+        lampMoved = moved.rgb;
     vec3 cell = (Pw - u_fxLampGrid[0].xyz) * u_fxLampGrid[1].xyz;
     if (min(min(cell.x, cell.y), cell.z) < 0.0 || max(max(cell.x, cell.y), cell.z) > 1.0)
         return sum;
@@ -331,16 +330,17 @@ SAMPLERCUBE(s_cube1, 6);
 SAMPLERCUBE(s_cube2, 7);
 #endif
 
-vec4 ffArg(float arg, vec4 current, vec4 tex, vec4 temp)
+// diffuse: FF_DIFFUSE; specular: v_color1 (stage inputs, passed in: storm_common.sh).
+vec4 ffArg(float arg, vec4 current, vec4 tex, vec4 temp, vec4 diffuse, vec4 specular)
 {
     float flags = floor(arg / 16.0);
     float sel = arg - flags * 16.0;
     vec4 r;
-    if (sel < 0.5) r = FF_DIFFUSE;
+    if (sel < 0.5) r = diffuse;
     else if (sel < 1.5) r = current;
     else if (sel < 2.5) r = tex;
     else if (sel < 3.5) r = u_ffFs[0];
-    else if (sel < 4.5) r = v_color1;
+    else if (sel < 4.5) r = specular;
     else r = temp;
     float complement = flags - 2.0 * floor(flags / 2.0);
     if (complement > 0.5) r = vec4_splat(1.0) - r;
@@ -348,7 +348,7 @@ vec4 ffArg(float arg, vec4 current, vec4 tex, vec4 temp)
     return r;
 }
 
-vec4 ffCombine(float op, vec4 a1, vec4 a2, vec4 a0, vec4 current, vec4 tex)
+vec4 ffCombine(float op, vec4 a1, vec4 a2, vec4 a0, vec4 current, vec4 tex, vec4 diffuse)
 {
     if (op < 2.5) return a1;
     if (op < 3.5) return a2;
@@ -360,7 +360,7 @@ vec4 ffCombine(float op, vec4 a1, vec4 a2, vec4 a0, vec4 current, vec4 tex)
     if (op < 9.5) return (a1 + a2 - vec4_splat(0.5)) * 2.0;
     if (op < 10.5) return a1 - a2;
     if (op < 11.5) return a1 + a2 - a1 * a2;
-    if (op < 12.5) return mix(a2, a1, FF_DIFFUSE.a);
+    if (op < 12.5) return mix(a2, a1, diffuse.a);
     if (op < 13.5) return mix(a2, a1, tex.a);
     if (op < 14.5) return mix(a2, a1, u_ffFs[0].a);
     if (op < 15.5) return a1 + a2 * (1.0 - tex.a);
@@ -376,6 +376,7 @@ vec4 ffCombine(float op, vec4 a1, vec4 a2, vec4 a0, vec4 current, vec4 tex)
     return mix(a2, a1, a0);
 }
 
+#define FF_ARG(arg) ffArg(arg, current, tex, temp, FF_DIFFUSE, v_color1)
 #define FF_STAGE(i, SAMPLE) \
     if (running && float(i) < u_ffFs[3].z) \
     { \
@@ -385,10 +386,8 @@ vec4 ffCombine(float op, vec4 a1, vec4 a2, vec4 a0, vec4 current, vec4 tex)
         vec4 tex = vec4(0.0, 0.0, 0.0, 1.0); \
         if (ms.z > 0.5) { tex = SAMPLE; } \
         FF_KEEP_TEX(i, tex) \
-        vec4 c = ffCombine(cs.x, ffArg(cs.y, current, tex, temp), ffArg(cs.z, current, tex, temp), \
-                           ffArg(cs.w, current, tex, temp), current, tex); \
-        vec4 a = as.x < 1.5 ? current : ffCombine(as.x, ffArg(as.y, current, tex, temp), ffArg(as.z, current, tex, temp), \
-                           ffArg(as.w, current, tex, temp), current, tex); \
+        vec4 c = ffCombine(cs.x, FF_ARG(cs.y), FF_ARG(cs.z), FF_ARG(cs.w), current, tex, FF_DIFFUSE); \
+        vec4 a = as.x < 1.5 ? current : ffCombine(as.x, FF_ARG(as.y), FF_ARG(as.z), FF_ARG(as.w), current, tex, FF_DIFFUSE); \
         vec4 r = clamp(vec4(c.rgb, cs.x > 23.5 && cs.x < 24.5 ? c.a : a.a), 0.0, 1.0); \
         if (ms.x > 0.5) temp = r; else current = r; \
     } \
@@ -438,7 +437,8 @@ void main()
     vec3 Pw = mul(u_fxLampView, vec4(P, 1.0)).xyz;
     vec3 Nw = normalize(mul(u_fxLampView, vec4(Ng, 0.0)).xyz);
     // The place's lamps with their shadows (nothing where there are none).
-    vec4 lamps = ffLampLight(Pw, Nw, normalize(mul(u_fxLampView, vec4(N, 0.0)).xyz));
+    vec3 ffLampMoved;
+    vec4 lamps = ffLampLight(Pw, Nw, normalize(mul(u_fxLampView, vec4(N, 0.0)).xyz), ffLampMoved);
     // How open the pixel is to the sky (the visibility volume): x the sky it sees, y whether the sun can reach it.
     // Under a roof the sun and the weather's ambient do not arrive and the room's own occlusion counts in full; in
     // a doorway, by a window or under a hatch each arrives by its share.
@@ -474,11 +474,11 @@ void main()
     // towards 1 (a model at a candle's flame is lit, not burnt out).
     float lampShown = lampSeen <= 0.5 ? lampSeen : 0.5 + (lampSeen - 0.5) / (1.0 + 2.0 * (lampSeen - 0.5));
     vec3 lampLight = lamps.rgb * (lampShown / max(lampSeen, 1e-4));
-    ffDiffuse = vec4(clamp(fxLit(v_color0.rgb * aoVolume, v_matDiffuse.rgb,
+    vec4 ffDiffuse = vec4(clamp(fxLit(v_color0.rgb * aoVolume, v_matDiffuse.rgb,
                                  fxSunDiffuse(N, V) * sunShadow + fxPointDiffuse(N, P) + lampLight + ffLampMoved,
                                  v_matAmbient.rgb, ambient * aoVolume), 0.0, 1.0), v_color0.a);
 #else
-    ffDiffuse = v_color0;
+    vec4 ffDiffuse = v_color0;
 #endif
     vec4 tex0 = vec4_splat(0.0);
 #endif

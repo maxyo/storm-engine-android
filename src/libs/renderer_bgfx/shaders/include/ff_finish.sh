@@ -1,6 +1,6 @@
 // Output stage shared by the fixed-function combiner and the ps_1_x ports:
 // user clip plane, alpha test, specular add and fog, exactly as D3D9 applies
-// them after the pixel pipeline. Call gl_FragColor = ffFinish(colour).
+// them after the pixel pipeline. Call gl_FragColor = ffFinish(colour) in main().
 #ifndef FF_FINISH_SH
 #define FF_FINISH_SH
 #include "storm_common.sh"
@@ -20,18 +20,19 @@ uniform vec4 u_ffDepthBias; // x: D3DRS_SLOPESCALEDEPTHBIAS (STORM_SLOPE_BIAS sh
 uniform vec4 u_fxCoverage;
 #endif
 
-vec4 ffFinish(vec4 color)
+// fog: v_fog; uv0: v_texcoord0.xy; specular: v_color1.rgb (stage inputs, passed in: storm_common.sh).
+vec4 ffFinishWith(vec4 color, vec4 fog, vec2 uv0, vec3 specular)
 {
     // FF_OPAQUE: the twin of a shader for draws without a clip plane and without an alpha test (the shim picks it,
     // draw.cpp opaque_twin): a shader that can discard loses early depth and hidden-surface removal on tile GPUs.
 #ifndef FF_OPAQUE
-    if (v_fog.y < 0.0) discard;
+    if (fog.y < 0.0) discard;
     float func = u_ffFs[3].x;
 #ifdef FX_FF_COVERAGE
     // Only for GREATER / GREATEREQUAL tests against the stage-0 texture's alpha (the CPU checks it).
     if (func > 0.5 && u_fxCoverage.z > 0.5)
     {
-        color.a = fxCoverageAlpha(color.a, u_ffFs[2].w, v_texcoord0.xy, u_fxCoverage.xy);
+        color.a = fxCoverageAlpha(color.a, u_ffFs[2].w, uv0, u_fxCoverage.xy);
         func = 0.0;
     }
 #endif
@@ -50,14 +51,14 @@ vec4 ffFinish(vec4 color)
         if (!pass) discard;
     }
 #endif
-    if (u_ffFs[3].y > 0.5) color.rgb += v_color1.rgb;
+    if (u_ffFs[3].y > 0.5) color.rgb += specular;
     float mode = u_ffFs[1].w;
     if (mode > 4.5)
-        color.rgb = fxAerialFog(color.rgb, u_ffFs[1].rgb, u_ffFs[2].z, v_fog.x, v_fog.w, u_ffFs[2].xy);
+        color.rgb = fxAerialFog(color.rgb, u_ffFs[1].rgb, u_ffFs[2].z, fog.x, fog.w, u_ffFs[2].xy);
     else if (mode > 0.5)
     {
         float f;
-        float d = u_ffFs[3].w > 0.5 ? v_fog.z : v_fog.x;
+        float d = u_ffFs[3].w > 0.5 ? fog.z : fog.x;
         if (mode < 1.5) f = exp(-u_ffFs[2].z * d);
         else if (mode < 2.5) f = exp(-(u_ffFs[2].z * d) * (u_ffFs[2].z * d));
         else if (mode < 3.5) f = (u_ffFs[2].y - d) / max(u_ffFs[2].y - u_ffFs[2].x, 1e-6);
@@ -66,6 +67,7 @@ vec4 ffFinish(vec4 color)
     }
     return color;
 }
+#define ffFinish(color) ffFinishWith(color, v_fog, v_texcoord0.xy, v_color1.rgb)
 
 // D3DRS_SLOPESCALEDEPTHBIAS (bgfx has no polygon offset): depth + bias * max(|dz/dx|, |dz/dy|), written by the
 // shaders compiled with STORM_SLOPE_BIAS (it disables early depth, so only the draws that set the bias use them).
