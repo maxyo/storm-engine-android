@@ -15,6 +15,7 @@
 #include <cstring>
 #include <fstream>
 #include <thread>
+#include <optional>
 #include <mutex>
 #include <condition_variable>
 #include <unistd.h>
@@ -558,6 +559,40 @@ void test_cache_files(const fs::path &directory)
     CHECK(fs::exists(path));
 }
 
+// Holds every worker of the service in a task until destroyed, so submitted jobs stay queued meanwhile. Tasks run
+// only when no transcode is queued, so the workers are parked before anything is submitted.
+class ParkedWorkers
+{
+  public:
+    explicit ParkedWorkers(Service &service)
+    {
+        for (unsigned i = 0; i < Service::worker_count(); ++i)
+            service.post([this] {
+                std::unique_lock lock(mutex_);
+                ++parked_;
+                wake_.notify_all();
+                wake_.wait(lock, [this] { return open_; });
+                --parked_;
+                wake_.notify_all();
+            });
+        std::unique_lock lock(mutex_);
+        wake_.wait(lock, [this] { return parked_ == Service::worker_count(); });
+    }
+    ~ParkedWorkers()
+    {
+        std::unique_lock lock(mutex_);
+        open_ = true;
+        wake_.notify_all();
+        wake_.wait(lock, [this] { return parked_ == 0; }); // no task touches this object after it is gone
+    }
+
+  private:
+    std::mutex mutex_;
+    std::condition_variable wake_;
+    unsigned parked_ = 0;
+    bool open_ = false;
+};
+
 void test_service(const fs::path &directory)
 {
     Service &service = Service::instance();
@@ -571,31 +606,13 @@ void test_service(const fs::path &directory)
     key_builder.add(payload.data(), payload.size());
     const uint64_t key = key_builder.key();
     CHECK(!service.lookup(key, layout));
-    // Identical contents share the job while it is in flight. Every worker is held by a task first, so the job
-    // cannot finish (and leave the in-flight table) between the two submits on a loaded machine.
-    std::mutex hold_mutex;
-    std::condition_variable hold_wake;
-    unsigned held = 0;
-    bool open = false;
-    for (unsigned i = 0; i < Service::worker_count(); ++i)
-        service.post([&] {
-            std::unique_lock hold(hold_mutex);
-            ++held;
-            hold_wake.notify_all();
-            hold_wake.wait(hold, [&] { return open; });
-        });
-    {
-        std::unique_lock hold(hold_mutex);
-        hold_wake.wait(hold, [&] { return held == Service::worker_count(); });
-    }
+    // Identical contents share the job while it is in flight: every worker is parked first, so the job cannot finish
+    // (and leave the in-flight table) between the two submits on a loaded machine.
+    std::optional<ParkedWorkers> parked(std::in_place, service);
     auto job = service.submit(layout, key, GpuFormat::Etc2Rgb8, payload);
     CHECK(job != nullptr);
     CHECK(service.submit(layout, key, GpuFormat::Etc2Rgb8, payload) == job); // deduplicated
-    {
-        std::lock_guard hold(hold_mutex);
-        open = true;
-    }
-    hold_wake.notify_all();
+    parked.reset();
     for (int i = 0; i < 500 && job->state.load() != Job::Done; ++i)
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     CHECK(job->state.load() == Job::Done && job->result && job->result->size == ktx_size(GpuFormat::Etc2Rgb8, output_layout(layout)));
@@ -608,6 +625,8 @@ void test_service(const fs::path &directory)
     cancelled_payload[0] ^= 1;
     service.shutdown();
     service.configure(config, nullptr);
+    // Workers parked again: the jobs below stay queued, so sharing, cancelling and skipping do not depend on timing.
+    parked.emplace(service);
     // shared by two holders: one release keeps it, the last one cancels it
     auto job2 = service.submit(layout, key ^ 1, GpuFormat::Etc2Rgb8, cancelled_payload);
     auto job2_shared = service.submit(layout, key ^ 1, GpuFormat::Etc2Rgb8, cancelled_payload);
@@ -621,11 +640,10 @@ void test_service(const fs::path &directory)
     auto job3 = service.submit(layout, key ^ 1, GpuFormat::Etc2Rgb8, cancelled_payload);
     CHECK(job3 && job3 != observer && !job3->cancelled);
     service.release(job3);
+    parked.reset();
     service.shutdown();
-    // Cancelled while queued it fails without a result; a worker may already have taken it before the last
-    // release, then it completes. Either way it is finished after shutdown.
-    const int final_state = observer->state.load();
-    CHECK((final_state == Job::Failed && !observer->result) || (final_state == Job::Done && observer->result));
+    // cancelled while still queued: skipped, it fails without a result
+    CHECK(observer->state.load() == Job::Failed && !observer->result);
 }
 } // namespace
 
