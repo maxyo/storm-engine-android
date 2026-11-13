@@ -1404,6 +1404,8 @@ HRESULT Device::draw(const DrawCall &call)
                 put(i * 3 + 2, source(i + 2));
             }
         }
+        else if (call.indexed && index_bias == 0 && out32 == index32)
+            memcpy(tib.data, index_source, static_cast<size_t>(out_count) * (out32 ? 4 : 2)); // indices written this frame
         else
             for (uint32_t i = 0; i < out_count; ++i)
                 put(i, source(i));
