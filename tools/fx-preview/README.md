@@ -13,7 +13,7 @@ build/fx-preview/fx_preview <output directory> [name filter]
 
 - bgfx is the game's: the pin and patches of `src/libs/renderer_bgfx/cmake/bgfx_pin.cmake`, and the shared host
   shaderc of that pin (`storm_shaderc.cmake`); offline builds pass
-  `-DFETCHCONTENT_SOURCE_DIR_STORM_BGFX_UPSTREAM=<pinned, patched checkout>`.
+  `-DFETCHCONTENT_SOURCE_DIR_STORM_{BGFX,BX,BIMG,BGFX_CMAKE}=<pinned checkouts>` (bgfx patched).
 - Needs EGL and GLES development packages. Without a display use Mesa's software renderer:
   `EGL_PLATFORM=surfaceless LIBGL_ALWAYS_SOFTWARE=1 build/fx-preview/fx_preview out`.
 - `--height-maps=<folder>` replaces the procedural height textures of the normal-map scene with

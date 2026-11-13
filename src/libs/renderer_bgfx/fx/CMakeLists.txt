@@ -8,7 +8,7 @@
 #   STORM_FX_SHADERC_DEPENDS       target/file the shader build depends on
 #   STORM_FX_BGFX_SHADER_INCLUDE   <bgfx>/src (bgfx_shader.sh)
 # render/bgfx can pass its STORM_SHADERC_COMMAND / STORM_SHADERC_DEPENDS and
-# "${STORM_BGFX_SOURCE_DIR}/bgfx/src" unchanged.
+# "${STORM_BGFX_SOURCE_DIR}/src" unchanged.
 cmake_minimum_required(VERSION 3.21)
 if(NOT TARGET storm_bgfx_runtime)
     message(FATAL_ERROR "renderer_bgfx/fx needs the pinned bgfx (storm_bgfx_runtime); configure tools/fx-preview or add it from renderer_bgfx")

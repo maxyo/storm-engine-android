@@ -6,10 +6,10 @@ query always is: the game thread would have waited for the GPU every frame. That
 (results are read when available; the full-ring wait in TimerQueryGL::begin stays).
 
 diff --git a/src/glimports.h b/src/glimports.h
-index 131e6bb..8cb7874 100644
+index bd8bbe79..44805d81 100644
 --- a/src/glimports.h
 +++ b/src/glimports.h
-@@ -513,6 +513,10 @@ GL_IMPORT______(true,  PFNGLTEXIMAGE3DMULTISAMPLEPROC,             glTexImage3DM
+@@ -516,6 +516,10 @@ GL_IMPORT______(true,  PFNGLTEXIMAGE3DMULTISAMPLEPROC,             glTexImage3DM
  GL_IMPORT______(false, PFNGLCLEARDEPTHFPROC,                       glClearDepthf);
  GL_IMPORT______(false, PFNGLDEPTHRANGEFPROC,                       glDepthRangef);
  GL_IMPORT_EXT__(true,  PFNGLRENDERBUFFERSTORAGEMULTISAMPLEPROC,    glRenderbufferStorageMultisample);
@@ -20,7 +20,7 @@ index 131e6bb..8cb7874 100644
  #	endif // BGFX_CONFIG_RENDERER_OPENGL
  
  GL_IMPORT______(true,  PFNGLINSERTEVENTMARKEREXTPROC,              glInsertEventMarker);
-@@ -647,10 +651,12 @@ GL_IMPORT______(true,  PFNGLGENQUERIESPROC,                        glGenQueries)
+@@ -650,10 +654,12 @@ GL_IMPORT______(true,  PFNGLGENQUERIESPROC,                        glGenQueries)
  GL_IMPORT______(true,  PFNGLDELETEQUERIESPROC,                     glDeleteQueries);
  GL_IMPORT______(true,  PFNGLBEGINQUERYPROC,                        glBeginQuery);
  GL_IMPORT______(true,  PFNGLENDQUERYPROC,                          glEndQuery);
@@ -37,10 +37,10 @@ index 131e6bb..8cb7874 100644
  GL_IMPORT______(true,  PFNGLDRAWARRAYSINDIRECTPROC,                glDrawArraysIndirect);
  GL_IMPORT______(true,  PFNGLDRAWELEMENTSINDIRECTPROC,              glDrawElementsIndirect);
 diff --git a/src/renderer_gl.cpp b/src/renderer_gl.cpp
-index 8138518..165ef14 100644
+index 48edecd2..8b589037 100644
 --- a/src/renderer_gl.cpp
 +++ b/src/renderer_gl.cpp
-@@ -3268,11 +3268,10 @@ namespace bgfx { namespace gl
+@@ -3355,11 +3355,10 @@ namespace bgfx { namespace gl
  				return;
  			}
  

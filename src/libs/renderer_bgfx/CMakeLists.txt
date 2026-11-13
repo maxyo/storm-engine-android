@@ -158,7 +158,7 @@ target_link_libraries(storm_bgfx PRIVATE storm_relief_core)
 # Graphics effects package (fx/README.md): presets «Оригинал / Среднее / Высокое», driven by src/effects.
 set(STORM_FX_SHADERC_COMMAND "${STORM_SHADERC_COMMAND}")
 set(STORM_FX_SHADERC_DEPENDS "${STORM_SHADERC_DEPENDS}")
-set(STORM_FX_BGFX_SHADER_INCLUDE "${STORM_BGFX_SOURCE_DIR}/bgfx/src")
+set(STORM_FX_BGFX_SHADER_INCLUDE "${STORM_BGFX_SOURCE_DIR}/src")
 add_subdirectory(fx)
 target_link_libraries(storm_bgfx PUBLIC storm_bgfx_fx)
 

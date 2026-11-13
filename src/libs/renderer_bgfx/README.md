@@ -3,14 +3,14 @@
 The engine's only GPU backend: [bgfx](https://github.com/bkaradzic/bgfx) on OpenGL ES 3.0,
 on Android and on the Linux development host alike.
 
-- `cmake/bgfx_pin.cmake` — the single pin of bgfx.cmake (bgfx/bx/bimg as its submodules).
+- `cmake/bgfx_pin.cmake` — the single pin of bgfx, bx, bimg and of bgfx.cmake (its CMake scripts only).
   `cmake/bgfx_upstream.cmake` adds those targets (patched, see `patches/`). Everything that uses
   bgfx, bx or bimg links `storm_bgfx_runtime` (or `storm_bgfx`), never those targets, and never
   fetches bgfx itself. On Android `storm_bgfx_runtime` is `libbgfx.so`: bgfx, bx and bimg whole in
   one shared library next to `libengine.so`, which `libengine.so` and the UI runtime
   (`libstorm_ui.so`, src/libs/ui) both link, so a process has exactly one bgfx
   (`tools/android/verify_engine.py` refuses a `libengine.so` with its own). Elsewhere it is the
-  static libraries. Offline builds pass `-DFETCHCONTENT_SOURCE_DIR_STORM_BGFX_UPSTREAM=<pinned checkout>`.
+  static libraries. Offline builds pass `-DFETCHCONTENT_SOURCE_DIR_STORM_{BGFX,BX,BIMG,BGFX_CMAKE}=<pinned checkout>` (bgfx patched).
   Licences: `third_party/licenses/{bgfx,bx,bimg}-BSD-2-Clause.txt`.
 - `src/shim/` — the D3D9-shaped device. Consumer libraries reach the renderer through `VRenderer`
   (src/libs/renderer/include/renderer.h) with renderer ids (textures, render targets, depth surfaces,
@@ -35,12 +35,8 @@ on Android and on the Linux development host alike.
   GPUs without S3TC. The tier (bc / etc2 / rgba8) is fixed per GPU at startup and logged once;
   `texture_compression` and `texture_cache_mb` in engine.ini override it. Tests and the benchmark build with
   `-DSTORM_BGFX_BUILD_TESTS=ON` (`storm_texture_tests`, `storm_texture_bench`).
-- `patches/` — fixes applied to the pinned bgfx in each build directory's patched view of its shared source copy (`bgfx_pin.cmake`, `storm_patched_view`) (currently: re-attach to a new
-  Android native window after the activity returns from background). The same fix is upstream as bgfx
-  99b7977f ("Android: restore main-window EGL surface recreation", the commit right after the pinned
-  fd541f05). It is not taken yet because every bgfx.cmake revision that carries it (5730f7a and later)
-  replaces the bgfx/bx/bimg submodules with FetchContent, which changes how this pin, host-tools/ and
-  the offline Android sources work. Drop the patch with that pin bump.
+- `patches/` — fixes applied to the pinned bgfx in each build directory's patched view of its shared source copy
+  (`bgfx_pin.cmake`, `storm_patched_view`); the configure fails when a patch does not apply or changes nothing.
   `bgfx-anisotropy-level.patch`: the GL backend applies one anisotropy level to every sampler, the device
   maximum; the patch caps it with `bgfx::gl::g_stormMaxAnisotropy` so the presets get 4x / 8x (set by
   `src/effects`). Upstream bgfx has no per-level API; keep it until it does.

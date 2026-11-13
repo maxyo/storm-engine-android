@@ -294,7 +294,10 @@ void Host::apply()
         if (caps_profile_ != fx::CapsProfile::Device)
             report_.changes.push_back(std::string("caps profile forced: ") + fx::CapsProfileName(caps_profile_));
         if (msaa_broken_)
-            target_support_.msaa = target_support_.msaa_depth = false;
+        {
+            target_support_.msaa_samples = 1;
+            target_support_.msaa_depth = false;
+        }
         if (post_broken_)
             target_support_.lut_3d = false;
         next = fx::ConstrainSettings(next, target_support_, report_.changes);

@@ -1,6 +1,8 @@
+diff --git a/tools/shaderc/shaderc_glsl.cpp b/tools/shaderc/shaderc_glsl.cpp
+index db826a90..6c26d9dc 100644
 --- a/tools/shaderc/shaderc_glsl.cpp
 +++ b/tools/shaderc/shaderc_glsl.cpp
-@@ -226,6 +226,10 @@
+@@ -226,6 +226,10 @@ namespace bgfx { namespace glsl
  			compilerOptions.vulkan_semantics                   = false;
  			compilerOptions.enable_420pack_extension           = false;
  			compilerOptions.emit_uniform_buffer_as_plain_uniforms = true;

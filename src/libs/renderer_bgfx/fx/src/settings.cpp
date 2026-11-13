@@ -110,7 +110,7 @@ std::string Support::Describe() const
     text += ", EAC RG11 normal maps: ";
     text += word(normal_map);
     text += ", MSAA targets: ";
-    text += word(msaa);
+    text += msaa_samples > 1 ? std::to_string(msaa_samples) + "x" : std::string("NO");
     text += ", R8/RG8 textures (SMAA): ";
     text += word(smaa);
     text += ", sampleable depth with MSAA: ";
@@ -145,16 +145,18 @@ constexpr Rule kRules[] = {
      "the scene's internal height must be 360..4320 pixels (or 0, native): clamped"},
     {[](const Settings &s, const Support &) { return s.msaa != 1 && s.msaa != 2 && s.msaa != 4; }, [](Settings &s) { s.msaa = s.msaa > 2 ? 4 : 1; },
      "MSAA sample count must be 1, 2 or 4: rounded"},
+    {[](const Settings &s, const Support &c) { return s.msaa == 4 && c.msaa_samples == 2; }, [](Settings &s) { s.msaa = 2; },
+     "MSAA 4x is not available for the scene target (RGBA8 + D24S8): 2x instead"},
     // A requested MSAA (Средняя / Высокая) that the device cannot give (no multisampled targets: caps, a GPU-family
     // profile, or the self-test found the multisampled scene broken) is replaced by SMAA, so these phones keep an
     // anti-aliasing. SMAA is a post effect: without the post chain (3D textures) or its tables (R8/RG8) there is none.
-    {[](const Settings &s, const Support &c) { return s.msaa > 1 && !c.msaa && c.lut_3d && c.smaa; },
+    {[](const Settings &s, const Support &c) { return s.msaa > 1 && c.msaa_samples < 2 && c.lut_3d && c.smaa; },
      [](Settings &s) {
          s.msaa = 1;
          s.smaa = true;
      },
      "MSAA unavailable: SMAA instead"},
-    {[](const Settings &s, const Support &c) { return s.msaa > 1 && !c.msaa && !(c.lut_3d && c.smaa); }, [](Settings &s) { s.msaa = 1; },
+    {[](const Settings &s, const Support &c) { return s.msaa > 1 && c.msaa_samples < 2 && !(c.lut_3d && c.smaa); }, [](Settings &s) { s.msaa = 1; },
      "MSAA unavailable and SMAA needs the post-processing chain (3D textures) and R8/RG8 textures: no anti-aliasing"},
     {[](const Settings &s, const Support &c) { return s.smaa && !c.smaa; }, [](Settings &s) { s.smaa = false; },
      "SMAA needs R8 and RG8 textures: switched off"},
@@ -299,14 +301,16 @@ Support RestrictSupport(const Support &device, CapsProfile profile)
     switch (profile)
     {
     case CapsProfile::Gles30Minimal: // R8/RG8 textures are core GLES 3.0: SMAA stays
-        s.msaa = s.msaa_depth = s.anisotropy = false;
+        s.msaa_samples = 1;
+        s.msaa_depth = s.anisotropy = false;
         break;
     case CapsProfile::MaliG5x:
     case CapsProfile::Adreno6xx:
         s.msaa_depth = false;
         break;
     case CapsProfile::PowerVR:
-        s.msaa = s.msaa_depth = s.anisotropy = false;
+        s.msaa_samples = 1;
+        s.msaa_depth = s.anisotropy = false;
         break;
     case CapsProfile::Device:
     case CapsProfile::MaliG7x:

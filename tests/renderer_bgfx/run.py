@@ -6,7 +6,7 @@ GPU skinning parity check against the CPU kernel (skinning_check.cpp), the textu
 
 Uses the pinned bgfx (src/libs/renderer_bgfx/cmake/bgfx_pin.cmake), the shared host shaderc
 of that pin (STORM_SHADERC overrides it) and the Storm ccache launcher (tools/ccache/README.md); the kept
-build directory makes repeated runs incremental. Offline: set FETCHCONTENT_SOURCE_DIR_STORM_BGFX_UPSTREAM in the
+build directory makes repeated runs incremental. Offline: set FETCHCONTENT_SOURCE_DIR_STORM_{BGFX,BX,BIMG,BGFX_CMAKE} in the
 environment.
 """
 import argparse
@@ -27,7 +27,8 @@ if not (sdl / 'SDL2').exists():
     (sdl / 'SDL2').symlink_to(a.sdl_source.resolve() / 'include', target_is_directory=True)
 configure = ['cmake', '-S', str(here), '-B', str(build), '-G', 'Ninja', '-DCMAKE_BUILD_TYPE=Release',
              f'-DSTORM_SDL_INCLUDE={sdl}']
-for name in ('STORM_SHADERC', 'FETCHCONTENT_SOURCE_DIR_STORM_BGFX_UPSTREAM'):
+for name in ('STORM_SHADERC', 'FETCHCONTENT_SOURCE_DIR_STORM_BGFX', 'FETCHCONTENT_SOURCE_DIR_STORM_BX', 'FETCHCONTENT_SOURCE_DIR_STORM_BIMG',
+             'FETCHCONTENT_SOURCE_DIR_STORM_BGFX_CMAKE'):
     if os.environ.get(name):
         configure.append(f'-D{name}={os.environ[name]}')
 # Each vertex port declares the constant registers it reads (PORT_VSC_COUNT); the shim uploads the count

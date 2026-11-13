@@ -1,6 +1,8 @@
+diff --git a/src/renderer_gl.cpp b/src/renderer_gl.cpp
+index 27395689..48edecd2 100644
 --- a/src/renderer_gl.cpp
 +++ b/src/renderer_gl.cpp
-@@ -974,7 +974,7 @@
+@@ -974,7 +974,7 @@ namespace bgfx { namespace gl
  		{ "EXT_texture_view",                         false,                                    true  },
  		{ "EXT_texture_type_2_10_10_10_REV",          false,                                    true  },
  		{ "EXT_timer_query",                          BGFX_CONFIG_RENDERER_OPENGL >= 33,        true  },
@@ -9,7 +11,7 @@
  		{ "EXT_sRGB",                                 false,                                    true  }, // GLES extension.
  		{ "EXT_multisampled_render_to_texture",       false,                                    true  }, // GLES extension.
  
-@@ -6991,7 +6991,8 @@
+@@ -7288,7 +7288,8 @@ namespace bgfx { namespace gl
  			&&  !unpackRowLength
  			&&  !convert) )
  			{
