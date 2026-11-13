@@ -82,6 +82,8 @@ class Service
     const std::filesystem::path &cache_directory() const { return config_.directory; }
     // Bytes of temporary (pre-ETC2) textures alive on the GPU.
     void add_fallback_bytes(int64_t delta) { fallback_bytes_ += delta; }
+    // Worker threads the service runs (a quarter of the cores, one or two).
+    static unsigned worker_count();
 
   private:
     void start_workers();

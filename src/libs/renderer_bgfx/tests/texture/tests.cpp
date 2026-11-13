@@ -13,6 +13,8 @@
 #include <cstring>
 #include <fstream>
 #include <thread>
+#include <mutex>
+#include <condition_variable>
 #include <unistd.h>
 
 using namespace storm::texture;
@@ -449,9 +451,31 @@ void test_service(const fs::path &directory)
     key_builder.add(payload.data(), payload.size());
     const uint64_t key = key_builder.key();
     CHECK(!service.lookup(key, layout));
+    // Identical contents share the job while it is in flight. Every worker is held by a task first, so the job
+    // cannot finish (and leave the in-flight table) between the two submits on a loaded machine.
+    std::mutex hold_mutex;
+    std::condition_variable hold_wake;
+    unsigned held = 0;
+    bool open = false;
+    for (unsigned i = 0; i < Service::worker_count(); ++i)
+        service.post([&] {
+            std::unique_lock hold(hold_mutex);
+            ++held;
+            hold_wake.notify_all();
+            hold_wake.wait(hold, [&] { return open; });
+        });
+    {
+        std::unique_lock hold(hold_mutex);
+        hold_wake.wait(hold, [&] { return held == Service::worker_count(); });
+    }
     auto job = service.submit(layout, key, EtcFormat::Rgb8, payload);
     CHECK(job != nullptr);
     CHECK(service.submit(layout, key, EtcFormat::Rgb8, payload) == job); // deduplicated
+    {
+        std::lock_guard hold(hold_mutex);
+        open = true;
+    }
+    hold_wake.notify_all();
     for (int i = 0; i < 500 && job->state.load() != Job::Done; ++i)
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     CHECK(job->state.load() == Job::Done && job->result && job->result->size == ktx_size(EtcFormat::Rgb8, layout));

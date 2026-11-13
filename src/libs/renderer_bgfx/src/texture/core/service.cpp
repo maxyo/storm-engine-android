@@ -133,10 +133,14 @@ void Service::release(std::shared_ptr<Job> &job)
     job.reset();
 }
 
+unsigned Service::worker_count()
+{
+    return std::clamp(std::max(1u, std::thread::hardware_concurrency()) / 4, 1u, 2u);
+}
+
 void Service::start_workers()
 {
-    const unsigned cores = std::max(1u, std::thread::hardware_concurrency());
-    const unsigned count = std::clamp(cores / 4, 1u, 2u);
+    const unsigned count = worker_count();
     for (unsigned i = 0; i < count; ++i)
         workers_.emplace_back(&Service::worker, this, i);
 }
