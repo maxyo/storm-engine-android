@@ -34,6 +34,7 @@ struct VulkanDevice
     bool border_color = false; // VK_EXT_custom_border_color: D3DSAMP_BORDERCOLOR other than opaque black
     bool anisotropy = false;   // samplerAnisotropy
     float max_anisotropy = 0.0f;
+    int vertex_texture_units = 0; // limits.maxPerStageDescriptorSampledImages
     bool large_points = false; // largePoints: point lists wider than one pixel (the stars)
     float max_point_size = 1.0f;
 

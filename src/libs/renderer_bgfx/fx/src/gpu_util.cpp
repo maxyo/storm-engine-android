@@ -145,6 +145,11 @@ bool SupportsSmaa()
     return Format(bgfx::TextureFormat::R8, BGFX_CAPS_FORMAT_TEXTURE_2D) && Format(bgfx::TextureFormat::RG8, BGFX_CAPS_FORMAT_TEXTURE_2D);
 }
 
+bool SupportsRenderTarget(bgfx::TextureFormat::Enum format)
+{
+    return Format(format, BGFX_CAPS_FORMAT_TEXTURE_2D | BGFX_CAPS_FORMAT_TEXTURE_FRAMEBUFFER);
+}
+
 bgfx::TextureFormat::Enum SmaaEdgeFormat()
 {
     return Format(bgfx::TextureFormat::RG8, BGFX_CAPS_FORMAT_TEXTURE_FRAMEBUFFER) ? bgfx::TextureFormat::RG8 : bgfx::TextureFormat::RGBA8;

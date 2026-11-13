@@ -37,6 +37,8 @@ bool SupportsAoVolume();
 bool SupportsNormalMap(bgfx::TextureFormat::Enum format);
 uint8_t MsaaSamples(); // 1, 2 or 4
 bool SupportsSmaa();
+// `format` can be rendered to and sampled.
+bool SupportsRenderTarget(bgfx::TextureFormat::Enum format);
 // The format of SMAA's edge target: RG8 where it renders, else RGBA8.
 bgfx::TextureFormat::Enum SmaaEdgeFormat();
 

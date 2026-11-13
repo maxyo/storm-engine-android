@@ -2301,6 +2301,14 @@ void Character::Move(float dltTime)
             isRunDisable = seaY - curPos.y > CHARACTER_SEA_NOTRUN;
             if (seaY > curPos.y)
             {
+                // Waves from objects: a body in the water every frame; swimming strokes, wading only pushes.
+                storm::render::EffectsWaveSource source;
+                source.position = {curPos.x, seaY, curPos.z};
+                source.forward = {sinf(ay), cosf(ay)};
+                source.half_length = source.half_width = isSwim ? 0.5f : 0.35f;
+                source.speed = isMove ? (isSwim ? 1.2f : IsRun() ? 4.0f : 1.6f) : 0.0f;
+                source.stroke = isSwim ? (isMove ? 1.0f : 0.4f) : 0.0f;
+                sb->AddWaveSource(source);
                 stepsRate += dltTime;
                 if (stepsRate > 0.15f)
                 {

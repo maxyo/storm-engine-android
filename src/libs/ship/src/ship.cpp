@@ -788,6 +788,8 @@ void SHIP::Execute(uint32_t DeltaTime)
     if (!bDead && bKeelContour)
         CheckShip2Strand(fDeltaTime);
 
+    AddWaveSource(fDeltaTime);
+
     RecalculateWorldOffset();
     mRoot = storm::math::eulerMatrix(vAng.x + vCurDeadDir.x, vAng.y, vAng.z + vCurDeadDir.z, vPos.x + fXOffset, vPos.y - State.fShipImmersion - SP.fWaterLine, vPos.z + fZOffset);
     SetMatrix(mRoot);
@@ -1113,6 +1115,39 @@ void SHIP::RestoreLightAndFog()
         pRS->SetRenderState(D3DRS_FOGCOLOR, dwSaveFogColor);
         pRS->SetLight(0, &saveLight);
     }
+}
+
+// The hull on the water for the waves from objects (SEA_BASE::AddWaveSource): its speed and heave from its motion.
+void SHIP::AddWaveSource(float fDeltaTime)
+{
+    if (!pSea || !bVisible || fDeltaTime <= 0.0f)
+        return;
+    const glm::vec3 vWorld(State.vPos.x + fXOffset, State.vPos.y, State.vPos.z + fZOffset);
+    const glm::vec2 vForward(sinf(State.vAng.y), cosf(State.vAng.y));
+    if (!bWaveLastPos)
+    {
+        vWaveLastPos = vWorld;
+        bWaveLastPos = true;
+        return;
+    }
+    const glm::vec3 vDelta = vWorld - vWaveLastPos;
+    vWaveLastPos = vWorld;
+    // A jump (teleport, a new scene) is no motion.
+    if (glm::length(glm::vec2(vDelta.x, vDelta.z)) > 50.0f * fDeltaTime + 5.0f)
+        return;
+    // Smoothed over about half a second: frame times jitter.
+    const float k = Min(1.0f, fDeltaTime * 2.0f);
+    fWaveSpeed += k * ((vDelta.x * vForward.x + vDelta.z * vForward.y) / fDeltaTime - fWaveSpeed);
+    fWaveHeave += k * (vDelta.y / fDeltaTime - fWaveHeave);
+    storm::render::EffectsWaveSource source;
+    source.kind = storm::render::EffectsWaveSource::Kind::Hull;
+    source.position = {vWorld.x, vWorld.y, vWorld.z};
+    source.forward = {vForward.x, vForward.y};
+    source.half_length = 0.5f * State.vBoxSize.z;
+    source.half_width = 0.5f * State.vBoxSize.x;
+    source.speed = fWaveSpeed;
+    source.heave = fWaveHeave;
+    pSea->AddWaveSource(source);
 }
 
 void SHIP::Realize(uint32_t dtime)

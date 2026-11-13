@@ -137,6 +137,14 @@ struct Settings
     float sea_edge_depth = 1.5f;  // metres of water over which a soft edge fades in
     float sea_specular_power = 400.0f;
     float sea_specular_strength = 0.6f;
+    // Waves from objects (sea_waves.hpp): ripples of a wave-equation height field around the camera, stirred by
+    // swimmers, waders, boats and ship hulls, in the normals and crest foam of the sea; `sea_waves_lift` also raises
+    // the sea's vertices by them (vertex texture fetch). `sea_wakes`: a Kelvin wake (transverse and divergent waves
+    // in the 19.5-degree V) behind every ship under way, in the sea's normals.
+    bool sea_waves = false;
+    bool sea_waves_lift = false;
+    bool sea_wakes = false;
+    uint8_t sea_waves_debug = 0; // 1: the sea shows the ripple slope (red), the wake slope (green), crest foam (blue)
     uint32_t lighting_flags = kLightingNone;
     uint8_t point_lights = 4;      // per draw call with kLightingPoint: 4 or 8
     // With kLightingNormalMap: the one strength of all relief (lit models and baked surfaces alike; the texture classes
@@ -204,6 +212,10 @@ struct Support
                                 // (renderer knowledge, like scene_depth): msaa together with ssao / sea soft edges
     bool anisotropy = false;    // anisotropic texture filtering
     bool ao_volume = false;     // RGBA8 3D textures with linear filtering: Settings::ao_volume
+    bool sea_waves_vertex = false; // RGBA8 textures can be sampled in a vertex shader: Settings::sea_waves_lift
+    // RG16F render targets: the ripple simulation keeps its heights in half floats; without them it packs each
+    // height into two RGBA8 channels (16-bit fixed point, logged when the simulation starts). Not a requirement.
+    bool sea_waves_float = false;
 
     std::string Describe() const;
 };

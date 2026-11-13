@@ -41,6 +41,9 @@ struct DeviceInfo
     std::string extensions;       // OpenGL ES only: glGetString(GL_EXTENSIONS)
     bool anisotropy = false;      // anisotropic filtering (EXT_texture_filter_anisotropic / samplerAnisotropy)
     float max_anisotropy = 0.0f;  // the device's highest level; 0 without anisotropy
+    // Textures a vertex shader can sample (bgfx's GL backend has no caps bit for it): OpenGL ES
+    // GL_MAX_VERTEX_TEXTURE_IMAGE_UNITS, Vulkan maxPerStageDescriptorSampledImages.
+    int vertex_texture_units = 0;
     // A whole name of the OpenGL ES extension list.
     bool has_extension(const char *name) const;
 };

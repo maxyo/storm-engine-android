@@ -87,6 +87,12 @@ const Option kOptions[] = {
     {"fx_sea_band_limit", "0 off, 1 on", [](fx::Settings &s, int v) { s.sea_band_limit = on(v); }},
     {"fx_sea_soft_edges", "0 off, 1 on", [](fx::Settings &s, int v) { s.sea_soft_edges = on(v); }},
     {"fx_sea_specular", "0 off, 1 on", [](fx::Settings &s, int v) { s.sea_specular = on(v); }},
+    {"fx_sea_waves", "0 off, 1 on: ripples from swimmers, boats and hulls", [](fx::Settings &s, int v) { s.sea_waves = on(v); }},
+    {"fx_sea_waves_lift", "0 off, 1 on: the ripples also raise the sea surface",
+     [](fx::Settings &s, int v) { s.sea_waves_lift = on(v); }},
+    {"fx_sea_wakes", "0 off, 1 on: Kelvin wakes behind ships", [](fx::Settings &s, int v) { s.sea_wakes = on(v); }},
+    {"fx_sea_waves_debug", "0 off, 1 ripple slope red, wake slope green, crest foam blue",
+     [](fx::Settings &s, int v) { s.sea_waves_debug = static_cast<uint8_t>(std::clamp(v, 0, 1)); }},
     {"fx_lamp_shadows", "lamps that relight a location with their shadows, 0, 8 or 16",
      [](fx::Settings &s, int v) { s.lamp_shadows = static_cast<uint8_t>(std::clamp(v, 0, 16)); }},
     {"fx_lamp_soft", "0 3x3, 1 5x5 filter of the lamp shadows", [](fx::Settings &s, int v) { s.lamp_soft = on(v); }},
@@ -164,13 +170,13 @@ std::string describe(const fx::Settings &s)
     char text[512];
     snprintf(text, sizeof(text),
              "tonemap=%d bloom=%d(1/%u,%u) shafts=%d smaa=%d scene_height=%u sharpen=%d(%.2f) ssao=%d dither=%d flare=%d scene_grading=%d "
-             "grade=%d msaa=%u a2c=%d aniso=%u sea=%d%d%d shadows=%d "
+             "grade=%d msaa=%u a2c=%d aniso=%u sea=%d%d%d waves=%d%d%d shadows=%d "
              "lighting=0x%x contact=%d",
              s.tonemap, s.bloom, s.bloom_downscale, s.bloom_levels, s.sun_shafts, s.smaa, s.render_height, s.sharpen,
              static_cast<double>(s.sharpness), s.ssao, s.dither,
              s.lens_flare, s.scene_grading, static_cast<int>(s.grade), s.msaa,
              s.alpha_to_coverage, s.anisotropy, s.sea_band_limit, s.sea_soft_edges, s.sea_specular,
-             static_cast<int>(s.shadows), s.lighting_flags, s.contact_shadows);
+             s.sea_waves, s.sea_waves_lift, s.sea_wakes, static_cast<int>(s.shadows), s.lighting_flags, s.contact_shadows);
     return text;
 }
 } // namespace
@@ -196,6 +202,8 @@ void Host::on_device_created()
     facts.anisotropy = device.anisotropy;
     if (facts.anisotropy)
         device_max_anisotropy_ = device.max_anisotropy;
+    // bgfx's GL backend never sets BGFX_CAPS_FORMAT_TEXTURE_VERTEX: the device's own limit decides.
+    facts.vertex_texture = device.vertex_texture_units > 0;
     support_device_ = fx::DetectSupport(facts);
     device_ready_ = true;
     // Nothing is drawn yet: the device starts on the plain legacy path (no effect, no MSAA, not even «Низкая»'s
@@ -216,6 +224,9 @@ void Host::on_device_lost()
     depth_copy_.OnDeviceLost();
     u_sea_fx_ = s_sea_depth_ = BGFX_INVALID_HANDLE;
     sea_depth_frame_ = UINT32_MAX;
+    sea_waves_.OnDeviceLost();
+    u_sea_waves_ = u_sea_wakes_ = s_sea_waves_ = BGFX_INVALID_HANDLE;
+    sea_waves_frame_ = UINT32_MAX;
     contact_.OnDeviceLost();
     ao_.on_device_lost();
     ao_bound_ = nullptr;
@@ -233,7 +244,9 @@ void Host::shutdown()
     sky_.Shutdown();
     sea_depth_.Shutdown();
     depth_copy_.Shutdown();
-    for (bgfx::UniformHandle *uniform : {&u_sea_fx_, &s_sea_depth_})
+    sea_waves_.Shutdown();
+    sea_waves_frame_ = UINT32_MAX;
+    for (bgfx::UniformHandle *uniform : {&u_sea_fx_, &s_sea_depth_, &u_sea_waves_, &u_sea_wakes_, &s_sea_waves_})
         if (bgfx::isValid(*uniform))
         {
             bgfx::destroy(*uniform);
@@ -321,6 +334,8 @@ void Host::apply()
             report_.disabled.push_back("fx_anisotropy");
         if (!possible.ssao)
             report_.disabled.push_back("fx_ssao");
+        if (!possible.sea_waves_lift)
+            report_.disabled.push_back("fx_sea_waves_lift");
         if (!possible.smaa && !possible.PostIsIdentity())
             report_.disabled.push_back("fx_smaa");
         if (possible.render_height == 0) // no post chain: no upscale, no RCAS
@@ -508,6 +523,7 @@ void Host::advance_switch()
     int budget = per_frame;
     // The post chain's programs also on «Низкая»: the underwater wobble runs on every preset.
     const bool ready = post_.Prepare(target_, budget) && (!target_.sea_soft_edges || sea_depth_.Prepare(budget)) &&
+                       (!target_.sea_waves || sea_waves_.Prepare(budget)) &&
                        (target_.render_height == 0 || depth_copy_.Prepare(budget)) &&
                        contact_.Prepare(target_, budget) &&
                        lighting_.prepare_programs(*device, target_, budget);
@@ -700,6 +716,11 @@ void EffectsSceneComplete()
 void SetEffectsTechnique(const char *name)
 {
     effects::Host::instance().lighting().set_technique(name);
+}
+
+void SetEffectsSeaFrame(const EffectsSeaFrame &frame)
+{
+    effects::Host::instance().set_sea_frame(frame);
 }
 
 void SetEffectsWorldOrigin(const std::array<float, 3> &origin)

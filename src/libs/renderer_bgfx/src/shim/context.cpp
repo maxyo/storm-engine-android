@@ -344,6 +344,7 @@ void Context::render_frame_done(uint32_t frame)
             constexpr GLenum kMaxAnisotropy = 0x84FF; // GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT
             glGetFloatv(kMaxAnisotropy, &info.max_anisotropy);
         }
+        glGetIntegerv(GL_MAX_VERTEX_TEXTURE_IMAGE_UNITS, &info.vertex_texture_units);
     }
     {
         std::lock_guard lock(context.release_mutex_);
@@ -591,6 +592,7 @@ bool Context::start_backend(bgfx::RendererType::Enum type, const VulkanDevice *v
         device_info_.version = text;
         device_info_.anisotropy = vulkan->anisotropy;
         device_info_.max_anisotropy = vulkan->max_anisotropy;
+        device_info_.vertex_texture_units = vulkan->vertex_texture_units;
         border_clamp_ = true; // VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER is core
         border_colors_ = vulkan->border_color;
         timer_queries_ = "Vulkan timestamp queries"; // bgfx's TimerQueryVK, where the queue has timestampValidBits

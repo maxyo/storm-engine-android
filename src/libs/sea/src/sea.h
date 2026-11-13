@@ -142,6 +142,8 @@ class SEA : public SEA_BASE
     float fFrenel;
 
     bool bStop;
+    // Waves from objects: what the Execute stage put on the water, handed to the renderer when the sea draws.
+    std::vector<storm::render::EffectsWaveSource> waveSources_;
 
     float fFogSeaDensity, fFogStartDistance;
     glm::vec3 vFogColor;
@@ -158,6 +160,7 @@ class SEA : public SEA_BASE
 
     void SSE_WaveXZ(SeaVertex **pArray);
     float WaveXZ(float x, float z, glm::vec3 *pNormal = nullptr) override;
+    void AddWaveSource(const storm::render::EffectsWaveSource &source) override;
 
     void AddBlock(int32_t iTX, int32_t iTY, int32_t iSize, int32_t iLOD);
     uint32_t TreeDim() const;

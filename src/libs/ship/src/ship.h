@@ -122,6 +122,11 @@ class SHIP : public SHIP_BASE
     bool bMounted;
     bool bKeelContour;
     glm::vec3 vOldAng, vOldPos;
+    // Waves from objects: the last position and the smoothed speed / heave (AddWaveSource).
+    glm::vec3 vWaveLastPos{};
+    bool bWaveLastPos = false;
+    float fWaveSpeed = 0.0f, fWaveHeave = 0.0f;
+    void AddWaveSource(float fDeltaTime);
     bool bSetFixed;
     float fFixedSpeed;
 

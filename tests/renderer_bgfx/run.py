@@ -36,7 +36,7 @@ for name in ('STORM_SHADERC', 'FETCHCONTENT_SOURCE_DIR_STORM_BGFX', 'FETCHCONTEN
 # of its ports table (src/shim/ports.cpp). They must agree and cover every register the port reads.
 import re
 shim = here.parents[1] / 'src/libs/renderer_bgfx'
-table = dict(re.findall(r'"(vs_port_\w+)", 0, (\d+)\}', (shim / 'src/shim/ports.cpp').read_text()))
+table = dict(re.findall(r'"(vs_port_\w+)", 0, (\d+)[,}]', (shim / 'src/shim/ports.cpp').read_text()))
 for source in sorted((shim / 'shaders/ports').glob('vs_port_*.sc')):
     text = source.read_text()
     declared = int(re.search(r'#define PORT_VSC_COUNT (\d+)', text)[1])

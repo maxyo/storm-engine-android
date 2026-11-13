@@ -13,8 +13,11 @@ $input v_color0, v_color1, v_texcoord0, v_texcoord1, v_texcoord2, v_texcoord3, v
 //   nearer than the water itself, the pixel belongs to an object in front of the sea (its edge: a rope, a sail, a
 //   hull, partly covering a multisampled pixel) and the water is not faded: fading it there showed what lies under
 //   the sea as bright fringes along every edge over the water;
-// - specular: a sun highlight from the bumped normal over the game's own sun road (optional).
+// - specular: a sun highlight from the bumped normal over the game's own sun road (optional);
+// - waves from objects (sea_waves.sh): ripples around swimmers, boats and hulls and the ships' Kelvin wakes in the
+//   normal, foam on the ripples' crests (optional).
 #include "port_ps.sh"
+#include "sea_waves.sh"
 SAMPLER3D(s_vol0, 8);
 SAMPLERCUBE(s_cube3, 11);
 SAMPLER2D(s_seaDepth, 14);
@@ -38,14 +41,35 @@ void main()
     float m2 = dot(v_texcoord2.xyz, n);                                     // texm3x3pad t2, t0_bx2
     float m3 = dot(v_texcoord3.xyz, n);                                     // texm3x3vspec t3, t0_bx2
     vec3 eye = vec3(v_texcoord1.w, v_texcoord2.w, v_texcoord3.w);           //   eye vector from the w components
-    vec3 R = portReflect(vec3(m1, m2, m3), eye);
+    float foam, rough;
+    vec3 debug;
+    vec3 N = seaWavesNormal(vec3(m1, m2, m3), v_texcoord4, length(fwidth(v_texcoord4.zw)), true, foam, rough, debug);
+    vec3 R = portReflect(N, eye);
+    // The waves' tilt also changes how much sky the water mirrors: a face turned to the eye reflects less (Fresnel),
+    // one turned away more. Without it a wave on a plain sky only bends an even reflection and hardly shows.
+    vec2 tilt = N.xz - normalize(vec3(m1, m2, m3)).xz;
+    float facing = dot(tilt, normalize(eye.xz + vec2(1e-4, 0.0)));
     R.y = max(R.y, 0.0);
     vec4 t3 = textureCube(s_cube3, R);
     r0.rgb = PS11(v0.rgb * t3.rgb + v1.rgb);                                // mad r0.xyz, v0, t3, v1
     r0.a = v0.a;                                                            // mov r0.w, v0.wwww
     float highlight = pow(max(dot(normalize(R), u_seaFx[1].xyz), 0.0), u_seaFx[1].w);
     r0.rgb += u_seaFx[0].z * highlight * u_seaFx[2].rgb;
+    r0.rgb *= clamp(1.0 - 2.0 * facing, 0.55, 1.6);
+    // The far wake, finer than a pixel: a little more of the sky's light where its waves were.
+    r0.rgb *= 1.0 + 0.5 * min(rough, 1.0);
+    if (foam > 0.0)
+    {
+        // Crest foam lit like the water: the sky straight up, over the sea's own colour.
+        vec3 sky = textureCube(s_cube3, vec3(0.0, 1.0, 0.0)).rgb;
+        vec3 white = min(vec3_splat(dot(sky, vec3(0.3, 0.5, 0.2)) * 1.1) + sky * 0.15 + v1.rgb, vec3_splat(1.0));
+        float cover = min(foam, 1.0);
+        r0.rgb = mix(r0.rgb, white, cover);
+        r0.a *= 1.0 - cover;
+    }
 
+    if (u_seaWaves[2].x > 0.5)
+        r0 = vec4(min(debug, vec3_splat(1.0)), 0.0);
     gl_FragColor = ffFinish(clamp(r0, 0.0, 1.0));
     if (u_seaFx[0].y > 0.5)
     {

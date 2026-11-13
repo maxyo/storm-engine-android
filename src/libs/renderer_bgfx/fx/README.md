@@ -40,7 +40,12 @@ never showed on this port.
   maps, sun shadows (low), the ambient-occlusion volume of interiors, the AgX tone curve on the luminance
   (strength 0.6), the grade of the place and hour (hue and warmth only), aerial perspective and height fog, rim light,
   sunlight through the sails (a warm term on sails and flags with the sun behind them, scaled by the luminance of the
-  canvas texture, the sun's visibility taken on the sail's sunlit side).
+  canvas texture, the sun's visibility taken on the sail's sunlit side), waves from objects (`fx_sea_waves`,
+  `fx_sea_waves_lift`, `fx_sea_wakes`): a wave-equation ripple field of 128 m around the camera stirred by swimmers,
+  waders and hulls (`SeaWaves`) in the sea's normals, crest foam and vertices, and a Kelvin wake behind every ship
+  under way (`shaders/include/sea_waves.sh`). The lift needs vertex texture fetch (GL_MAX_VERTEX_TEXTURE_IMAGE_UNITS;
+  switched off loudly without it); the heights are RG16F where that renders, packed RGBA8 otherwise (logged).
+  `fx_sea_waves_debug=1` shows the ripple slope red, the wake slope green, crest foam blue.
 - **Высокая**: as Средняя with anisotropy 8, soft sea edges, specular, 8 point
   lights, soft sun shadows and ambient occlusion, the sun glare (replacing the game's sun glow and flare sprites)
   and sun shafts.
@@ -76,6 +81,7 @@ is not wired into the game. `Shadows::CasterProgram`,
 | `include/storm/fx/settings.hpp` | `Settings`, presets «Низкая / Средняя / Высокая», grades «Оригинал / Карибы / Пасмурно», `ConstrainSettings` |
 | `include/storm/fx/post_chain.hpp` | `PostChain`: scene colour → target |
 | `include/storm/fx/sea_depth.hpp` | `SeaDepth`: the scene distance behind the game's sea, for its soft edges |
+| `include/storm/fx/sea_waves.hpp`, `wave_clock.hpp` | `SeaWaves`: the ripple simulation around the camera (its sea shader side: `shaders/include/sea_waves.sh` of the renderer, with the Kelvin wakes) |
 | `include/storm/fx/sky.hpp` | `Sky`: the atmosphere state of the weather (grade of the place and hour, hemisphere ambient, aerial perspective); the sky itself is the game's on every preset |
 | `include/storm/fx/lighting.hpp`, `shaders/include/fx_lighting.sh` | lighting flags and uniforms for the fixed-function emulator |
 | `include/storm/fx/light_set.hpp` | point / spot lights: selection per draw call, flash lights |

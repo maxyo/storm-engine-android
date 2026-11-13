@@ -166,6 +166,7 @@ VulkanDevice ProbeVulkan()
     out.border_color = has(VK_EXT_CUSTOM_BORDER_COLOR_EXTENSION_NAME);
     out.anisotropy = features.samplerAnisotropy == VK_TRUE;
     out.max_anisotropy = out.anisotropy ? properties.limits.maxSamplerAnisotropy : 0.0f;
+    out.vertex_texture_units = static_cast<int>(properties.limits.maxPerStageDescriptorSampledImages);
     out.large_points = features.largePoints == VK_TRUE;
     out.max_point_size = out.large_points ? properties.limits.pointSizeRange[1] : 1.0f;
     destroy_instance(instance, nullptr);

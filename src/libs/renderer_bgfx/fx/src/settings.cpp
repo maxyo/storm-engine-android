@@ -49,6 +49,7 @@ Settings Settings::FromPreset(QualityPreset preset)
         s.bloom_downscale = 4;
         s.bloom_levels = 3;
         s.sea_band_limit = true;
+        s.sea_waves = s.sea_waves_lift = s.sea_wakes = true;
         s.anisotropy = 4;
         s.lighting_flags = kLightingPerPixel | kLightingTranslucent | kLightingPoint | kLightingNormalMap | kLightingRim |
                            kLightingAerial;
@@ -71,6 +72,7 @@ Settings Settings::FromPreset(QualityPreset preset)
     s.sun_shafts = true;
     s.sea_band_limit = true;
     s.sea_soft_edges = true;
+    s.sea_waves = s.sea_waves_lift = s.sea_wakes = true;
     // Wind sway is not in the presets: the game already sways sails, flags and grass itself, and the static
     // location models carry no anchor weights for foliage (option fx_wind, reported as not wired).
     s.lighting_flags = kLightingPerPixel | kLightingSpecular | kLightingTranslucent | kLightingPoint | kLightingNormalMap |
@@ -123,6 +125,10 @@ std::string Support::Describe() const
     text += word(anisotropy);
     text += ", RGBA8 3D textures (AO volume): ";
     text += word(ao_volume);
+    text += ", vertex texture fetch (sea wave lift): ";
+    text += word(sea_waves_vertex);
+    text += ", RG16F targets (sea wave heights; else packed RGBA8): ";
+    text += word(sea_waves_float);
     return text;
 }
 
@@ -193,6 +199,11 @@ constexpr Rule kRules[] = {
      "ambient occlusion needs a sampleable scene depth texture: switched off"},
     {[](const Settings &s, const Support &c) { return s.sea_soft_edges && !c.scene_depth; }, [](Settings &s) { s.sea_soft_edges = false; },
      "soft sea edges need a sampleable scene depth texture: switched off"},
+    {[](const Settings &s, const Support &c) { return s.sea_waves_lift && !c.sea_waves_vertex; },
+     [](Settings &s) { s.sea_waves_lift = false; },
+     "the sea wave lift needs vertex texture fetch of RGBA8: switched off (the ripples stay in the normals)"},
+    {[](const Settings &s, const Support &) { return s.sea_waves_lift && !s.sea_waves; }, [](Settings &s) { s.sea_waves_lift = false; },
+     "the sea wave lift raises the sea by the ripple simulation (sea_waves), which is off: switched off"},
     {[](const Settings &s, const Support &) {
          return !(s.lighting_flags & kLightingPerPixel) && (s.lighting_flags & (kLightingHemisphere | kLightingSpecular | kLightingTranslucent));
      },
@@ -308,9 +319,10 @@ Support RestrictSupport(const Support &device, CapsProfile profile)
     Support s = device;
     switch (profile)
     {
-    case CapsProfile::Gles30Minimal: // R8/RG8 textures are core GLES 3.0: SMAA stays
+    case CapsProfile::Gles30Minimal: // R8/RG8 textures are core GLES 3.0: SMAA stays; vertex texture fetch is core
+        // RG16F renders only with EXT_color_buffer_half_float: the wave heights take the packed RGBA8 path
         s.msaa_samples = 1;
-        s.msaa_depth = s.anisotropy = false;
+        s.msaa_depth = s.anisotropy = s.sea_waves_float = false;
         break;
     case CapsProfile::MaliG5x:
     case CapsProfile::Adreno6xx:

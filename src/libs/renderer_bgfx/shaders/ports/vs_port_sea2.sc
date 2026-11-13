@@ -3,10 +3,12 @@ $output v_color0, v_color1, v_texcoord0, v_texcoord1, v_texcoord2, v_texcoord3, 
 // Port of the technique shader sea_sea2_vertex_shader (vs_1_1) of src/techniques/weather/sea.fx, one D3D9 instruction per line.
 #define PORT_VSC_COUNT 59 // registers c0..c58 (the GL program uploads exactly these)
 #include "port_vs.sh"
+#include "sea_waves.sh"
 
 void main()
 {
     vec4 v0 = a_position; // dcl_position0 v0
+    v0.y += seaWavesLift(v0.xz); // waves from objects (sea_waves.sh)
     vec4 v1 = vec4(a_normal, 1.0); // dcl_normal0 v1
     vec4 v2 = a_texcoord0; // dcl_texcoord0 v2
     vec4 r0 = vec4_splat(0.0);
@@ -109,6 +111,8 @@ void main()
     oT3.w = -r1.z;                         // mov oT3.w, -r1.zzzz
     oT0.z = u_vsc[2].x;                    // mov oT0.z, c2.xxxx
     oT0.xy = v2.xy;                        // mov oT0.xy, v2
+
+    oT4 = vec4(seaWavesUv(v0.xz), v0.xz); // the ripples and wakes of the pixel shader
 
     PORT_VS_OUTPUT(oPos, oD0, oD1, oT0, oT1, oT2, oT3, oT4, oFog);
 }

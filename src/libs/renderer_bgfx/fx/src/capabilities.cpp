@@ -17,6 +17,8 @@ Support DetectSupport(const RendererFacts &renderer)
     support.ao_volume = detail::SupportsAoVolume();
     support.msaa_samples = detail::MsaaSamples();
     support.smaa = detail::SupportsSmaa();
+    support.sea_waves_vertex = renderer.vertex_texture;
+    support.sea_waves_float = detail::SupportsRenderTarget(bgfx::TextureFormat::RG16F);
     support.anisotropy = renderer.anisotropy;
     support.scene_depth = renderer.scene_depth;
     support.msaa_depth = renderer.scene_depth && renderer.msaa_depth;

@@ -16,6 +16,7 @@
 #include "storm/fx/sky_model.hpp"
 #include "storm/fx/depth_copy.hpp"
 #include "storm/fx/sea_depth.hpp"
+#include "storm/fx/sea_waves.hpp"
 #include "storm/render/effects.hpp"
 #include "storm/render/program_cache.hpp"
 
@@ -127,7 +128,10 @@ class Host
     render::EffectsWorld world() const;
     // Before each draw with the game's Sea2 pixel shader (shaders/ports/fs_port_sea2.sc): sets its u_seaFx and,
     // for the soft edges, captures the scene distance behind the sea once per frame and target and binds it.
+    // Also before each draw with a Sea2 vertex port and the sun road pixel port: the waves from objects
+    // (sea_waves.sh): runs the ripple simulation once per frame (views of its own) and binds its surface, the wakes.
     void prepare_sea(shim::Device &device);
+    void set_sea_frame(const render::EffectsSeaFrame &frame);
     void contact_shadow(const std::array<float, 3> &ground, const render::EffectsMatrix &view);
 
   private:
@@ -206,6 +210,22 @@ class Host
     uint32_t sea_depth_frame_ = UINT32_MAX;
     const void *sea_depth_target_ = nullptr;
     bool sea_depth_logged_ = false;
+    // Waves from objects: the sea's frame (set_sea_frame), the simulation, the wakes of this frame.
+    void advance_sea_waves(shim::Device &device);
+    void set_sea_waves_uniforms();
+    fx::SeaWaves sea_waves_;
+    render::EffectsSeaFrame sea_frame_{};
+    std::vector<render::EffectsWaveSource> sea_sources_;
+    std::vector<fx::WaveSource> sea_wave_sources_;
+    uint32_t sea_frame_set_ = UINT32_MAX;   // submitted frame of the last set_sea_frame
+    uint32_t sea_waves_frame_ = UINT32_MAX; // ... of the last simulation run
+    float sea_waves_quiet_ = 0.0f;          // game seconds without a source
+    std::array<float, 12> sea_waves_uniform_{};
+    int sea_wakes_logged_ = -1; // wake count last logged
+    std::array<float, 32> sea_wakes_uniform_{};
+    bgfx::UniformHandle u_sea_waves_ = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle u_sea_wakes_ = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle s_sea_waves_ = BGFX_INVALID_HANDLE;
     // The fx view transform last set on a shim view this frame: another camera in the same view needs a new view.
     bgfx::ViewId transform_view_ = UINT16_MAX;
     std::array<float, 32> transform_{};

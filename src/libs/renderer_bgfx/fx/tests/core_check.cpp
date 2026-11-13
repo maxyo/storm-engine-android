@@ -18,6 +18,7 @@
 #include "storm/fx/normal_map.hpp"
 #include "storm/fx/relief_store.hpp"
 #include "storm/fx/settings.hpp"
+#include "storm/fx/wave_clock.hpp"
 #include "storm/fx/shadow_model.hpp"
 #include "storm/fx/sky_model.hpp"
 
@@ -87,6 +88,21 @@ void CheckSettings()
     // The game's own sea everywhere: the band limit from «Средняя», soft edges at «Высокая», the specular optional.
     CHECK(medium.sea_band_limit && !medium.sea_soft_edges && high.sea_band_limit && high.sea_soft_edges);
     CHECK(!medium.sea_specular && !high.sea_specular);
+    // Waves from objects: Средняя and Высокая, never Низкая; without vertex fetch only the lift goes, loudly.
+    CHECK(medium.sea_waves && medium.sea_waves_lift && medium.sea_wakes && high.sea_waves && high.sea_waves_lift &&
+          high.sea_wakes);
+    CHECK(!original.sea_waves && !original.sea_waves_lift && !original.sea_wakes);
+    {
+        Support no_vtf;
+        no_vtf.sea_waves_vertex = false;
+        std::vector<std::string> changes;
+        const Settings constrained = ConstrainSettings(high, no_vtf, changes);
+        CHECK(constrained.sea_waves && !constrained.sea_waves_lift && constrained.sea_wakes);
+        bool reported = false;
+        for (const std::string &line : changes)
+            reported |= line.find("wave lift") != std::string::npos;
+        CHECK(reported);
+    }
     CHECK((medium.lighting_flags & kLightingPerPixel) && !(medium.lighting_flags & kLightingSpecular));
     CHECK(medium.shadows == ShadowQuality::Low && high.shadows == ShadowQuality::Soft && original.shadows == ShadowQuality::Off);
     CHECK(!medium.ssao && high.ssao && !original.ssao);
@@ -326,7 +342,7 @@ void CheckSupport()
     Support all;
     all.lut_3d = all.shadow_map = all.scene_depth = all.normal_map = true;
     all.msaa_samples = 4;
-    all.msaa_depth = all.anisotropy = all.ao_volume = all.smaa = true;
+    all.msaa_depth = all.anisotropy = all.ao_volume = all.smaa = all.sea_waves_vertex = all.sea_waves_float = true;
     for (QualityPreset preset : {QualityPreset::Low, QualityPreset::Medium, QualityPreset::High})
     {
         const Settings settings = Settings::FromPreset(preset);
@@ -1127,7 +1143,7 @@ void CheckCapsProfiles()
     Support all;
     all.lut_3d = all.shadow_map = all.scene_depth = all.normal_map = true;
     all.msaa_samples = 4;
-    all.msaa_depth = all.anisotropy = all.smaa = true;
+    all.msaa_depth = all.anisotropy = all.smaa = all.sea_waves_vertex = all.sea_waves_float = true;
     for (int p = 0; p < static_cast<int>(CapsProfile::Count); ++p)
     {
         const auto profile = static_cast<CapsProfile>(p);
@@ -1788,6 +1804,20 @@ void CheckBounce()
     CHECK(lit_block[wall_cell + 1] > block[wall_cell + 1] && lit_vis[wall_cell] == vis[wall_cell]); // R / G of block 1 kept
 }
 
+// fx::SeaWaves' fixed steps (WaveClock): a 60 Hz frame takes one, a slow frame at most kMaxSteps, the rest is dropped.
+void CheckSeaWaves()
+{
+    WaveClock clock;
+    CHECK(clock.Due(1.0f / 60.0f) == 1);
+    CHECK(clock.Due(0.0f) == 0);
+    int total = 0;
+    for (int i = 0; i < 120; ++i)
+        total += clock.Due(1.0f / 30.0f);
+    CHECK(total >= 238 && total <= 241); // two per 30 Hz frame
+    CHECK(clock.Due(1.0f) == WaveClock::kMaxSteps);
+    CHECK(clock.Due(1.0f / 120.0f) <= 1); // the dropped time is not made up later
+}
+
 int main()
 {
     CheckSettings();
@@ -1813,6 +1843,7 @@ int main()
     CheckVisibility();
     CheckBakeThermal();
     CheckBounce();
+    CheckSeaWaves();
     if (failures)
     {
         std::printf("%d check(s) failed\n", failures);

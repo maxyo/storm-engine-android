@@ -774,6 +774,11 @@ void SEA::SSE_WaveXZ(SeaVertex **pArray)
     }
 }
 
+void SEA::AddWaveSource(const storm::render::EffectsWaveSource &source)
+{
+    waveSources_.push_back(source);
+}
+
 float SEA::WaveXZ(float x, float z, glm::vec3 *pNormal)
 {
     int32_t iX11, iX12, iX21, iX22, iY11, iY12, iY21, iY22;
@@ -1381,6 +1386,24 @@ void SEA::Realize(uint32_t dwDeltaTime)
 
     if (iVStart && iTStart)
     {
+        // Waves from objects (renderer: fx::SeaWaves, Kelvin wakes): this frame's sources and the sea's vertex origin.
+        storm::render::EffectsSeaFrame waves;
+        waves.vertex_origin = {vWorldOffset.x, vWorldOffset.y, vWorldOffset.z};
+        waves.camera = {vCamPos.x, vCamPos.y, vCamPos.z};
+        {
+            // Where the view ray meets the water, at most 45 m out (row-vector view: its third column is the look).
+            const glm::vec3 look = storm::math::normalizeOrZero(glm::vec3(mIView[2]));
+            float reach = 45.0f;
+            if (look.y < -0.01f)
+                reach = std::min(reach, std::max(vCamPos.y, 0.0f) / -look.y);
+            const glm::vec3 flat = storm::math::normalizeOrZero(glm::vec3(look.x, 0.0f, look.z)) *
+                                   (reach * std::sqrt(std::max(0.0f, 1.0f - look.y * look.y)));
+            waves.focus = {vCamPos.x + flat.x, 0.0f, vCamPos.z + flat.z};
+        }
+        waves.dt = fDeltaTime;
+        waves.sources = waveSources_;
+        storm::render::SetEffectsSeaFrame(waves);
+
         glm::mat4 mWorldView, mWorldViewProj;
 
         glm::mat4 mView = rs->GetView();
@@ -1481,6 +1504,7 @@ void SEA::Realize(uint32_t dwDeltaTime)
         }
     }
 
+    waveSources_.clear(); // the Execute stage of the next frame adds them again
     RDTSC_E(dwTotalRDTSC);
     // rs->Print(50, 300, "Total ticks with rendering %d", /*iVStart, iTStart, */dwTotalRDTSC);
     /*rs->Print(50, 320, "calc blk%s: %d", (bHT) ? " (HT)" : "", dwBlockRDTSC);

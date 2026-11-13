@@ -12,6 +12,7 @@ struct RendererFacts
     bool scene_depth = false; // the game's offscreen depth attachment is a texture that can be sampled
     bool msaa_depth = false;  // ... and it still can when the scene target is multisampled (depth is resolved)
     bool anisotropy = false;  // anisotropic filtering exists (GL_EXT_texture_filter_anisotropic or core)
+    bool vertex_texture = false; // vertex shaders can sample textures (GL_MAX_VERTEX_TEXTURE_IMAGE_UNITS > 0)
 };
 
 // Call once after bgfx::init (and again after a device was re-created). The result is logged once at

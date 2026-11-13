@@ -113,6 +113,36 @@ void SetEffectsTechnique(const char *name);
 // absolute world data (the location's geometry, lamps, dynamic lights, lightmaps) converts with it.
 void SetEffectsWorldOrigin(const std::array<float, 3> &origin);
 
+// The legacy sea (Sea2), every frame it draws, before its draws: what makes waves on it this frame
+// (Settings::sea_waves: ripples around the camera; Settings::sea_wakes: Kelvin wakes behind the hulls under way).
+struct EffectsWaveSource
+{
+    enum class Kind : uint8_t
+    {
+        Body, // a character in the water: swimming or wading
+        Hull, // a boat or a ship
+    };
+    Kind kind = Kind::Body;
+    std::array<float, 3> position{};          // absolute world; a hull: the centre of its waterline
+    std::array<float, 2> forward{0.0f, 1.0f}; // unit heading in x, z
+    float half_length = 0.4f;                 // metres (a body: its radius)
+    float half_width = 0.4f;
+    float speed = 0.0f;  // m/s over the water along `forward`
+    float heave = 0.0f;  // m/s up
+    float stroke = 0.0f; // a body: 0 wading .. 1 swimming
+};
+struct EffectsSeaFrame
+{
+    std::array<float, 3> vertex_origin{}; // absolute world of the sea vertices' origin (the sea's camera offset)
+    std::array<float, 3> camera{};        // absolute world
+    // Absolute world point on the water the camera looks at (at most some tens of metres away): the ripple field is
+    // centred there, so the ship the camera follows stays inside it.
+    std::array<float, 3> focus{};
+    float dt = 0.0f;                      // game seconds since the previous frame (0 while paused)
+    std::span<const EffectsWaveSource> sources;
+};
+void SetEffectsSeaFrame(const EffectsSeaFrame &frame);
+
 // Point lights of this frame that no baked vertex colours contain (lanterns and torches carried by characters), world
 // space, D3DLIGHT9 attenuation. Static location geometry, drawn with its baked colours, is lit only by these; the
 // nearest to the camera cast shadows (fx_lamp_moving). A frame without the call has none.
