@@ -72,14 +72,14 @@ void main()
     float highlight = pow(max(dot(normalize(R), u_seaFx[1].xyz), 0.0), u_seaFx[1].w);
     r0.rgb += u_seaFx[0].z * highlight * u_seaFx[2].rgb;
     // The far wake, finer than a pixel: a little more of the sky's light where its waves were.
-    r0.rgb *= 1.0 + 0.5 * min(rough, 1.0);
+    r0.rgb *= 1.0 + 0.25 * min(rough, 1.0);
     if (foam > 0.0)
     {
         // The foam texture's bright streaks (its luminance: 0.15 dark water .. 0.75 foam), more of them the more foam:
         // thin lace where a crest just breaks, a white sheet in the churned water behind a hull.
         vec3 lace = texture2D(s_tex1, foam_uv).rgb;
         float streak = clamp((dot(lace, vec3(0.3, 0.5, 0.2)) - 0.15) / 0.6, 0.0, 1.0);
-        float cover = smoothstep(0.0, 0.35, streak - (1.0 - 1.15 * foam)) * min(foam * 3.0, 1.0);
+        float cover = smoothstep(-0.1, 0.5, streak - (1.0 - 1.15 * foam)) * min(foam * 2.5, 0.95);
         // Lit like the water: the sky straight up, over the sea's own colour; the streaks' own shading on it.
         vec3 sky = textureCube(s_cube3, vec3(0.0, 1.0, 0.0)).rgb;
         vec3 white = min(vec3_splat(dot(sky, vec3(0.3, 0.5, 0.2)) * 1.1) + sky * 0.15 + v1.rgb, vec3_splat(1.0));

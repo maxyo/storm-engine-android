@@ -20,8 +20,9 @@ constexpr float kWakeMinSpeed = 0.7f;
 constexpr float kWakeHeight = 0.3f;
 constexpr float kWakeScale = 3.0f;
 constexpr float kWavesQuietSeconds = 12.0f;
-// The ripples' slope in the normal: the field's few-centimetre waves read at a phone's distance only stronger.
-constexpr float kRippleSlopeGain = 2.5f;
+// The ripples' slope in the normal: the field's few-centimetre waves read at a phone's distance only stronger
+// (with the physical per-pixel Fresnel of fs_port_sea2 they need more tilt than the old facing term gave them).
+constexpr float kRippleSlopeGain = 4.0f;
 // Metres one repeat of the game's foam texture (pena.tga, a photograph of churned water) covers.
 constexpr double kFoamTile = 10.0;
 
