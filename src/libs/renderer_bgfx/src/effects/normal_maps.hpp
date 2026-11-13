@@ -53,7 +53,8 @@ struct NormalMapEntry
 {
     enum State : int
     {
-        Unqueued, // loaded while relief was off: nothing looked up yet (configure() does it when it is switched on)
+        Unqueued, // not looked up (yet, or again): loaded while relief was off (configure() looks it up when it is
+                  // switched on), or its map left the cache since (the next draw looks it up)
         Pending,  // on a texture worker (being looked up, read or derived)
         Stored,   // in the relief directory
         Waiting,  // a colour texture whose map the relief generator is making

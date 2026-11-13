@@ -9,6 +9,7 @@
 #include "effects/normal_maps.hpp"
 #include "effects/relief_generator.hpp"
 #include "shim.hpp"
+#include "storm/fx/lighting.hpp"
 #include "storm/fx/relief_store.hpp"
 #include "storm/render/effects.hpp"
 
@@ -148,6 +149,20 @@ int main()
     const effects::NormalMaps::Stats again = Settle(maps, {stone.get(), bump.get(), brick.get()});
     expect(again.unqueued == 0 && again.derived == 1, "off and on again derives nothing twice");
 
+    // A map evicted from the cache while its texture stays loaded (the system frees storage, «Очистить кэш»): the next
+    // draw finds it gone and makes it again, instead of failing.
+    {
+        fx::Lighting lighting;
+        const uint32_t derived_before = maps.stats().derived;
+        std::filesystem::remove(fx::ReliefFile(relief, bump->normal_map->key));
+        maps.handle(*bump, lighting); // Stored: reads it, finds none
+        Settle(maps, {bump.get()});
+        maps.handle(*bump, lighting); // looked up again: derived
+        const effects::NormalMaps::Stats evicted = Settle(maps, {bump.get()});
+        expect(evicted.derived == derived_before + 1 && fx::HasReliefMap(relief, bump->normal_map->key) &&
+                   bump->normal_map->state != effects::NormalMapEntry::Failed,
+               "a map evicted while its texture is loaded is made again");
+    }
     // The stores of earlier builds go at start (the files directory's relief, the old "NormalMaps" cache).
     const std::filesystem::path files = root / "files", cache = root / "cache";
     std::filesystem::create_directories(cache / "NormalMaps" / "ab");

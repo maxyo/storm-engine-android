@@ -199,9 +199,14 @@ void NormalMaps::read_stored(const std::shared_ptr<NormalMapEntry> &entry)
         std::optional<fx::NormalMap> map = fx::ReadReliefMap(relief_dir, entry->key, &error);
         if (!map)
         {
+            // Gone from the cache while the texture stayed loaded (the system evicted it, «Очистить кэш») or damaged
+            // (deleted by the read): made again like a map that never was (the next draw looks it up).
             if (!error.empty())
-                shim::logf("ERROR: effects: %s", error.c_str());
-            entry->state = NormalMapEntry::Failed; // removed or damaged while the texture stayed loaded
+                shim::logf("ERROR: effects: %s: made again", error.c_str());
+            else
+                shim::logf("effects: relief %s: its map %016llx left the cache: made again", entry->name.c_str(),
+                           static_cast<unsigned long long>(entry->key));
+            entry->state = NormalMapEntry::Unqueued;
             return;
         }
         entry->map = std::move(*map);
@@ -218,6 +223,9 @@ NormalMaps::Relief NormalMaps::handle(shim::TexStore &store, fx::Lighting &light
     entry->drawn = frame_;
     switch (entry->state.load())
     {
+    case NormalMapEntry::Unqueued: // its map left the cache since it was looked up (read_stored)
+        look_up(entry);
+        return {};
     case NormalMapEntry::Stored:
         read_stored(entry);
         return {};
