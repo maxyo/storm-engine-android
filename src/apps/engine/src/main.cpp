@@ -20,6 +20,8 @@
 #include "core_private.h"
 #include "lifecycle_diagnostics_service.hpp"
 #include "logging.hpp"
+#include "log_rotation.hpp"
+#include <spdlog/details/os.h>
 #include "os_window.hpp"
 #include "app_events.hpp"
 #include "v_sound_service.h"
@@ -358,6 +360,9 @@ int main(int argc, char *argv[])
         return EXIT_FAILURE;
     }
 #endif
+    // Before anything opens a log (mimalloc's output, the loggers truncate their files): the previous process's
+    // logs are the evidence of the hang or crash this start may follow.
+    const auto logRotationFailures = storm::logging::rotatePreviousSessionLogs(fs::GetLogsPath());
     mi_register_output(mimalloc_fun, nullptr);
     mi_option_set(mi_option_show_errors, 1);
     mi_option_set(mi_option_show_stats, 0);
@@ -405,7 +410,11 @@ int main(int argc, char *argv[])
 
     // Init logging
     spdlog::set_default_logger(storm::logging::getOrCreateLogger(defaultLoggerName));
-    spdlog::info("Logging system initialized. Running on {}", STORM_BUILD_WATERMARK_STRING);
+    // The diagnostics export labels each session's logs with this line's time and pid (app DiagnosticsReport).
+    spdlog::info("Logging system initialized. Running on {}, pid {}", STORM_BUILD_WATERMARK_STRING,
+                 spdlog::details::os::pid());
+    for (const auto &failure : logRotationFailures)
+        spdlog::error("Previous session logs: {}", failure);
 #ifdef STORM_TRACY
     // Development build (cmake/tracy.cmake). The application's release packaging refuses a library with this line.
     STORM_PROFILE_THREAD("game");
