@@ -52,18 +52,16 @@ uint64_t ReliefMethod(ReliefClass relief)
 {
     if (relief == ReliefClass::None)
         return 0;
-    NormalMapOptions options = ReliefOptions(relief);
     uint64_t method = 0xcbf29ce484222325ull;
     if (relief == ReliefClass::HeightMap)
     {
+        NormalMapOptions options = HeightMapOptions();
         options.max_size = kReliefMapSize; // as the game derives them (effects/normal_maps.cpp)
         const uint64_t parts[2] = {kReliefHeightMethod, NormalMapCacheKey(options)};
         return Mix(method, parts, sizeof(parts));
     }
-    // DeepBump's strength comes from the class's own derivation at the reference size (src/libs/relief).
-    options.max_size = kNormalMapReferenceSize;
-    const uint64_t parts[4] = {kReliefMethodVersion, kDeepBumpModelDigest, NormalMapCacheKey(options),
-                               static_cast<uint64_t>(kReliefMapSize)};
+    // DeepBump's normals as the model gives them: the same for every colour class.
+    const uint64_t parts[3] = {kReliefMethodVersion, kDeepBumpModelDigest, static_cast<uint64_t>(kReliefMapSize)};
     return Mix(method, parts, sizeof(parts));
 }
 

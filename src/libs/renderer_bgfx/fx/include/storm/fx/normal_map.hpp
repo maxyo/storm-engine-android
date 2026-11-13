@@ -1,14 +1,13 @@
-// Normal maps derived on the device from the player's own textures, and the rules that decide which textures get
-// one and how strong their relief is.
+// Normal maps of the player's own textures and the rules that decide which textures get one.
 //
 // Two sources:
 //   * the game's grey height ("bump") textures: the 2x multiply detail layer on the second texture stage
-//     (GEOM_SERVICE_R::SetMaterial, texture[1], second UV set). Their values are heights.
-//   * ordinary colour textures of stone, wood, plaster and ground: the luminance, band-passed so that only the
-//     small-scale detail (mortar lines, plank gaps, cobbles) becomes height. Brightness changes wider than the band
-//     (a dark patch, a painted stripe, baked light) stay colour and make no pits or hills.
-// Which textures, and how strong, comes from one ordered table of path / name rules (ClassifyTextureName) written
-// from TEHO's texture folders. Anything the table does not know gets no relief (and is logged once).
+//     (GEOM_SERVICE_R::SetMaterial, texture[1], second UV set). Their values are heights; the game derives their maps
+//     itself (DeriveNormalMap).
+//   * ordinary colour textures of stone, wood, plaster and ground: DeepBump's normals as the model gives them
+//     (deepbump.hpp, made by src/libs/relief; the owner's choice).
+// Which textures get relief comes from one ordered table of path / name rules (ClassifyTextureName) written from TEHO's
+// texture folders. Anything the table does not know gets no relief (and is logged once).
 //
 // Derived textures come from the player's files: cache them on the device (keyed by the source pixels and
 // NormalMapCacheKey), never ship or commit them.
@@ -23,8 +22,7 @@
 namespace storm::fx
 {
 
-// Material class of a texture for the relief. Stone and brick strong; wood and planks, and the buildings' mixed atlases
-// (stone, plaster, beams and doors of one house in one texture) medium; plaster and ground weak.
+// Material class of a texture for the relief: which textures get a map, and where it comes from.
 enum class ReliefClass : uint8_t
 {
     None,      // no relief: faces and skin, cloth and sails, UI, water, glass, foliage cards, sky, decals, unknown
@@ -36,26 +34,14 @@ enum class ReliefClass : uint8_t
 };
 const char *ReliefClassName(ReliefClass relief);
 
-enum class NormalMapSource : uint8_t
-{
-    Height,    // the red channel is the height
-    Luminance, // band-passed luminance is the height
-};
-
 struct NormalMapOptions
 {
-    NormalMapSource source = NormalMapSource::Height;
-    // Height: height of a full black-to-white step, in texels (see max_size).
-    // Luminance: height of a unit step of the band-passed luminance relative to the local brightness (softly limited),
-    // in texels.
+    // Height of a full black-to-white step of the red channel, in texels (see max_size).
     float strength = 2.0f;
     bool wrap = true;     // texture tiles: filters wrap around the edges
-    int pre_blur = 1;     // 3x3 binomial passes first: remove DXT block noise (and, more, fine grain)
-    // Luminance: Gaussian sigma, in texels (see max_size), of the brightness that counts as colour. Detail
-    // narrower than about two sigmas becomes height; wider patches are removed (a high pass).
-    float band_sigma = 3.0f;
-    // The derived top mip is the texture halved until its larger side is at most this. `strength` and `band_sigma`
-    // are in texels of the map derived at kNormalMapReferenceSize, so a smaller map has the same relief.
+    int pre_blur = 1;     // 3x3 binomial passes first: remove DXT block noise
+    // The derived top mip is the texture halved until its larger side is at most this. `strength` is in texels of the
+    // map derived at kNormalMapReferenceSize, so a smaller map has the same relief.
     int max_size = 1024;
 
     bool operator==(const NormalMapOptions &) const = default;
@@ -63,8 +49,8 @@ struct NormalMapOptions
 
 inline constexpr int kNormalMapReferenceSize = 1024;
 
-// The derivation options of a class (strength, band, size). ReliefClass::None has none to give: an empty map.
-NormalMapOptions ReliefOptions(ReliefClass relief);
+// The derivation options of the grey height maps (ReliefClass::HeightMap).
+NormalMapOptions HeightMapOptions();
 
 // How NormalMap::rg holds the texels. DeriveNormalMap makes RG8; the game stores and uploads EAC RG11 (half the
 // memory, core in OpenGL ES 3.0), encoded by the renderer's texture module.

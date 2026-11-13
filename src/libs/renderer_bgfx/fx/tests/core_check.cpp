@@ -823,98 +823,13 @@ void CheckNormalMaps()
     other = options;
     other.max_size = 512;
     CHECK(NormalMapCacheKey(options) != NormalMapCacheKey(other));
-    other = options;
-    other.source = NormalMapSource::Luminance;
-    CHECK(NormalMapCacheKey(options) != NormalMapCacheKey(other));
-    NormalMapOptions wider = other;
-    wider.band_sigma = other.band_sigma + 1.0f;
-    CHECK(NormalMapCacheKey(other) != NormalMapCacheKey(wider));
 }
 
-// Max lean |n.xy| over a square of the top mip.
-float MaxLean(const NormalMap &map, int x0, int y0, int x1, int y1)
+// Height maps at a lower preset's size keep their relief.
+void CheckHeightMapSizes()
 {
-    float lean = 0.0f;
-    for (int y = y0; y < y1; ++y)
-        for (int x = x0; x < x1; ++x)
-        {
-            const auto normal = NormalAt(map, 0, x, y);
-            lean = std::max(lean, std::hypot(normal[0], normal[1]));
-        }
-    return lean;
-}
-
-// Colour textures: luminance, band-passed, as height.
-void CheckLuminanceRelief()
-{
-    const int n = 128;
-    const NormalMapOptions stone = ReliefOptions(ReliefClass::Stone);
-    CHECK(stone.source == NormalMapSource::Luminance && stone.strength > ReliefOptions(ReliefClass::Wood).strength &&
-          ReliefOptions(ReliefClass::Wood).strength > ReliefOptions(ReliefClass::Plaster).strength &&
-          ReliefOptions(ReliefClass::Building).strength > ReliefOptions(ReliefClass::Plaster).strength);
-    CHECK(ReliefOptions(ReliefClass::HeightMap).source == NormalMapSource::Height);
-    const auto texture = [&](auto colour) {
-        std::vector<uint8_t> rgba;
-        for (int y = 0; y < n; ++y)
-            for (int x = 0; x < n; ++x)
-            {
-                const std::array<uint8_t, 3> c = colour(x, y);
-                rgba.insert(rgba.end(), {c[0], c[1], c[2], 255});
-            }
-        return rgba;
-    };
-
-    // A flat colour (any colour) has no relief at all.
-    const NormalMap flat = DeriveNormalMap(texture([](int, int) { return std::array<uint8_t, 3>{180, 90, 40}; }), n, n, stone);
-    CHECK(flat.width == n && std::all_of(flat.rg.begin(), flat.rg.end(), [](uint8_t v) { return v == 128; }));
-
-    // A big dark patch (a stain, a painted panel) on a plain wall: the inside of the patch is as flat as the wall around
-    // it (no pit); only its rim leans, and only over a few texels.
-    const NormalMap patch = DeriveNormalMap(texture([](int x, int y) {
-                                                const bool dark = std::abs(x - 64) < 32 && std::abs(y - 64) < 32;
-                                                return dark ? std::array<uint8_t, 3>{40, 40, 50} : std::array<uint8_t, 3>{200, 190, 170};
-                                            }),
-                                            n, n, stone);
-    CHECK(MaxLean(patch, 48, 48, 80, 80) < 0.02f); // centre of the patch
-    CHECK(MaxLean(patch, 0, 0, 16, 16) < 0.02f);   // the wall far from it
-    CHECK(MaxLean(patch, 28, 60, 36, 68) > 0.3f);  // the rim
-    // The same patch at twice the size: still flat inside, so the depth does not grow with the patch (a height field
-    // would make a pit whose walls get no flatter).
-    const NormalMap wide = DeriveNormalMap(texture([](int x, int y) {
-                                               const bool dark = std::abs(x - 64) < 56 && std::abs(y - 64) < 56;
-                                               return dark ? std::array<uint8_t, 3>{40, 40, 50} : std::array<uint8_t, 3>{200, 190, 170};
-                                           }),
-                                           n, n, stone);
-    CHECK(MaxLean(wide, 40, 40, 88, 88) < 0.02f);
-
-    // Bricks: light bricks with dark mortar lines every 16 texels (rows) and 32 texels (columns). The brick faces are
-    // higher than the mortar: on both sides of a horizontal line the normal leans down into it, in v only.
-    const NormalMap bricks = DeriveNormalMap(texture([](int x, int y) {
-                                                 const bool mortar = y % 16 < 2 || (x + (y / 16 % 2) * 16) % 32 < 2;
-                                                 const uint8_t v = mortar ? 60 : 190;
-                                                 return std::array<uint8_t, 3>{v, static_cast<uint8_t>(v * 0.8f), static_cast<uint8_t>(v * 0.6f)};
-                                             }),
-                                             n, n, stone);
-    const auto above = NormalAt(bricks, 0, 8, 16 - 2); // the brick above the line at y = 16..17: leans to +v
-    const auto below = NormalAt(bricks, 0, 8, 17 + 2); // the brick below it: leans to -v
-    CHECK(above[1] > 0.3f && below[1] < -0.3f && std::fabs(above[0]) < 0.05f && std::fabs(below[0]) < 0.05f);
-    // ... and next to a vertical line (x = 0..1 in this row) the lean is in u.
-    const auto right = NormalAt(bricks, 0, 2, 8);
-    CHECK(right[0] < -0.3f && std::fabs(right[1]) < 0.05f);
-    // The middle of a brick is nearly flat (only the faint halo of the band pass).
-    CHECK(MaxLean(bricks, 14, 7, 18, 10) < 0.1f);
-    // Stronger classes lean more on the same texture.
-    const auto plaster = NormalAt(DeriveNormalMap(texture([](int x, int y) {
-                                                      const bool mortar = y % 16 < 2 || (x + (y / 16 % 2) * 16) % 32 < 2;
-                                                      const uint8_t v = mortar ? 60 : 190;
-                                                      return std::array<uint8_t, 3>{v, v, v};
-                                                  }),
-                                                  n, n, ReliefOptions(ReliefClass::Plaster)),
-                                  0, 8, 17 + 2);
-    CHECK(plaster[1] < 0.0f && plaster[1] > below[1]);
-
     // A lower preset derives a smaller map with the same relief: a 2048-wide stripe pattern derived at
-    // 512 leans like the 1024 map (strength and band are given at kNormalMapReferenceSize).
+    // 512 leans like the 1024 map (the strength is given at kNormalMapReferenceSize).
     const int big = 2048;
     std::vector<uint8_t> stripes(static_cast<size_t>(big) * 8 * 4);
     for (int y = 0; y < 8; ++y)
@@ -925,7 +840,8 @@ void CheckLuminanceRelief()
             t[0] = t[1] = t[2] = v;
             t[3] = 255;
         }
-    NormalMapOptions full = stone, half = stone;
+    NormalMapOptions full = HeightMapOptions(), half = HeightMapOptions();
+    full.strength = half.strength = 7.0f;
     full.max_size = 1024;
     half.max_size = 512;
     const NormalMap at_full = DeriveNormalMap(stripes, big, 8, full), at_half = DeriveNormalMap(stripes, big, 8, half);
@@ -985,11 +901,18 @@ void CheckDeepBump()
     const std::vector<float> input = DeepBumpInput(rgba, 16, 8, 4, 2);
     CHECK(input.size() == 8 && Near(input[0], 1.0f / 3.0f, 1e-5f));
 
-    // The map: mips down to 1x1, RMS tilt of the top mip = the target, never above 0.99.
-    const NormalMap map = DeepBumpNormalMap(normals, w, h, 0.15f);
+    // The map: mips down to 1x1, the top mip the model's own normals (no rescale), tilts never above 0.99.
+    const NormalMap map = DeepBumpNormalMap(normals, w, h);
     CHECK(map.width == w && map.height == h && map.mip_count == 9 && map.rg.size() == NormalMapBytes(w, h));
-    CHECK(Near(TiltRms(map), 0.15f, 0.01f));
-    const NormalMap steep = DeepBumpNormalMap(normals, w, h, 5.0f);
+    float off = 0.0f;
+    for (size_t t = 0; t < static_cast<size_t>(w) * h; ++t)
+        for (int c = 0; c < 2; ++c)
+            off = std::max(off, std::fabs(map.rg[t * 2 + c] / 255.0f * 2 - 1 - normals[t * 3 + c]));
+    CHECK(off < 0.01f);
+    std::vector<float> flat_out(normals.size());
+    for (size_t t = 0; t < flat_out.size(); t += 3)
+        flat_out[t] = 1.0f; // lying flat: x = 1, z = 0
+    const NormalMap steep = DeepBumpNormalMap(flat_out, w, h);
     for (size_t i = 0; i < steep.rg.size(); i += 2)
     {
         const float x = steep.rg[i] / 255.0f * 2 - 1, y = steep.rg[i + 1] / 255.0f * 2 - 1;
@@ -1009,15 +932,14 @@ void CheckDeepBump()
     CHECK(key != ReliefKey("a/c", probe, 4, 4, stone, kReliefMapSize));
     CHECK(key != ReliefKey("a/b", other, 4, 4, stone, kReliefMapSize));
     CHECK(key != ReliefKey("a/b", probe, 4, 4, ReliefMethod(ReliefClass::HeightMap), kReliefMapSize));
-    // The method covers what makes the map: each class's options (its strength reference), the derivation of height
-    // maps, the model and the version. The maps of the method before it (version 3 alone, no model or options in the
-    // key: the owner's phone kept them after «Очистить кэш») are never found again.
+    // The method covers what makes the map: DeepBump's maps (one method for every colour class: the model's own
+    // normals), the derivation of height maps, the model and the version. The maps of the methods before it (version 3
+    // alone; version 4, rescaled to our luminance derivation per class) are never found again.
     CHECK(ReliefMethod(ReliefClass::None) == 0);
-    const ReliefClass classes[] = {ReliefClass::HeightMap, ReliefClass::Stone, ReliefClass::Wood, ReliefClass::Building,
-                                   ReliefClass::Plaster};
-    for (const ReliefClass a : classes)
-        for (const ReliefClass b : classes)
-            CHECK((a == b) == (ReliefMethod(a) == ReliefMethod(b)));
+    for (const ReliefClass colour : {ReliefClass::Stone, ReliefClass::Wood, ReliefClass::Building, ReliefClass::Plaster})
+        CHECK(ReliefMethod(colour) == ReliefMethod(ReliefClass::Stone) &&
+              ReliefMethod(colour) != ReliefMethod(ReliefClass::HeightMap));
+    CHECK(kReliefMethodVersion == 5);
     CHECK(ReliefMethod(ReliefClass::Stone) != 3 && key != ReliefKey("a/b", probe, 4, 4, 3, kReliefMapSize));
     CHECK(kDeepBumpModelDigest == 0x24b0975701c94500ull); // the model file's sha256 prefix (checked by CMake too)
 
@@ -1782,7 +1704,7 @@ int main()
     CheckShadows();
     CheckNormalMaps();
     CheckCheapUpgrades();
-    CheckLuminanceRelief();
+    CheckHeightMapSizes();
     CheckDeepBump();
     CheckReliefRules();
     CheckAoVolume();

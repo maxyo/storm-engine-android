@@ -37,12 +37,8 @@ using DeepBumpInfer = std::function<bool(const float *image, int padded_width, i
 // image), z out of the surface. Empty when `infer` failed.
 std::vector<float> DeepBumpNormals(std::span<const float> grey, int width, int height, const DeepBumpInfer &infer);
 
-// The relief's RMS tilt |n.xy| over the top mip of an RG8 map.
-float TiltRms(const NormalMap &rg8);
-
-// The RG8 map of a normal field: every mip averaged from the one above and renormalised, every tilt scaled so the top
-// mip's RMS tilt is `target_tilt` (the owner's choice: DeepBump's shape at the strength of our own derivation for the
-// same texture, TiltRms(DeriveNormalMap(...))), at most 0.99.
-NormalMap DeepBumpNormalMap(std::span<const float> normals, int width, int height, float target_tilt);
+// The RG8 map of a normal field as the model gives it (the owner's choice: DeepBump's own strength): every mip averaged
+// from the one above and renormalised, tilts at most 0.99.
+NormalMap DeepBumpNormalMap(std::span<const float> normals, int width, int height);
 
 } // namespace storm::fx

@@ -3,8 +3,8 @@
 Normal maps for the colour textures that get relief (fx `ClassifyTextureName`: stone, wood, building atlases,
 plaster, ground) are made from the player's game files with DeepBump (`fx/deepbump.hpp`) through onnxruntime, and
 kept in the relief directory (`fx/relief_store.hpp`). Nothing derived is shipped. Grey "bump" textures are height
-maps; the game derives their maps itself. The owner's choice: DeepBump's normals as they are, each scaled to the RMS
-tilt of our own luminance derivation of the same texture at its 1024 reference, at full strength.
+maps; the game derives their maps itself. The owner's choice: DeepBump's normals as the model gives them, at its own
+strength (no rescale).
 
 ## Where the maps are made
 
@@ -24,7 +24,7 @@ store in use is never removed as an old one. Each texture logs the key and metho
 looked up (`effects: relief <name> (<class>): map <key> of method <method>`). The model
 is loaded at the first job and released after 10 s with no work left. The "effects relief:" log line counts the
 textures waiting and the rest still to make; each map logs its stages (`relief <name>: WxH, N ms (read, decode,
-strength reference, model of which inference, mips, encode, write)`).
+model of which inference, mips, encode, write)`).
 
 `storm_relief_cli <RESOURCE/Textures> <relief dir> <model.onnx> [map size] [threads]` makes a whole game at once:
 host renders with every map in place (engine.ini `relief_dir = <relief dir>`). A host engine makes maps itself only

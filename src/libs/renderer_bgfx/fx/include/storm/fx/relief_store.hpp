@@ -25,13 +25,14 @@ inline constexpr int kReliefProbeSize = 64;
 inline constexpr int kReliefMapSize = 512;
 // Tag of the height maps ("bump" textures) the game derives itself (DeriveNormalMap) into the same directory.
 inline constexpr uint32_t kReliefHeightMethod = 0x48000001u;
-// Bump when the prepared maps change in a way ReliefMethod cannot see (DeepBump's post-processing, the strength
-// reference, the file layout). The model, the class options and the derivation's version are in ReliefMethod.
-inline constexpr uint32_t kReliefMethodVersion = 4;
+// Bump when the prepared maps change in a way ReliefMethod cannot see (DeepBump's post-processing, the file layout).
+// The model and the height maps' derivation are in ReliefMethod. 5: DeepBump's own strength (no rescale to our
+// luminance derivation, the owner's choice).
+inline constexpr uint32_t kReliefMethodVersion = 5;
 
 // The method of a texture's map: everything its making depends on, so a change never reuses a map made before it.
-// DeepBump maps: kReliefMethodVersion, the model (kDeepBumpModelDigest), the class's options (NormalMapCacheKey: its
-// strength reference, with kNormalMapVersion) and the map size; height maps: kReliefHeightMethod and their
+// DeepBump maps (the same for every colour class): kReliefMethodVersion, the model (kDeepBumpModelDigest) and the map
+// size; height maps: kReliefHeightMethod and their
 // derivation's options. ReliefClass::None has none (0).
 uint64_t ReliefMethod(ReliefClass relief);
 

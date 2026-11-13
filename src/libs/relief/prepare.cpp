@@ -348,8 +348,8 @@ const Session::Stats &Session::stats() const
 Outcome Session::PrepareFile(const std::filesystem::path &textures, const std::filesystem::path &file,
                              const std::filesystem::path &output, int map_size, std::string &failure)
 {
-    // DeepBump at the map size, scaled to our own derivation's RMS tilt at its 1024 reference (the owner's choice),
-    // EAC RG11. Each stage is timed: the log line of the texture says where the time went.
+    // DeepBump at the map size, its normals as the model gives them (the owner's choice), EAC RG11. Each stage is timed:
+    // the log line of the texture says where the time went.
     const Clock::time_point start = Clock::now();
     Clock::time_point mark = start;
     const auto lap = [&mark] {
@@ -368,11 +368,10 @@ Outcome Session::PrepareFile(const std::filesystem::path &textures, const std::f
     if (fx::HasReliefMap(output, *key))
         return Outcome::Existing;
     const double read_ms = lap();
-    // The source: the first level no larger than the derivation's reference size, which the strength reference
-    // halves the top level to anyway.
+    // The source: the first level no larger than twice the map, which the model's input is box-filtered down from.
     int level = 0;
     while (level + 1 < static_cast<int>(tx.levels) &&
-           std::max(tx.width >> level, tx.height >> level) > uint32_t(fx::kNormalMapReferenceSize))
+           std::max(tx.width >> level, tx.height >> level) > uint32_t(2 * map_size))
         ++level;
     const uint32_t lw = std::max(1u, tx.width >> level), lh = std::max(1u, tx.height >> level);
     const int width = static_cast<int>(lw), height = static_cast<int>(lh);
@@ -386,14 +385,10 @@ Outcome Session::PrepareFile(const std::filesystem::path &textures, const std::f
         return Outcome::Failed;
     }
     const double decode_ms = lap();
-    fx::NormalMapOptions options = fx::ReliefOptions(relief);
+    fx::NormalMapOptions options;
     options.max_size = map_size;
     int mw = 0, mh = 0;
     fx::NormalMapSize(width, height, options, mw, mh);
-    fx::NormalMapOptions reference = options;
-    reference.max_size = fx::kNormalMapReferenceSize;
-    const float target = fx::TiltRms(fx::DeriveNormalMap(rgba, width, height, reference));
-    const double reference_ms = lap();
     const std::vector<float> grey = fx::DeepBumpInput(rgba, width, height, mw, mh);
     double infer_ms = 0.0;
     const std::vector<float> normals = fx::DeepBumpNormals(grey, mw, mh, [&](const float *image, int pw, int ph, float *out) {
@@ -416,7 +411,7 @@ Outcome Session::PrepareFile(const std::filesystem::path &textures, const std::f
         Log("ERROR: no relief map for %s: %s", candidate->name.c_str(), failure.c_str());
         return Outcome::Failed;
     }
-    const fx::NormalMap rg8 = fx::DeepBumpNormalMap(normals, mw, mh, target);
+    const fx::NormalMap rg8 = fx::DeepBumpNormalMap(normals, mw, mh);
     const double mips_ms = lap();
     const fx::NormalMap map{rg8.width, rg8.height, rg8.mip_count, fx::NormalMapFormat::EacRg11,
                             texture::encode_eac_chain(texture::EacFormat::Rg11, rg8.rg.data(), rg8.width, rg8.height, rg8.mip_count)};
@@ -431,9 +426,9 @@ Outcome Session::PrepareFile(const std::filesystem::path &textures, const std::f
     const double ms = std::chrono::duration<double, std::milli>(Clock::now() - start).count();
     ++impl_->stats.prepared;
     impl_->stats.max_texture_ms = std::max(impl_->stats.max_texture_ms, ms);
-    Log("relief %s: %dx%d, %.0f ms (read %.0f, decode %.0f, strength reference %.0f, model %.0f of which inference %.0f, "
+    Log("relief %s: %dx%d, %.0f ms (read %.0f, decode %.0f, model %.0f of which inference %.0f, "
         "mips %.0f, encode %.0f, write %.0f)",
-        candidate->name.c_str(), mw, mh, ms, read_ms, decode_ms, reference_ms, model_ms, infer_ms, mips_ms, encode_ms,
+        candidate->name.c_str(), mw, mh, ms, read_ms, decode_ms, model_ms, infer_ms, mips_ms, encode_ms,
         write_ms);
     return Outcome::Prepared;
 }

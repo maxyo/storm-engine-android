@@ -80,7 +80,7 @@ is not wired into the game. `Shadows::CasterProgram`,
 | `include/storm/fx/lighting.hpp`, `shaders/include/fx_lighting.sh` | lighting flags and uniforms for the fixed-function emulator |
 | `include/storm/fx/light_set.hpp` | point / spot lights: selection per draw call, flash lights |
 | `include/storm/fx/deepbump.hpp`, `relief_store.hpp` | DeepBump's tiles, axes, mips and strength around the model (run by src/libs/relief); the relief directory's files and keys |
-| `include/storm/fx/normal_map.hpp` | normal maps derived from the game's textures (grey "bump" heights, band-passed luminance of colour textures); the path/name rules table that gives each texture its relief class |
+| `include/storm/fx/normal_map.hpp` | normal maps of the grey "bump" heights; the path/name rules table that gives each texture its relief class |
 | `include/storm/fx/shadows.hpp` | `Shadows`: sun shadow map |
 | `include/storm/fx/contact_shadows.hpp` | `ContactShadows`: soft blobs under characters and objects |
 | `include/storm/fx/ao_volume.hpp` | ambient-occlusion volume of interiors: CPU bake from the static geometry, disk-cache format (the renderer side: `src/effects/ao_volume.hpp`) |
@@ -139,12 +139,10 @@ After a lost context call `OnDeviceLost()` on each object; resources are re-crea
 Stage 15 belongs to the shadow map, stage 14 to the derived normal map and, in the sea's own pixel shader, to `SeaDepth::Texture()` (above the
 fixed-function emulator's units).
 
-Normal maps come from the player's own textures, on the device; never ship or commit them. Which textures get one, and
-how strong, is the ordered rules table of `ClassifyTextureName` (stone/brick strong; wood/planks and building atlases
-medium; plaster/ground weak; nothing for faces, cloth and sails, UI, water, glass, foliage cards, grass ground, sky,
-decals and unknown names). Colour textures get DeepBump's normals (`deepbump.hpp`), made once at game import by
-src/libs/relief and scaled per texture to the RMS tilt of our own derivation (`DeriveNormalMap`: luminance minus a
-Gaussian of `band_sigma` texels, relative to the local brightness, softly limited); grey "bump" textures get
-`DeriveNormalMap` of their heights, in the game. Both live in the relief directory (`relief_store.hpp`) as EAC RG11 with
+Normal maps come from the player's own textures, on the device; never ship or commit them. Which textures get one is
+the ordered rules table of `ClassifyTextureName` (stone, wood, building atlases, plaster and ground; nothing for faces,
+cloth and sails, UI, water, glass, foliage cards, grass ground, sky, decals and unknown names). Colour textures get
+DeepBump's normals as the model gives them (`deepbump.hpp`, the owner's choice), made by src/libs/relief; grey "bump"
+textures get `DeriveNormalMap` of their heights, in the game. Both live in the relief directory (`relief_store.hpp`) as EAC RG11 with
 mips: 1 byte per texel plus a third (a 512² map 0.35 MB; prepared maps are 512, fx::kReliefMapSize; Settings::normal_map_size caps the resident
 size).

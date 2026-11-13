@@ -168,7 +168,7 @@ void NormalMaps::look_up(const std::shared_ptr<NormalMapEntry> &entry)
         }
         shim::logf("effects: relief %s (height map): no map %016llx of method %016llx yet: derived", entry->name.c_str(),
                    key, method);
-        fx::NormalMapOptions options = fx::ReliefOptions(fx::ReliefClass::HeightMap);
+        fx::NormalMapOptions options = fx::HeightMapOptions();
         options.max_size = fx::kReliefMapSize;
         const fx::NormalMap rg8 = fx::DeriveNormalMap(rgba, width, height, options);
         fx::NormalMap map{rg8.width, rg8.height, rg8.mip_count, fx::NormalMapFormat::EacRg11,

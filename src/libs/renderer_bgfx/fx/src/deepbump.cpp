@@ -80,21 +80,7 @@ std::vector<float> DeepBumpNormals(std::span<const float> grey, int width, int h
     return normals;
 }
 
-float TiltRms(const NormalMap &rg8)
-{
-    const size_t texels = static_cast<size_t>(rg8.width) * rg8.height;
-    if (rg8.format != NormalMapFormat::Rg8 || rg8.rg.size() < texels * 2 || texels == 0)
-        return 0.0f;
-    double square = 0.0;
-    for (size_t t = 0; t < texels; ++t)
-    {
-        const double x = rg8.rg[t * 2] / 255.0 * 2.0 - 1.0, y = rg8.rg[t * 2 + 1] / 255.0 * 2.0 - 1.0;
-        square += x * x + y * y;
-    }
-    return static_cast<float>(std::sqrt(square / static_cast<double>(texels)));
-}
-
-NormalMap DeepBumpNormalMap(std::span<const float> normals, int width, int height, float target_tilt)
+NormalMap DeepBumpNormalMap(std::span<const float> normals, int width, int height)
 {
     NormalMap map;
     if (width <= 0 || height <= 0 || normals.size() < static_cast<size_t>(width) * height * 3)
@@ -102,11 +88,6 @@ NormalMap DeepBumpNormalMap(std::span<const float> normals, int width, int heigh
     map.width = width;
     map.height = height;
     std::vector<float> level(normals.begin(), normals.begin() + static_cast<std::ptrdiff_t>(static_cast<size_t>(width) * height * 3));
-    double square = 0.0;
-    for (size_t t = 0; t < level.size() / 3; ++t)
-        square += level[t * 3] * level[t * 3] + level[t * 3 + 1] * level[t * 3 + 1];
-    const float rms = static_cast<float>(std::sqrt(square / static_cast<double>(level.size() / 3)));
-    const float k = target_tilt / std::max(rms, 1e-6f);
     map.rg.reserve(NormalMapBytes(width, height));
     int w = width, h = height;
     for (;;)
@@ -114,7 +95,7 @@ NormalMap DeepBumpNormalMap(std::span<const float> normals, int width, int heigh
         ++map.mip_count;
         for (size_t t = 0; t < static_cast<size_t>(w) * h; ++t)
         {
-            float x = level[t * 3] * k, y = level[t * 3 + 1] * k;
+            float x = level[t * 3], y = level[t * 3 + 1];
             const float length = std::sqrt(x * x + y * y);
             if (length > 0.99f)
                 x *= 0.99f / length, y *= 0.99f / length;

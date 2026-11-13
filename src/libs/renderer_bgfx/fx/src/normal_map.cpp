@@ -76,53 +76,6 @@ Field Halve(const Field &in)
     return out;
 }
 
-// One box filter of width 2r+1 along x (horizontal) or y, with a running sum.
-Field Box(const Field &in, int r, bool horizontal)
-{
-    Field out = in;
-    const int length = horizontal ? in.width : in.height, lines = horizontal ? in.height : in.width;
-    const std::vector<int> at = in.Indices(length, r + 1);
-    const size_t step = horizontal ? 1 : static_cast<size_t>(in.width), line_step = horizontal ? static_cast<size_t>(in.width) : 1;
-    const float scale = 1.0f / static_cast<float>(2 * r + 1);
-    for (int line = 0; line < lines; ++line)
-    {
-        const float *src = in.values.data() + line * line_step;
-        float *dst = out.values.data() + line * line_step;
-        const auto value = [&](int i) { return src[at[static_cast<size_t>(i + r + 1)] * step]; };
-        float sum = 0.0f;
-        for (int i = -r; i <= r; ++i)
-            sum += value(i);
-        for (int i = 0; i < length; ++i)
-        {
-            dst[i * step] = sum * scale;
-            sum += value(i + r + 1) - value(i - r);
-        }
-    }
-    return out;
-}
-
-// Gaussian of `sigma` texels as three box passes per axis (their variance adds up: 3 (w² - 1) / 12 = sigma²).
-Field Gaussian(const Field &in, float sigma)
-{
-    const int r = std::max(1, static_cast<int>(std::lround((std::sqrt(4.0f * sigma * sigma + 1.0f) - 1.0f) * 0.5f)));
-    Field out = in;
-    for (int pass = 0; pass < 3; ++pass)
-        out = Box(Box(out, r, true), r, false);
-    return out;
-}
-
-// The detail of the luminance as height: the high pass relative to the local brightness (a dark stone floor has as
-// much relief as a bright one, and baked light or shade is not shape), softly limited (a lone black or white texel,
-// or the edge of a painted patch, is not a deep hole or a wall).
-void BandPass(Field &field, float sigma)
-{
-    const Field low = Gaussian(field, sigma);
-    constexpr float kDark = 0.08f; // below this local brightness the contrast is noise, not shape
-    constexpr float kLimit = 0.6f;
-    for (size_t i = 0; i < field.values.size(); ++i)
-        field.values[i] = kLimit * std::tanh((field.values[i] - low.values[i]) / (low.values[i] + kDark) / kLimit);
-}
-
 const char *const kClassNames[] = {"none", "height map", "stone", "wood", "building", "plaster"};
 
 enum class Match : uint8_t
@@ -373,53 +326,20 @@ const char *ReliefClassName(ReliefClass relief)
     return kClassNames[static_cast<int>(relief)];
 }
 
-NormalMapOptions ReliefOptions(ReliefClass relief)
+NormalMapOptions HeightMapOptions()
 {
     NormalMapOptions options;
-    switch (relief)
-    {
-    case ReliefClass::None:
-        options.strength = 0.0f;
-        break;
-    case ReliefClass::HeightMap:
-        options.source = NormalMapSource::Height;
-        options.strength = 2.0f;
-        break;
-    case ReliefClass::Stone:
-        options.source = NormalMapSource::Luminance;
-        options.strength = 7.0f;
-        options.band_sigma = 4.0f;
-        break;
-    case ReliefClass::Wood:
-        options.source = NormalMapSource::Luminance;
-        options.strength = 5.0f;
-        options.band_sigma = 3.0f;
-        options.pre_blur = 2; // the grain is fine noise: smooth it, keep the planks' gaps
-        break;
-    case ReliefClass::Building:
-        options.source = NormalMapSource::Luminance;
-        options.strength = 5.0f;
-        options.band_sigma = 3.0f;
-        break;
-    case ReliefClass::Plaster:
-        options.source = NormalMapSource::Luminance;
-        options.strength = 3.0f;
-        options.band_sigma = 3.0f;
-        options.pre_blur = 2;
-        break;
-    }
+    options.strength = 2.0f;
     return options;
 }
 
 uint64_t NormalMapCacheKey(const NormalMapOptions &options)
 {
-    uint32_t strength, sigma;
+    uint32_t strength;
     std::memcpy(&strength, &options.strength, sizeof(strength));
-    std::memcpy(&sigma, &options.band_sigma, sizeof(sigma));
     uint64_t key = 0xcbf29ce484222325ull;
-    for (uint64_t part : {uint64_t{kNormalMapVersion}, uint64_t{static_cast<uint8_t>(options.source)}, uint64_t{strength},
-                          uint64_t{options.wrap}, static_cast<uint64_t>(options.pre_blur), uint64_t{sigma},
-                          static_cast<uint64_t>(options.max_size)})
+    for (uint64_t part : {uint64_t{kNormalMapVersion}, uint64_t{strength}, uint64_t{options.wrap},
+                          static_cast<uint64_t>(options.pre_blur), static_cast<uint64_t>(options.max_size)})
         key = (key ^ part) * 0x100000001b3ull;
     return key;
 }
@@ -463,16 +383,11 @@ NormalMap DeriveNormalMap(std::span<const uint8_t> rgba, int width, int height, 
     Field field{width, height, options.wrap, {}};
     field.values.resize(static_cast<size_t>(width) * height);
     for (size_t i = 0; i < field.values.size(); ++i)
-    {
-        const uint8_t *texel = &rgba[i * 4];
-        field.values[i] = options.source == NormalMapSource::Height
-                              ? texel[0] / 255.0f
-                              : (0.299f * texel[0] + 0.587f * texel[1] + 0.114f * texel[2]) / 255.0f;
-    }
+        field.values[i] = rgba[i * 4] / 255.0f;
     int top_width, top_height;
     NormalMapSize(width, height, options, top_width, top_height);
-    // Strength and band are given at kNormalMapReferenceSize: a map derived smaller (a lower preset) has the same
-    // relief, only less detail.
+    // The strength is given at kNormalMapReferenceSize: a map derived smaller (a lower preset) has the same relief, only
+    // less detail.
     int reference_width, reference_height;
     NormalMapOptions reference = options;
     reference.max_size = kNormalMapReferenceSize;
@@ -482,8 +397,6 @@ NormalMap DeriveNormalMap(std::span<const uint8_t> rgba, int width, int height, 
         field = Halve(field);
     for (int pass = 0; pass < options.pre_blur; ++pass)
         field = Blur(field);
-    if (options.source == NormalMapSource::Luminance)
-        BandPass(field, std::max(options.band_sigma * texel_ratio, 1.0f));
     map.width = field.width;
     map.height = field.height;
     map.rg.reserve(NormalMapBytes(map.width, map.height));
