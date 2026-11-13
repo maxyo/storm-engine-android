@@ -134,6 +134,51 @@ def game_snapshot(game):
     return snapshot
 
 
+class LinkError(Exception):
+    """The sweep was about to write or delete through a symbolic link, or outside its own copy."""
+
+
+def refuse_links(root):
+    """The game copy must hold no symbolic link at all: cp -al copies a link as a link, and anything the sweep
+    deletes or writes through one (RESOURCE/techniques, save, engine.ini) lands in the player's game or another
+    shared folder. Fails loudly with every link found."""
+    links = [str(root)] if os.path.islink(root) else []
+    for directory, directories, files in os.walk(root):
+        for name in directories + files:
+            if os.path.islink(os.path.join(directory, name)):
+                links.append(os.path.join(directory, name))
+    if links:
+        raise LinkError(f'the game copy {root} holds symbolic links (copy the real folder, not a link to it): '
+                        + ', '.join(links[:10]) + (f' and {len(links) - 10} more' if len(links) > 10 else ''))
+
+
+def inside(root, path):
+    """`path` itself and every parent up to `root` are no symbolic links and stay inside `root`; returns `path`.
+    Every path the sweep deletes, unlinks or writes in its copy goes through this check."""
+    root = Path(os.path.realpath(root))
+    path = Path(path)
+    current = path
+    while True:
+        if current.is_symlink():
+            raise LinkError(f'refusing to change {path}: {current} is a symbolic link')
+        if current == root or current.parent == current:
+            break
+        current = current.parent
+    if Path(os.path.realpath(path)) != root and root not in Path(os.path.realpath(path)).parents:
+        raise LinkError(f'refusing to change {path}: it resolves outside {root}')
+    return path
+
+
+def writable_directories(root):
+    """cp -a keeps the source's directory modes (a read-only game folder gives a read-only copy). The copy's
+    directories are its own inodes, so they are made writable; its files are hard links shared with the
+    source and keep their modes (a chmod of one would change the player's file)."""
+    for directory, _, _ in os.walk(root):
+        mode = os.stat(directory).st_mode
+        if not mode & 0o200:
+            os.chmod(directory, mode | 0o700)
+
+
 def check_game_unchanged(game, snapshot, when):
     now = game_snapshot(game)
     changed = sorted(set(now) ^ set(snapshot) | {path for path in now.keys() & snapshot.keys() if now[path] != snapshot[path]})
@@ -298,11 +343,13 @@ class Shard(threading.Thread):
         game = run / 'game'
         # Hard links: no extra disk space, and the engine's resource index does not follow symlinks.
         subprocess.run(['cp', '-al', str(self.arguments.game), str(game)], check=True)
+        refuse_links(game)
+        writable_directories(game)
         source = self.arguments.game
 
         def own(relative):
             """A file of the copy the sweep or the game writes: unlinked first, so the write lands in the copy."""
-            path = game / relative
+            path = inside(game, game / relative)
             path.unlink(missing_ok=True)
             return path
 
@@ -310,9 +357,9 @@ class Shard(threading.Thread):
             own(name)
         # The player's profiles: a profile named like the sweep's new game stops it at "the profile exists" (and the
         # game would write into the player's hard-linked saves).
-        shutil.rmtree(inventory.find_case_insensitive(game, 'save') or game / 'save', ignore_errors=True)
+        shutil.rmtree(inside(game, inventory.find_case_insensitive(game, 'save') or game / 'save'), ignore_errors=True)
         if (source / 'options').exists():
-            shutil.copy(source / 'options', game / 'options')
+            shutil.copy(source / 'options', own('options'))
         settings = inventory.read_script(source / 'engine.ini')
         for key, value in (('full_screen', 0), ('screen_x', self.size[0]), ('screen_y', self.size[1]),
                            ('vsync', 0), ('show_fps', 0)):
@@ -320,7 +367,7 @@ class Shard(threading.Thread):
             if not count:
                 settings = f'{key} = {value}\n' + settings
         own('engine.ini').write_text(settings)
-        techniques = inventory.find_case_insensitive(game, 'RESOURCE/techniques')
+        techniques = inside(game, inventory.find_case_insensitive(game, 'RESOURCE/techniques'))
         shutil.rmtree(techniques)
         shutil.copytree(self.arguments.techniques, techniques)
         shutil.copy(HERE / 'scene_sweep.c', own('PROGRAM/scene_sweep.c'))
@@ -353,7 +400,7 @@ class Shard(threading.Thread):
                 os.killpg(engine.pid, signal.SIGKILL)
             engine.wait()
             if not self.arguments.keep_work:
-                shutil.rmtree(game)
+                shutil.rmtree(inside(run, game))
         check_game_unchanged(self.arguments.game, self.context['game'], f'during engine run {run}')
 
     def watch(self, engine, run, control, stdout):
@@ -504,7 +551,7 @@ class Shard(threading.Thread):
 def contact_sheets(out, scenes, results):
     """Thumbnails of every captured frame, failures framed in red, 48 per sheet."""
     directory = out / 'contact'
-    shutil.rmtree(directory, ignore_errors=True)
+    shutil.rmtree(inside(out, directory), ignore_errors=True)
     directory.mkdir()
     columns, rows, width, height, label = 6, 8, 320, 180, 14
     shown = [scene for scene in scenes if results.get(scene.id, {}).get('shot')]
@@ -604,7 +651,7 @@ def main():
         print('no scenes selected')
         return 0
     jobs = min(arguments.jobs or default_jobs(), len(chosen))
-    shutil.rmtree(arguments.out / 'work', ignore_errors=True)
+    shutil.rmtree(inside(arguments.out, arguments.out / 'work'), ignore_errors=True)
     (arguments.out / 'work').mkdir()
     # One copy of the engine per sweep, hard-linked into every game copy: the build directory
     # can be rebuilt incrementally while the sweep runs.
@@ -644,7 +691,7 @@ def main():
     if context['errors']:
         sys.exit('scene sweep harness error: ' + '; '.join(context['errors']))
     if not arguments.keep_work:
-        shutil.rmtree(arguments.out / 'work', ignore_errors=True)
+        shutil.rmtree(inside(arguments.out, arguments.out / 'work'), ignore_errors=True)
 
     # Merge: scenes are unique to a shard; the boot scenes and exit ran in every engine.
     results = {}
