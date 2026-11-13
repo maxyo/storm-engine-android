@@ -43,9 +43,10 @@ struct PerfCounters
     uint64_t texture_upload_bytes = 0;
     // Time, milliseconds.
     double shim_ms = 0;     // game thread inside the shim's draw path (D3D9 -> bgfx translation)
-    double backend_ms = 0;  // bgfx::frame() of presented frames: the GL backend, driver and swap
-    double submit_ms = 0;   // the GL backend's submit of the frame's draws on bgfx's render thread (bgfx::Stats
-                            // cpuTimeBegin..End: commands, uniforms, draw calls; no swap)
+    double submit_ms = 0;   // the GL backend's submit of the frame's draws (bgfx::Stats cpuTimeBegin..End: commands,
+                            // uniforms, draw calls; no present): on bgfx's render thread, or inside the game
+                            // thread's bgfx::frame() with render_thread=0
+    double wait_ms = 0;     // game thread blocked in bgfx::frame() until the render thread took the frame
     double gpu_ms = 0;      // GPU time of the frames bgfx measured with timer queries (0 when unsupported)
     uint64_t gpu_frames = 0; // frames that had a GPU time
     // Current values (not totals) as of the last presented frame.
@@ -62,7 +63,7 @@ struct PerfCounters
     PerfCounters Since(const PerfCounters &start) const;
     // Per-frame means of a window as space-separated key=value pairs (empty without frames):
     // draws skipped views programs states uniforms uniform_kb uniform_draws gl_uniforms gl_uniform_kb tex_binds tex_changes
-    // tvb_kb tib_kb fans buf_uploads buf_kb tex_uploads tex_kb shim_ms backend_ms submit_ms gpu_ms tex_mb rt_mb
+    // tvb_kb tib_kb fans buf_uploads buf_kb tex_uploads tex_kb shim_ms submit_ms wait_ms gpu_ms tex_mb rt_mb
     // tex_shadow_mb buf_shadow_mb buf_gpu_mb tvb_max_kb tib_max_kb.
     std::string Summary() const;
 };

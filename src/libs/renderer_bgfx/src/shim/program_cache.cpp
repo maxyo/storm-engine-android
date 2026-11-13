@@ -321,7 +321,7 @@ void ProgramCache::fatal(const char *file, uint16_t line, bgfx::Fatal::Enum code
 #ifdef STORM_TRACY
 namespace
 {
-// Zones bgfx opened on this thread (the render thread is the game thread: BGFX_CONFIG_MULTITHREADED is off).
+// Zones bgfx opened on this thread: its API scopes on the game thread, its backend scopes on the render thread.
 thread_local std::vector<TracyCZoneCtx> bgfx_zones;
 } // namespace
 

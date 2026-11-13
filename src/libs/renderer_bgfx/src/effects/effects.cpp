@@ -12,7 +12,6 @@
 #include "storm/render/program_cache.hpp"
 #include "texture/core/formats.hpp"
 
-#include <GLES2/gl2.h>
 
 #include <algorithm>
 #include <iterator>
@@ -158,18 +157,6 @@ std::string describe(const fx::Settings &s)
              static_cast<int>(s.shadows), s.lighting_flags, s.contact_shadows);
     return text;
 }
-
-bool has_extension(const char *name)
-{
-    const char *extensions = reinterpret_cast<const char *>(glGetString(GL_EXTENSIONS));
-    if (!extensions)
-        return false;
-    const size_t length = strlen(name);
-    for (const char *p = extensions; (p = strstr(p, name)) != nullptr; p += length)
-        if ((p == extensions || p[-1] == ' ') && (p[length] == ' ' || p[length] == '\0'))
-            return true;
-    return false;
-}
 } // namespace
 
 Host &Host::instance()
@@ -188,12 +175,10 @@ void Host::on_device_created()
     facts.scene_depth = true;
     facts.msaa_depth = true;
     // bgfx has no capability bit for it; the GL backend applies it only with this extension.
-    facts.anisotropy = has_extension("GL_EXT_texture_filter_anisotropic");
+    const shim::GlInfo &gl = shim::Context::instance().gl_info(); // read on the render thread
+    facts.anisotropy = gl.has_extension("GL_EXT_texture_filter_anisotropic");
     if (facts.anisotropy)
-    {
-        constexpr GLenum kMaxAnisotropy = 0x84FF; // GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT
-        glGetFloatv(kMaxAnisotropy, &device_max_anisotropy_);
-    }
+        device_max_anisotropy_ = gl.max_anisotropy;
     support_device_ = fx::DetectSupport(facts);
     device_ready_ = true;
     // Nothing is drawn yet: the device starts on the plain legacy path (no effect, no MSAA, not even «Низкая»'s
@@ -530,16 +515,16 @@ void Host::end_frame(bool scene_frame, uint32_t frame)
         const fx::SelfTest::Result result = self_test_.Poll(frame);
         if (result.done && result.failed == fx::SelfTest::Stage::None)
         {
-            const char *gpu = reinterpret_cast<const char *>(glGetString(GL_RENDERER));
-            shim::logf("effects self-test passed on %s (preset %d, MSAA %ux)", gpu ? gpu : "?", preset_,
+            shim::logf("effects self-test passed on %s (preset %d, MSAA %ux)",
+                       shim::Context::instance().gl_info().renderer.c_str(), preset_,
                        fx::RendererStateFor(tested_).msaa_samples);
             verified_.push_back(tested_);
         }
         if (result.done && result.failed != fx::SelfTest::Stage::None)
         {
-            const char *gpu = reinterpret_cast<const char *>(glGetString(GL_RENDERER));
             const bool scene = result.failed == fx::SelfTest::Stage::SceneTarget;
-            shim::logf("ERROR: effects self-test failed on %s (%s): %s. %s switched off; %s", gpu ? gpu : "?",
+            shim::logf("ERROR: effects self-test failed on %s (%s): %s. %s switched off; %s",
+                       shim::Context::instance().gl_info().renderer.c_str(),
                        bgfx::getRendererName(bgfx::getRendererType()), result.detail.c_str(),
                        scene ? "MSAA" : "the post-processing chain", support_.Describe().c_str());
             // Like a missing capability: ConstrainSettings switches the stage off and reports it.

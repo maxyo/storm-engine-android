@@ -204,6 +204,9 @@ JNIEXPORT jlong JNICALL Java_org_stormengine_port_StormUi_nativeCreate(JNIEnv *e
     init.callback = &g_callback;
     session->width = uint16_t(width);
     session->height = uint16_t(height);
+    // bgfx is built multithreaded (the game's render thread); here it must draw on this thread, whose context
+    // the view made current: a renderFrame() call before init is bgfx's switch for that (no render thread).
+    bgfx::renderFrame();
     if (init.platformData.context == EGL_NO_CONTEXT)
         error = "no current EGL context on the UI thread";
     else if (!(session->bgfx_started = bgfx::init(init)))

@@ -1113,9 +1113,11 @@ HRESULT Device::GetRenderTargetData(Surface *target, Surface *dest)
     read_region.init(staging);
     const uint32_t ready_frame = bgfx::read(read_region, pixels.data());
     uint32_t current = 0;
-    for (int i = 0; i < 4 && current < ready_frame; ++i)
-        if (!Context::instance().run_frame(BGFX_FRAME_FLUSH, &current))
-            break; // the surface is going away: the copy keeps whatever was read so far
+    // The render thread writes `pixels` while it executes the frame the read was recorded in; that frame is finished
+    // when bgfx::frame() has returned the next number, and `ready_frame` is one later still. Flush frames present
+    // nothing and are never refused (Context::run_frame), so `pixels` outlives the write.
+    while (current < ready_frame)
+        Context::instance().run_frame(BGFX_FRAME_FLUSH, &current);
     // A flush ends the bgfx frame: views and sticky uniforms start over.
     views_used = 0;
     view_has_content = false;

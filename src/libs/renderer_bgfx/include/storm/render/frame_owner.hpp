@@ -217,6 +217,11 @@ class GamePictureProvider
 // nullptr detaches (pictures acquired afterwards fail; live ones are forgotten, not unloaded).
 void SetGamePictureProvider(GamePictureProvider *provider);
 
+// bgfx's render thread: on by default (the GL backend, the driver and the present run off the game thread). Off
+// for measurements (engine.ini render_thread = 0): bgfx then renders inside the game thread's bgfx::frame().
+// Call before the device is created; the choice is logged when it is ("render thread: ...").
+void SetRenderThread(bool enabled);
+
 // Platform surface lifecycle, reported by the application loop (Android pause/resume).
 // Between Lost and Restored nothing is presented and FrameClient::OnUiRender is not called.
 void NotifySurfaceLost();

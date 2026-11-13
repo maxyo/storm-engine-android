@@ -25,18 +25,20 @@ render::PerfCounters &perf()
     return totals;
 }
 
-void perf_frame_presented(double backend_ms)
+void perf_frame_presented(double wait_ms)
 {
     ++totals.frames;
-    totals.backend_ms += backend_ms;
+    totals.wait_ms += wait_ms;
     totals.gl_uniform_calls = bgfx::gl::g_stormUniformUploadCalls.load(std::memory_order_relaxed);
     totals.gl_uniform_bytes = bgfx::gl::g_stormUniformUploadBytes.load(std::memory_order_relaxed);
     totals.transient_vb_frame_max = std::max(totals.transient_vb_frame_max, totals.transient_vb_bytes - frame_start_vb);
     totals.transient_ib_frame_max = std::max(totals.transient_ib_frame_max, totals.transient_ib_bytes - frame_start_ib);
     frame_start_vb = totals.transient_vb_bytes;
     frame_start_ib = totals.transient_ib_bytes;
+    // bgfx's statistics are those of the last frame the backend has finished (with the render thread: an earlier
+    // frame than the one just handed over).
     const bgfx::Stats *stats = bgfx::getStats();
-    if (stats->cpuTimerFreq > 0)
+    if (stats->cpuTimerFreq > 0 && stats->cpuTimeEnd > stats->cpuTimeBegin)
         totals.submit_ms += 1000.0 * static_cast<double>(stats->cpuTimeEnd - stats->cpuTimeBegin) /
                             static_cast<double>(stats->cpuTimerFreq);
     if (stats->gpuTimerFreq > 0 && stats->gpuTimeEnd > stats->gpuTimeBegin)
@@ -96,8 +98,8 @@ PerfCounters PerfCounters::Since(const PerfCounters &start) const
     d.texture_uploads -= start.texture_uploads;
     d.texture_upload_bytes -= start.texture_upload_bytes;
     d.shim_ms -= start.shim_ms;
-    d.backend_ms -= start.backend_ms;
     d.submit_ms -= start.submit_ms;
+    d.wait_ms -= start.wait_ms;
     d.gpu_ms -= start.gpu_ms;
     d.gpu_frames -= start.gpu_frames;
     return d;
@@ -114,12 +116,12 @@ std::string PerfCounters::Summary() const
     snprintf(text, sizeof(text),
              "draws=%.1f skipped=%.1f views=%.1f programs=%.1f states=%.1f uniforms=%.1f uniform_kb=%.1f "
              "uniform_draws=%.1f gl_uniforms=%.1f gl_uniform_kb=%.1f tex_binds=%.1f tex_changes=%.1f tvb_kb=%.1f tib_kb=%.1f fans=%.1f buf_uploads=%.2f "
-             "buf_kb=%.1f buf_creates=%.2f tex_uploads=%.2f tex_kb=%.1f shim_ms=%.3f backend_ms=%.3f submit_ms=%.3f gpu_ms=%.3f tex_mb=%.1f rt_mb=%.1f "
+             "buf_kb=%.1f buf_creates=%.2f tex_uploads=%.2f tex_kb=%.1f shim_ms=%.3f submit_ms=%.3f wait_ms=%.3f gpu_ms=%.3f tex_mb=%.1f rt_mb=%.1f "
              "tex_shadow_mb=%.1f buf_shadow_mb=%.1f buf_gpu_mb=%.1f tvb_max_kb=%.0f tib_max_kb=%.0f",
              mean(draws), mean(skipped_draws), mean(views), mean(program_changes), mean(state_changes),
              mean(uniform_updates), kb(uniform_bytes), mean(uniform_draws), mean(gl_uniform_calls), kb(gl_uniform_bytes), mean(texture_binds), mean(texture_changes),
              kb(transient_vb_bytes), kb(transient_ib_bytes), mean(fan_draws), mean(buffer_uploads),
-             kb(buffer_upload_bytes), mean(buffer_creates), mean(texture_uploads), kb(texture_upload_bytes), shim_ms / n, backend_ms / n, submit_ms / n,
+             kb(buffer_upload_bytes), mean(buffer_creates), mean(texture_uploads), kb(texture_upload_bytes), shim_ms / n, submit_ms / n, wait_ms / n,
              gpu_frames ? gpu_ms / static_cast<double>(gpu_frames) : 0.0, texture_memory / 1048576.0,
              render_target_memory / 1048576.0, texture_shadow_bytes / 1048576.0, buffer_shadow_bytes / 1048576.0,
              buffer_gpu_bytes / 1048576.0, transient_vb_frame_max / 1024.0, transient_ib_frame_max / 1024.0);

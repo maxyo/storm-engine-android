@@ -587,6 +587,13 @@ bool Renderer::Init()
         ConfigureGraphicsEffects([&ini](const char *name, int fallback) {
             return effectsIniValues[name] = ini->GetInt(nullptr, name, fallback);
         });
+        // Developer key render_thread = 0: bgfx renders on the game thread (measurements against the render
+        // thread, which is the default). The Android graphics setting of the same name wins. Logged by the shim.
+        int renderThread = ini->GetInt(nullptr, "render_thread", 1);
+#ifdef __ANDROID__
+        renderThread = storm::android::graphicsSetting("render_thread", renderThread);
+#endif
+        storm::render::SetRenderThread(renderThread != 0);
 #ifdef __ANDROID__
         ConfigureFrameRate();
 #endif

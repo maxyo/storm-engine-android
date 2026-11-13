@@ -12,8 +12,9 @@ namespace storm::shim
 // The totals of storm/render/perf_stats.hpp (game thread only).
 render::PerfCounters &perf();
 
-// Called after bgfx::frame() of a presented frame: frame count, backend time, bgfx statistics.
-void perf_frame_presented(double backend_ms);
+// Called after bgfx::frame() of a presented frame: frame count, bgfx statistics (backend time among them).
+// `wait_ms`: how long the game thread was blocked in bgfx::frame() waiting for the render thread (0 without one).
+void perf_frame_presented(double wait_ms);
 
 // Counts a texture upload and passes the memory through.
 inline const bgfx::Memory *counted_texture_upload(const bgfx::Memory *memory)

@@ -411,6 +411,8 @@ class BgfxCapture final : public Capture
         init.swapChain.width = 0;
         init.swapChain.height = 0;
         init.callback = &callback_;
+        // One thread (no bgfx render thread): the frame times measured here include the backend.
+        bgfx::renderFrame();
         if (!bgfx::init(init))
         {
             std::fprintf(stderr, "bgfx::init failed\n");

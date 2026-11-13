@@ -6,9 +6,11 @@ include(FetchContent)
 # Third-party code must not inherit the engine's global flags (UNICODE, the
 # Windows type headers, -std=c++20 for C sources ...).
 set_directory_properties(PROPERTIES INCLUDE_DIRECTORIES "" COMPILE_DEFINITIONS "" COMPILE_OPTIONS "")
-# The engine renders from its main thread; bgfx::frame() executes the backend
-# inline, so the EGL context lives on the thread that owns the SDL window.
-set(BGFX_CONFIG_MULTITHREADED OFF CACHE BOOL "" FORCE)
+# bgfx runs its GL backend on its own render thread, which owns the EGL context; the game thread records frames
+# and hands them over in bgfx::frame() (shim/device.hpp, Context). A host that must stay on one thread calls
+# bgfx::renderFrame() before bgfx::init (the launcher's screens under a GLSurfaceView, ui/android/jni_host.cpp;
+# the engine with render_thread=0).
+set(BGFX_CONFIG_MULTITHREADED ON CACHE BOOL "" FORCE)
 set(BGFX_CONFIG_MAX_TEXTURES 8192 CACHE STRING "" FORCE)
 set(BGFX_CONFIG_MAX_VERTEX_LAYOUTS 256 CACHE STRING "" FORCE)
 set(BGFX_CONFIG_MAX_DYNAMIC_VERTEX_BUFFERS 8192 CACHE STRING "" FORCE)
