@@ -73,7 +73,7 @@ Settings Settings::FromPreset(QualityPreset preset)
                        kLightingRim | kLightingAerial;
     s.point_lights = 8;
     s.shadows = ShadowQuality::Soft;
-    s.ao_volume = 3;
+    s.ao_volume = 2; // the owner: the strong look left the rooms too dark
     s.lamp_shadows = 16;
     s.lamp_moving = 2;
     s.lamp_soft = true;
