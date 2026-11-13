@@ -10,6 +10,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <fstream>
 #include <thread>
 #include <unistd.h>
@@ -192,15 +193,51 @@ void test_eac()
 void test_tx_formats()
 {
     CHECK(tx_format_known(21) && tx_format_known(0x31545844) && !tx_format_known(50));
-    CHECK(tx_level_bytes(23, 4, 2) == 16 && tx_level_bytes(0x31545844, 5, 5) == 32 && tx_level_bytes(21, 2, 2) == 16);
+    CHECK(d3d_level_bytes(23, 4, 2) == 16 && d3d_level_bytes(0x31545844, 5, 5) == 32 && d3d_level_bytes(21, 2, 2) == 16);
     const uint8_t argb[4] = {10, 20, 30, 40}; // B, G, R, A in memory
     uint8_t out[4];
-    CHECK(decode_tx_level(21, argb, 1, 1, out) && out[0] == 30 && out[1] == 20 && out[2] == 10 && out[3] == 40);
+    CHECK(decode_rgba8(21, argb, 1, 1, out) && out[0] == 30 && out[1] == 20 && out[2] == 10 && out[3] == 40);
     const uint8_t rgb565[2] = {0x00, 0xF8}; // pure red
-    CHECK(decode_tx_level(23, rgb565, 1, 1, out) && out[0] == 255 && out[1] == 0 && out[2] == 0 && out[3] == 255);
+    CHECK(decode_rgba8(23, rgb565, 1, 1, out) && out[0] == 255 && out[1] == 0 && out[2] == 0 && out[3] == 255);
     const uint8_t argb4444[2] = {0x0F, 0x80}; // a 8, r 0, g 0, b 15
-    CHECK(decode_tx_level(26, argb4444, 1, 1, out) && out[0] == 0 && out[2] == 255 && out[3] == 136);
-    CHECK(!decode_tx_level(50, argb, 1, 1, out));
+    CHECK(decode_rgba8(26, argb4444, 1, 1, out) && out[0] == 0 && out[2] == 255 && out[3] == 136);
+    CHECK(!decode_rgba8(50, argb, 1, 1, out));
+}
+
+// Every value of the 16-bit formats decodes to the nearest 8-bit value (v * 255 / max, rounded), as a GPU sampling
+// the native format does. The converters before bimg replicated bits instead: 14 of the 96 5- and 6-bit values came
+// out one step lower; 4-bit values (times 17) and 1-bit alpha are the same either way.
+void test_d3d_decode_exhaustive()
+{
+    std::vector<uint8_t> texels(65536 * 2);
+    for (uint32_t v = 0; v < 65536; ++v)
+        texels[v * 2] = uint8_t(v), texels[v * 2 + 1] = uint8_t(v >> 8);
+    std::vector<uint8_t> rgba(65536 * 4);
+    const auto unorm = [](uint32_t value, uint32_t max) { return uint8_t((value * 255 * 2 + max) / (2 * max)); };
+    int mismatches = 0;
+    for (uint32_t format : {23u, 25u, 26u})
+    {
+        CHECK(decode_rgba8(format, texels.data(), 256, 256, rgba.data()));
+        for (uint32_t v = 0; v < 65536; ++v)
+        {
+            uint8_t e[4];
+            if (format == 23)
+                e[0] = unorm(v >> 11, 31), e[1] = unorm((v >> 5) & 63, 63), e[2] = unorm(v & 31, 31), e[3] = 255;
+            else if (format == 25)
+                e[0] = unorm((v >> 10) & 31, 31), e[1] = unorm((v >> 5) & 31, 31), e[2] = unorm(v & 31, 31),
+                e[3] = (v & 0x8000) ? 255 : 0;
+            else
+                e[0] = unorm((v >> 8) & 15, 15), e[1] = unorm((v >> 4) & 15, 15), e[2] = unorm(v & 15, 15),
+                e[3] = unorm(v >> 12, 15);
+            mismatches += memcmp(e, &rgba[v * 4], 4) != 0;
+        }
+    }
+    CHECK(mismatches == 0);
+    const uint8_t xrgb[8] = {1, 2, 3, 0, 4, 5, 6, 77};
+    uint8_t out[8];
+    CHECK(decode_rgba8(22, xrgb, 2, 1, out) && out[0] == 3 && out[2] == 1 && out[3] == 255 && out[4] == 6 && out[7] == 255);
+    const uint8_t abgr[4] = {9, 8, 7, 6};
+    CHECK(decode_rgba8(32, abgr, 1, 1, out) && memcmp(out, abgr, 4) == 0);
 }
 
 void test_hash()
@@ -456,6 +493,7 @@ int main()
     test_channel_order();
     test_eac();
     test_tx_formats();
+    test_d3d_decode_exhaustive();
     test_hash();
     test_quality();
     test_cube();

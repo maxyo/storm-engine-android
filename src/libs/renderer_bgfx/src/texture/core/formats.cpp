@@ -62,6 +62,54 @@ EtcFormat choose_etc_format(DxtFormat format, const uint8_t *payload, size_t siz
     return bc1_has_transparency(payload, size) ? EtcFormat::Rgba8 : EtcFormat::Rgb8;
 }
 
+D3dFormat d3d_format(uint32_t d3d)
+{
+    switch (d3d)
+    {
+    case 21: // A8R8G8B8: B, G, R, A in memory
+        return {bimg::TextureFormat::BGRA8, false};
+    case 22: // X8R8G8B8
+        return {bimg::TextureFormat::BGRA8, true};
+    case 23: // R5G6B5: R in the top bits, as bimg's B5G6R5
+        return {bimg::TextureFormat::B5G6R5, false};
+    case 25: // A1R5G5B5
+        return {bimg::TextureFormat::BGR5A1, false};
+    case 26: // A4R4G4B4
+        return {bimg::TextureFormat::BGRA4, false};
+    case 32: // A8B8G8R8: R first (the video frames)
+        return {bimg::TextureFormat::RGBA8, false};
+    case 116: // A32B32G32R32F (the bone palettes)
+        return {bimg::TextureFormat::RGBA32F, false};
+    case 0x31545844: // 'DXT1'
+        return {bimg::TextureFormat::BC1, false};
+    case 0x32545844: // 'DXT2', 'DXT3'
+    case 0x33545844:
+        return {bimg::TextureFormat::BC2, false};
+    case 0x34545844: // 'DXT4', 'DXT5'
+    case 0x35545844:
+        return {bimg::TextureFormat::BC3, false};
+    }
+    return {};
+}
+
+void set_opaque(bimg::TextureFormat::Enum format, uint8_t *texels, size_t count)
+{
+    if (format == bimg::TextureFormat::BGRA8 || format == bimg::TextureFormat::RGBA8)
+        for (size_t i = 0; i < count; ++i)
+            texels[i * 4 + 3] = 255;
+}
+
+size_t d3d_level_bytes(uint32_t d3d, uint32_t width, uint32_t height)
+{
+    const bimg::TextureFormat::Enum format = d3d_format(d3d).format;
+    if (format == bimg::TextureFormat::Unknown)
+        return 0;
+    const bimg::ImageBlockInfo &block = bimg::getBlockInfo(format);
+    if (bimg::isCompressed(format))
+        return size_t(blocks_x(width)) * blocks_x(height) * block.blockSize;
+    return size_t(width) * height * block.bitsPerPixel / 8;
+}
+
 bool tx_format_known(uint32_t format)
 {
     switch (static_cast<TxFormat>(format))
@@ -79,84 +127,26 @@ bool tx_format_known(uint32_t format)
     return false;
 }
 
-size_t tx_level_bytes(uint32_t format, uint32_t width, uint32_t height)
+bool decode_rgba8(uint32_t d3d, const uint8_t *data, uint32_t width, uint32_t height, uint8_t *rgba)
 {
-    switch (static_cast<TxFormat>(format))
+    const D3dFormat format = d3d_format(d3d);
+    if (format.format == bimg::TextureFormat::Unknown || format.format == bimg::TextureFormat::RGBA32F)
+        return false;
+    if (bimg::isCompressed(format.format))
     {
-    case TxFormat::A8R8G8B8:
-    case TxFormat::X8R8G8B8:
-        return size_t(width) * height * 4;
-    case TxFormat::R5G6B5:
-    case TxFormat::A1R5G5B5:
-    case TxFormat::A4R4G4B4:
-        return size_t(width) * height * 2;
-    case TxFormat::Dxt1:
-        return dxt_level_size(DxtFormat::Bc1, width, height);
-    case TxFormat::Dxt3:
-        return dxt_level_size(DxtFormat::Bc2, width, height);
-    case TxFormat::Dxt5:
-        return dxt_level_size(DxtFormat::Bc3, width, height);
-    }
-    return 0;
-}
-
-bool decode_tx_level(uint32_t format, const uint8_t *data, uint32_t width, uint32_t height, uint8_t *rgba)
-{
-    const size_t texels = size_t(width) * height;
-    switch (static_cast<TxFormat>(format))
-    {
-    case TxFormat::Dxt1:
-    case TxFormat::Dxt3:
-    case TxFormat::Dxt5:
-    {
-        const DxtFormat dxt = static_cast<TxFormat>(format) == TxFormat::Dxt1   ? DxtFormat::Bc1
-                              : static_cast<TxFormat>(format) == TxFormat::Dxt3 ? DxtFormat::Bc2
-                                                                                 : DxtFormat::Bc3;
+        // the decoder writes whole 4x4 blocks; keep the visible width x height part
         const uint32_t aligned_width = blocks_x(width) * 4, aligned_height = blocks_x(height) * 4;
         std::vector<uint8_t> blocks(size_t(aligned_width) * aligned_height * 4);
-        decode_level(dxt, data, width, height, blocks.data());
+        bimg::imageDecodeToRgba8(&allocator, blocks.data(), data, aligned_width, aligned_height, aligned_width * 4,
+                                 format.format);
         for (uint32_t y = 0; y < height; ++y)
             memcpy(rgba + size_t(y) * width * 4, blocks.data() + size_t(y) * aligned_width * 4, size_t(width) * 4);
-        return true;
     }
-    case TxFormat::A8R8G8B8:
-    case TxFormat::X8R8G8B8:
-        for (size_t i = 0; i < texels; ++i)
-        {
-            const uint8_t *s = data + i * 4;
-            uint8_t *d = rgba + i * 4;
-            d[0] = s[2], d[1] = s[1], d[2] = s[0];
-            d[3] = static_cast<TxFormat>(format) == TxFormat::A8R8G8B8 ? s[3] : 255;
-        }
-        return true;
-    case TxFormat::R5G6B5:
-    case TxFormat::A1R5G5B5:
-    case TxFormat::A4R4G4B4:
-        for (size_t i = 0; i < texels; ++i)
-        {
-            const uint32_t v = data[i * 2] | (data[i * 2 + 1] << 8);
-            uint8_t *d = rgba + i * 4;
-            if (static_cast<TxFormat>(format) == TxFormat::R5G6B5)
-            {
-                const uint32_t r = v >> 11, g = (v >> 5) & 63, b = v & 31;
-                d[0] = uint8_t((r << 3) | (r >> 2)), d[1] = uint8_t((g << 2) | (g >> 4)), d[2] = uint8_t((b << 3) | (b >> 2));
-                d[3] = 255;
-            }
-            else if (static_cast<TxFormat>(format) == TxFormat::A1R5G5B5)
-            {
-                const uint32_t r = (v >> 10) & 31, g = (v >> 5) & 31, b = v & 31;
-                d[0] = uint8_t((r << 3) | (r >> 2)), d[1] = uint8_t((g << 3) | (g >> 2)), d[2] = uint8_t((b << 3) | (b >> 2));
-                d[3] = (v & 0x8000) ? 255 : 0;
-            }
-            else
-            {
-                d[0] = uint8_t(((v >> 8) & 15) * 17), d[1] = uint8_t(((v >> 4) & 15) * 17), d[2] = uint8_t((v & 15) * 17);
-                d[3] = uint8_t((v >> 12) * 17);
-            }
-        }
-        return true;
-    }
-    return false;
+    else
+        bimg::imageDecodeToRgba8(&allocator, rgba, data, width, height, width * 4, format.format);
+    if (format.opaque)
+        set_opaque(bimg::TextureFormat::RGBA8, rgba, size_t(width) * height);
+    return true;
 }
 
 namespace

@@ -675,14 +675,14 @@ void SetEffectsGroundLight(std::string_view name, std::span<const std::array<flo
     for (const EffectsLightmap &map : lightmaps)
     {
         const char kind = map.format[3];
-        const texture::DxtFormat format =
-            kind == '1' ? texture::DxtFormat::Bc1 : kind == '3' ? texture::DxtFormat::Bc2 : texture::DxtFormat::Bc3;
+        uint32_t code; // the .tx format tag is the D3DFORMAT FourCC
+        memcpy(&code, map.format.data(), sizeof(code));
         fx::GroundLightmap out;
-        if ((kind == '1' || kind == '3' || kind == '5') && map.width >= 4 && map.height >= 4 &&
-            map.data.size() >= texture::dxt_level_size(format, map.width, map.height))
+        rgba.resize(static_cast<size_t>(map.width) * map.height * 4);
+        if ((kind == '1' || kind == '3' || kind == '5') && map.format[0] == 'D' && map.width >= 4 && map.height >= 4 &&
+            map.data.size() >= texture::d3d_level_bytes(code, map.width, map.height) &&
+            texture::decode_rgba8(code, map.data.data(), map.width, map.height, rgba.data()))
         {
-            rgba.resize(static_cast<size_t>(map.width) * map.height * 4);
-            texture::decode_level(format, map.data.data(), map.width, map.height, rgba.data());
             out.width = static_cast<int>(map.width);
             out.height = static_cast<int>(map.height);
             out.luminance.resize(static_cast<size_t>(map.width) * map.height);

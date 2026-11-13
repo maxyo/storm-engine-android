@@ -71,7 +71,7 @@ struct TxFile
         format = static_cast<uint32_t>(header[4]);
         top_bytes = static_cast<uint32_t>(header[5]);
         if ((flags & (kTxFlagPalette | kTxFlagCubemap)) || !texture::tx_format_known(format) || width == 0 || height == 0 ||
-            width > 8192 || height > 8192 || levels == 0 || top_bytes != texture::tx_level_bytes(format, width, height))
+            width > 8192 || height > 8192 || levels == 0 || top_bytes != texture::d3d_level_bytes(format, width, height))
             return false;
         data.assign(std::istreambuf_iterator<char>(in), {});
         return data.size() >= top_bytes;
@@ -141,7 +141,7 @@ std::optional<uint64_t> Key(const Candidate &candidate, const TxFile &tx, int ma
         return std::nullopt;
     const std::span<const uint8_t> bytes = tx.Level(probe);
     const int pw = static_cast<int>(tx.width >> probe), ph = static_cast<int>(tx.height >> probe);
-    if (bytes.size() != texture::tx_level_bytes(tx.format, pw, ph))
+    if (bytes.size() != texture::d3d_level_bytes(tx.format, pw, ph))
         return std::nullopt;
     return fx::ReliefKey(candidate.name, bytes, pw, ph, fx::kReliefMethodVersion, map_size);
 }
@@ -156,7 +156,7 @@ bool GreyHeightMap(const Candidate &candidate, const TxFile &tx)
         return false;
     const uint32_t pw = tx.width >> probe, ph = tx.height >> probe;
     std::vector<uint8_t> rgba(size_t(pw) * ph * 4);
-    return texture::decode_tx_level(tx.format, tx.Level(probe).data(), pw, ph, rgba.data()) && fx::IsGrayscale(rgba);
+    return texture::decode_rgba8(tx.format, tx.Level(probe).data(), pw, ph, rgba.data()) && fx::IsGrayscale(rgba);
 }
 
 // The key of a texture that gets a prepared map, with the class it is prepared as.
@@ -290,8 +290,8 @@ bool ReadTextureLevel(const std::filesystem::path &file, int max_size, std::vect
     const uint32_t lw = std::max(1u, tx.width >> level), lh = std::max(1u, tx.height >> level);
     const std::span<const uint8_t> bytes = tx.Level(level);
     rgba.assign(size_t(lw) * lh * 4, 0);
-    if (bytes.size() < texture::tx_level_bytes(tx.format, lw, lh) ||
-        !texture::decode_tx_level(tx.format, bytes.data(), lw, lh, rgba.data()))
+    if (bytes.size() < texture::d3d_level_bytes(tx.format, lw, lh) ||
+        !texture::decode_rgba8(tx.format, bytes.data(), lw, lh, rgba.data()))
         return false;
     width = static_cast<int>(lw);
     height = static_cast<int>(lh);
@@ -377,8 +377,8 @@ Outcome Session::PrepareFile(const std::filesystem::path &textures, const std::f
     const int width = static_cast<int>(lw), height = static_cast<int>(lh);
     std::vector<uint8_t> rgba(size_t(lw) * lh * 4);
     const std::span<const uint8_t> bytes = tx.Level(level);
-    if (bytes.size() < texture::tx_level_bytes(tx.format, lw, lh) ||
-        !texture::decode_tx_level(tx.format, bytes.data(), lw, lh, rgba.data()))
+    if (bytes.size() < texture::d3d_level_bytes(tx.format, lw, lh) ||
+        !texture::decode_rgba8(tx.format, bytes.data(), lw, lh, rgba.data()))
     {
         failure = "unreadable level " + std::to_string(level);
         Log("ERROR: no relief map for %s: %s", candidate->name.c_str(), failure.c_str());

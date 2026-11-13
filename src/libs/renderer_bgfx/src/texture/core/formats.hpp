@@ -1,7 +1,9 @@
-// DXT (BC1-3) -> ETC2 transcode: formats, block decoding and ETC2/EAC encoding (both bimg).
-// Pure CPU code without bgfx; used by the shim (src/shim/objects.cpp) and the
-// worker threads of the transcode service.
+// The engine's texture formats as bimg formats, decoding (bimg) and ETC2/EAC encoding (bimg_encode) for the
+// DXT (BC1-3) -> ETC2 transcode and derived maps. CPU code without bgfx; used by the shim (src/shim/objects.cpp),
+// the effects and the worker threads of the transcode service.
 #pragma once
+
+#include <bimg/bimg.h>
 
 #include <cstddef>
 #include <cstdint>
@@ -73,7 +75,23 @@ void encode_eac(EacFormat format, const uint8_t *texels, uint32_t width, uint32_
 std::vector<uint8_t> encode_eac_chain(EacFormat format, const uint8_t *texels, uint32_t width, uint32_t height,
                                       uint32_t levels);
 
-// The colour formats of the game's .tx textures, by their D3DFORMAT / TX_FORMAT code (the same numbers).
+// The colour formats of the engine's textures by their D3DFORMAT code (the game's .tx files use the same numbers,
+// TX_FORMAT), as the bimg format that holds the same bytes. `opaque`: an X format, whose unused bits read as 1
+// (alpha 1); bimg has no such formats, so those bits are set before use (set_opaque). Unknown for any other code.
+struct D3dFormat
+{
+    bimg::TextureFormat::Enum format = bimg::TextureFormat::Unknown;
+    bool opaque = false;
+};
+D3dFormat d3d_format(uint32_t d3d);
+// Sets the unused bits of `count` texels of an opaque D3D format to 1, in place.
+void set_opaque(bimg::TextureFormat::Enum format, uint8_t *texels, size_t count);
+// Size of one level of a d3d_format() code (block formats: whole 4x4 blocks); 0 for an unknown code.
+size_t d3d_level_bytes(uint32_t d3d, uint32_t width, uint32_t height);
+// One level as RGBA8 (R first), width x height texels, from `data` of d3d_level_bytes(). False for an unknown code.
+bool decode_rgba8(uint32_t d3d, const uint8_t *data, uint32_t width, uint32_t height, uint8_t *rgba);
+
+// The formats a .tx file may hold (its header's TX_FORMAT), the subset of d3d_format() the game's files use.
 enum class TxFormat : uint32_t
 {
     A8R8G8B8 = 21,
@@ -85,11 +103,7 @@ enum class TxFormat : uint32_t
     Dxt3 = 0x33545844,
     Dxt5 = 0x35545844,
 };
-// True for the codes above; the size of one level of such a texture (DXT: whole 4x4 blocks).
 bool tx_format_known(uint32_t format);
-size_t tx_level_bytes(uint32_t format, uint32_t width, uint32_t height);
-// One level as RGBA8 (R first), width x height texels, from `data` of tx_level_bytes(). False for an unknown format.
-bool decode_tx_level(uint32_t format, const uint8_t *data, uint32_t width, uint32_t height, uint8_t *rgba);
 
 // Encodes a block-aligned RGBA8 image (R first) of aligned_width x aligned_height texels.
 void encode_etc(EtcFormat format, const uint8_t *rgba, uint32_t aligned_width, uint32_t aligned_height, uint8_t *out);

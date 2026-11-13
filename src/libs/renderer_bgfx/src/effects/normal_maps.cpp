@@ -92,12 +92,12 @@ void NormalMaps::on_texture_loaded(shim::TexStore &store, const char *path, cons
     const uint32_t pw = probe >= 0 ? store.level_width(static_cast<uint32_t>(probe)) : 0,
                    ph = probe >= 0 ? store.level_height(static_cast<uint32_t>(probe)) : 0;
     const std::vector<uint8_t> *probe_data = probe >= 0 ? &store.sub(0, static_cast<uint32_t>(probe)).data : nullptr;
-    const size_t probe_bytes = readable && probe >= 0 ? texture::tx_level_bytes(format, pw, ph) : 0;
+    const size_t probe_bytes = readable && probe >= 0 ? texture::d3d_level_bytes(format, pw, ph) : 0;
     std::vector<uint8_t> small;
     if (fx::NameSuggestsHeightMap(name) && probe_bytes && probe_data->size() >= probe_bytes)
     {
         small.resize(size_t(pw) * ph * 4);
-        texture::decode_tx_level(format, probe_data->data(), pw, ph, small.data());
+        texture::decode_rgba8(format, probe_data->data(), pw, ph, small.data());
     }
     const fx::ReliefVerdict verdict = classifier_.Classify(path, small);
     if (verdict.relief == fx::ReliefClass::None)
