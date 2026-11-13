@@ -355,44 +355,80 @@ void LampShadows::choose_moving(const std::array<float, 3> &eye)
 {
     if (moving_slots_ == 0)
         return;
-    // The lights that move, nearest to the camera first; each with the radius it lights.
-    std::vector<fx::Lamp> moving = moving_; // carried lanterns and torches, then the ships' lanterns
-    moving.insert(moving.end(), ship_lights_.begin(), ship_lights_.end());
-    const std::vector<fx::Lamp> &moving_ = moving;
+    // The lights that move, nearest to the camera first: carried lanterns and torches, then the ships' lanterns.
+    struct Candidate
+    {
+        fx::Lamp lamp;
+        const ShipLight *on_ship = nullptr;
+        const render::EffectsShip *ship = nullptr;
+    };
+    std::vector<Candidate> lights;
+    for (const fx::Lamp &l : moving_)
+        lights.push_back({l});
+    for (const ShipLight &l : ship_lights_)
+    {
+        const auto ship = std::find_if(ships_.begin(), ships_.end(), [&](const render::EffectsShip &s) { return s.id == l.ship; });
+        if (ship != ships_.end() && l.ship != 0)
+            lights.push_back({l.lamp, &l, &*ship});
+        else if (!ship_reported_)
+        {
+            ship_reported_ = true;
+            shim::logf("ERROR: effects: lamps: a ship's lantern was reported without its ship: it casts no shadows (logged once)");
+        }
+    }
     std::vector<std::pair<float, size_t>> order;
-    for (size_t i = 0; i < moving_.size(); ++i)
-        if (0.299f * moving_[i].color[0] + 0.587f * moving_[i].color[1] + 0.114f * moving_[i].color[2] > 1e-3f)
-            order.emplace_back(distance(moving_[i].position, {eye[0], eye[1], eye[2]}), i);
+    for (size_t i = 0; i < lights.size(); ++i)
+        if (0.299f * lights[i].lamp.color[0] + 0.587f * lights[i].lamp.color[1] + 0.114f * lights[i].lamp.color[2] > 1e-3f)
+            order.emplace_back(distance(lights[i].lamp.position, {eye[0], eye[1], eye[2]}), i);
     std::sort(order.begin(), order.end());
     if (order.size() > static_cast<size_t>(moving_slots_))
         order.resize(static_cast<size_t>(moving_slots_));
-    // A light keeps the slot it had (the one whose light was nearest to where it is now); the others take free ones.
-    std::vector<bool> taken(order.size(), false), kept(slot_.size(), false);
+    // How far the light is from the one the slot holds, negative: another light. A ship's lantern is the same while
+    // it is the same place of the same ship; a carried one while it is within a metre of where it was.
+    const auto apart = [](const Slot &slot, const Candidate &c) {
+        if (c.on_ship)
+            return slot.ship == c.on_ship->ship && distance(slot.local, c.on_ship->local) < 0.05f ? 0.0f : -1.0f;
+        const float d = distance(c.lamp.position, slot.at.position);
+        return slot.ship == 0 && d < 1.0f ? d : -1.0f;
+    };
+    // A light keeps the slot it had; the others take free ones.
+    std::vector<bool> taken(order.size(), false);
     for (int s = static_slots(); s < slots_; ++s)
     {
         Slot &slot = slot_[s];
         if (slot.lamp != kMovingLamp || slot.leaving)
             continue;
         size_t best = order.size();
+        float best_apart = 0.0f;
         for (size_t i = 0; i < order.size(); ++i)
-            if (!taken[i] && distance(moving_[order[i].second].position, slot.at.position) < 1.0f &&
-                (best == order.size() || distance(moving_[order[i].second].position, slot.at.position) <
-                                             distance(moving_[order[best].second].position, slot.at.position)))
+        {
+            const float d = taken[i] ? -1.0f : apart(slot, lights[order[i].second]);
+            if (d >= 0.0f && (best == order.size() || d < best_apart))
+            {
                 best = i;
+                best_apart = d;
+            }
+        }
         if (best == order.size())
         {
             slot.leaving = true; // its light is gone or out-ranked: fades out where it last was
             continue;
         }
         taken[best] = true;
-        kept[s] = true;
-        const fx::Lamp &light = moving_[order[best].second];
-        slot.redraw |= distance(light.position, slot.at.position) > kMovingStep;
-        const float radius = slot.at.range;
-        if (slot.redraw)
-            slot.at.position = light.position;
-        slot.at.color = light.color; // this frame's flicker
-        slot.at.range = radius;
+        const Candidate &light = lights[order[best].second];
+        if (light.ship)
+        {
+            // The ship carries it: its faces stay, only where the ship is changes.
+            slot.at.position = light.lamp.position;
+            bx::mtxInverse(slot.to_local.data(), light.ship->world.data());
+        }
+        else
+        {
+            slot.redraw |= best_apart > kMovingStep;
+            if (slot.redraw)
+                slot.at.position = light.lamp.position;
+        }
+        slot.at.color = light.lamp.color; // this frame's flicker
     }
     for (size_t i = 0; i < order.size(); ++i)
     {
@@ -401,13 +437,109 @@ void LampShadows::choose_moving(const std::array<float, 3> &eye)
         const auto free = std::find_if(slot_.begin() + static_slots(), slot_.end(), [](const Slot &s) { return s.lamp == -1; });
         if (free == slot_.end())
             break; // a slot that is leaving is still fading
-        const fx::Lamp &light = moving_[order[i].second];
+        const Candidate &light = lights[order[i].second];
         free->lamp = kMovingLamp;
-        free->at = light;
-        free->at.range = fx::LampRadius(light, kLampFloor / std::max(gain_ * kBakedGain, 1e-3f), kLampReach);
+        free->at = light.lamp;
+        free->at.range = fx::LampRadius(light.lamp, kLampFloor / std::max(gain_ * kBakedGain, 1e-3f), kLampReach);
         free->holder = kLanternHolder;
         free->redraw = true;
+        if (light.ship)
+        {
+            free->ship = light.on_ship->ship;
+            free->local = light.on_ship->local;
+            bx::mtxInverse(free->to_local.data(), light.ship->world.data());
+        }
     }
+    // The geometry of a ship none of whose lanterns holds a slot any more goes.
+    std::erase_if(ship_geometry_, [&](ShipGeometry &geometry) {
+        if (std::any_of(slot_.begin(), slot_.end(), [&](const Slot &s) { return s.lamp == kMovingLamp && s.ship == geometry.ship; }))
+            return false;
+        free_ship_geometry(geometry);
+        return true;
+    });
+}
+
+void LampShadows::free_ship_geometry(ShipGeometry &geometry)
+{
+    if (bgfx::isValid(geometry.vertices))
+        bgfx::destroy(geometry.vertices);
+    if (bgfx::isValid(geometry.solid))
+        bgfx::destroy(geometry.solid);
+    for (const auto &cut : geometry.cut)
+        bgfx::destroy(cut.second);
+    geometry = ShipGeometry{};
+}
+
+bool LampShadows::ship_geometry_wanted(uint64_t ship, uint64_t signature) const
+{
+    return std::any_of(slot_.begin(), slot_.end(),
+                       [&](const Slot &s) { return s.lamp == kMovingLamp && !s.leaving && s.ship == ship; }) &&
+           std::none_of(ship_geometry_.begin(), ship_geometry_.end(),
+                        [&](const ShipGeometry &g) { return g.ship == ship && g.signature == signature; });
+}
+
+void LampShadows::set_ship_geometry(uint64_t ship, uint64_t signature, const render::EffectsShipGeometry &geometry)
+{
+    auto kept = std::find_if(ship_geometry_.begin(), ship_geometry_.end(), [&](const ShipGeometry &g) { return g.ship == ship; });
+    if (kept == ship_geometry_.end())
+        kept = ship_geometry_.insert(ship_geometry_.end(), ShipGeometry{});
+    else
+        free_ship_geometry(*kept);
+    kept->ship = ship;
+    kept->signature = signature;
+    kept->triangles = geometry.indices.size() / 3;
+    for (Slot &slot : slot_)
+        if (slot.lamp == kMovingLamp && slot.ship == ship)
+            slot.redraw = true;
+    if (geometry.positions.empty() || geometry.indices.empty())
+        return; // the ship said why; its lanterns' still faces stay open
+    const bool textured = geometry.uvs.size() == geometry.positions.size();
+    bgfx::VertexLayout layout;
+    layout.begin().add(bgfx::Attrib::Position, 3, bgfx::AttribType::Float).add(bgfx::Attrib::TexCoord0, 2, bgfx::AttribType::Float).end();
+    const bgfx::Memory *vertices = bgfx::alloc(static_cast<uint32_t>(geometry.positions.size() * 5 * sizeof(float)));
+    auto *out = reinterpret_cast<float *>(vertices->data);
+    for (size_t i = 0; i < geometry.positions.size(); ++i, out += 5)
+    {
+        memcpy(out, geometry.positions[i].data(), 3 * sizeof(float));
+        out[3] = textured ? geometry.uvs[i][0] : 0.0f;
+        out[4] = textured ? geometry.uvs[i][1] : 0.0f;
+    }
+    kept->vertices = bgfx::createVertexBuffer(vertices, layout);
+    // Triangles of a texture whose alpha cuts holes cast through it; all others cast whole.
+    std::vector<bool> cut_index(geometry.indices.size(), false);
+    std::vector<std::pair<shim::BaseTexture *, std::vector<uint32_t>>> cut;
+    if (textured)
+        for (const auto &surface : geometry.surfaces)
+        {
+            const shim::TexStore *store = shim::store_of(surface.texture);
+            if (!store || !store->cutout || surface.first_index + surface.index_count > geometry.indices.size())
+                continue;
+            auto into = std::find_if(cut.begin(), cut.end(), [&](const auto &c) { return c.first == surface.texture; });
+            if (into == cut.end())
+                into = cut.insert(cut.end(), {surface.texture, {}});
+            for (uint32_t i = surface.first_index; i < surface.first_index + surface.index_count; ++i)
+            {
+                into->second.push_back(geometry.indices[i]);
+                cut_index[i] = true;
+            }
+        }
+    else if (!geometry.surfaces.empty())
+        shim::logf("ERROR: effects: lamps: a ship's geometry came without texture coordinates: its nets and gratings cast "
+                   "whole shadows");
+    std::vector<uint32_t> solid;
+    for (size_t i = 0; i < geometry.indices.size(); ++i)
+        if (!cut_index[i])
+            solid.push_back(geometry.indices[i]);
+    const auto buffer = [](const std::vector<uint32_t> &indices) {
+        return bgfx::createIndexBuffer(bgfx::copy(indices.data(), static_cast<uint32_t>(indices.size() * sizeof(uint32_t))),
+                                       BGFX_BUFFER_INDEX32);
+    };
+    if (!solid.empty())
+        kept->solid = buffer(solid);
+    for (const auto &c : cut)
+        kept->cut.emplace_back(c.first, buffer(c.second));
+    shim::logf("effects: lamps: a ship's still geometry for its lanterns' shadows: %zu triangles, %zu textures cut holes",
+               kept->triangles, kept->cut.size());
 }
 
 void LampShadows::upload_grid()
@@ -474,7 +606,7 @@ bool LampShadows::prepare(shim::Device &device, const std::array<float, 3> &eye,
     if (room_dirty_)
         upload_room();
     // Nothing to light with: no lamps of the place, no light that moves, no room light. (At sea there is no still
-    // geometry at all: the ships' lanterns shine on the ships, which cast as lit draws.)
+    // geometry of a location: the ships' lanterns have their ships'.)
     if ((lamps_.empty() || positions_.empty()) && moving_.empty() && ship_lights_.empty() && !room_ready_)
         return false;
     const auto now = std::chrono::steady_clock::now();
@@ -534,6 +666,15 @@ bool LampShadows::prepare(shim::Device &device, const std::array<float, 3> &eye,
         uniforms_[4 + 3 * s] = {slot.at.att0, slot.at.att1, slot.at.att2, slot.holder};
     }
     grid_uniforms_[4] = {static_cast<float>(static_slots()), static_cast<float>(moving_slots_), 0.0f, 0.0f};
+    // Per moving slot: the turn from the world into the space of its faces (a ship's; else none).
+    for (int i = 0; i < 2; ++i)
+    {
+        const Slot *slot = i < moving_slots_ ? &slot_[static_slots() + i] : nullptr;
+        for (int axis = 0; axis < 3; ++axis)
+            grid_uniforms_[5 + 3 * i + axis] =
+                slot && slot->ship ? std::array<float, 4>{slot->to_local[axis], slot->to_local[4 + axis], slot->to_local[8 + axis], 0.0f}
+                                   : std::array<float, 4>{axis == 0 ? 1.0f : 0.0f, axis == 1 ? 1.0f : 0.0f, axis == 2 ? 1.0f : 0.0f, 0.0f};
+    }
     grid_uniforms_[0][3] = static_cast<float>(debug_);
     grid_uniforms_[3][3] = soft_ ? 1.0f : 0.0f;
     active_ = true;
@@ -561,19 +702,41 @@ void LampShadows::draw_faces(shim::Device &device, Casters &casters, int s)
     const bgfx::ProgramHandle program = casters.program(device, Casters::Pass::Lamp, false, {}); // logs a failure
     if (!bgfx::isValid(program))
         return;
-    // A moving light's triangles are gathered now, from around where it is; a lamp's were when it took the slot.
-    bgfx::TransientIndexBuffer solid{};
-    std::vector<std::pair<size_t, bgfx::TransientIndexBuffer>> cut;
-    uint32_t solid_count = 0;
-    if (slot.moving && bgfx::isValid(static_vb_))
+    // What casts, each part with its texture where that cuts holes: a lamp's triangles were chosen when it took the
+    // slot; a carried light's are gathered now, from around where it is; a ship's lantern has the whole ship, in the
+    // ship's space.
+    struct Part
+    {
+        shim::BaseTexture *texture = nullptr; // null: solid
+        bgfx::IndexBufferHandle indices = BGFX_INVALID_HANDLE;
+        bgfx::TransientIndexBuffer gathered{}; // when `indices` is not valid
+    };
+    std::vector<Part> parts;
+    bgfx::VertexBufferHandle vertices = static_vb_;
+    fx::Lamp lamp = slot.at;
+    if (slot.ship)
+    {
+        const auto ship = std::find_if(ship_geometry_.begin(), ship_geometry_.end(),
+                                       [&](const ShipGeometry &g) { return g.ship == slot.ship; });
+        vertices = ship != ship_geometry_.end() ? ship->vertices : bgfx::VertexBufferHandle{bgfx::kInvalidHandle};
+        lamp.position = slot.local;
+        if (bgfx::isValid(vertices))
+        {
+            if (bgfx::isValid(ship->solid))
+                parts.push_back({nullptr, ship->solid});
+            for (const auto &cut : ship->cut)
+                parts.push_back({cut.first, cut.second});
+        }
+    }
+    else if (slot.moving && bgfx::isValid(static_vb_))
     {
         std::vector<uint32_t> near;
-        const auto gather = [&](const fx::TriangleGrid &grid, const std::vector<uint32_t> &triangles, bgfx::TransientIndexBuffer &into) {
+        const auto gather = [&](const fx::TriangleGrid &grid, const std::vector<uint32_t> &triangles, shim::BaseTexture *texture) {
             near.clear();
             fx::TrianglesInSphere(grid, triangles, slot.at.position, slot.at.range, near, seen_);
             const auto count = static_cast<uint32_t>(near.size());
             if (count == 0)
-                return 0u;
+                return;
             if (bgfx::getAvailTransientIndexBuffer(count, true) < count)
             {
                 if (!transient_reported_)
@@ -581,19 +744,23 @@ void LampShadows::draw_faces(shim::Device &device, Casters &casters, int s)
                                "transient buffer: that geometry casts no shadow of it (logged once)",
                                count);
                 transient_reported_ = true;
-                return 0u;
+                return;
             }
-            bgfx::allocTransientIndexBuffer(&into, count, true);
-            memcpy(into.data, near.data(), near.size() * sizeof(uint32_t));
-            return count;
+            Part part{texture};
+            bgfx::allocTransientIndexBuffer(&part.gathered, count, true);
+            memcpy(part.gathered.data, near.data(), near.size() * sizeof(uint32_t));
+            parts.push_back(part);
         };
-        solid_count = gather(solid_grid_, solid_, solid);
-        for (size_t c = 0; c < cut_.size(); ++c)
-        {
-            bgfx::TransientIndexBuffer indices{};
-            if (gather(cut_[c].grid, cut_[c].indices, indices) > 0)
-                cut.emplace_back(c, indices);
-        }
+        gather(solid_grid_, solid_, nullptr);
+        for (const CutOut &c : cut_)
+            gather(c.grid, c.indices, c.texture);
+    }
+    else if (bgfx::isValid(static_vb_))
+    {
+        if (bgfx::isValid(slot.triangles))
+            parts.push_back({nullptr, slot.triangles});
+        for (const auto &cut : slot.cut)
+            parts.push_back({cut_[cut.first].texture, cut.second});
     }
     // The slot's row back to "nothing as far as the lamp reaches": the caster shader writes the distance over the
     // radius, here a distance far beyond any radius.
@@ -610,47 +777,33 @@ void LampShadows::draw_faces(shim::Device &device, Casters &casters, int s)
     const float caster[4] = {static_cast<float>(face_size_), 1.0f / slot.at.range, slot.holder, fx::kLampFaceGuard};
     for (int face = 0; face < 6; ++face)
     {
-        const std::array<float, 16> m = face_matrix(slot.at, s, face, columns_, rows_);
-        if (!bgfx::isValid(static_vb_))
-            break; // no still geometry (the sea): the cleared row is all there is
-        if (slot.moving ? solid_count > 0 : bgfx::isValid(slot.triangles))
+        const std::array<float, 16> m = face_matrix(lamp, s, face, columns_, rows_);
+        for (const Part &part : parts) // none: the cleared row is all there is
         {
+            // Solid, or with its texture, so the shadow has its holes (foliage, nets, gratings): the same rule as for
+            // a draw, the still geometry's material with this texture (sets the cut's uniforms).
+            shim::TexStore *store = part.texture ? shim::store_of(part.texture) : nullptr;
+            if (part.texture && !store)
+                continue;
+            const bgfx::ProgramHandle program_part =
+                store ? casters.program(device, Casters::Pass::Lamp, false, location_caster_material(store)) : program;
+            if (!bgfx::isValid(program_part))
+                continue;
+            if (store)
+            {
+                store->sync();
+                bgfx::setTexture(0, casters.sampler(), store->handle);
+            }
             scissor_tile(s, face, columns_, face_size_);
             bgfx::setUniform(u_caster_, caster);
             bgfx::setTransform(m.data());
-            bgfx::setVertexBuffer(0, static_vb_);
-            if (slot.moving)
-                bgfx::setIndexBuffer(&solid);
+            bgfx::setVertexBuffer(0, vertices);
+            if (bgfx::isValid(part.indices))
+                bgfx::setIndexBuffer(part.indices);
             else
-                bgfx::setIndexBuffer(slot.triangles);
+                bgfx::setIndexBuffer(&part.gathered);
             bgfx::setState(kCasterState);
-            bgfx::submit(kLampStaticView, program);
-        }
-        // Foliage, nets, gratings: with their texture, so the shadow has their holes.
-        const size_t cuts = slot.moving ? cut.size() : slot.cut.size();
-        for (size_t i = 0; i < cuts; ++i)
-        {
-            const size_t texture = slot.moving ? cut[i].first : slot.cut[i].first;
-            shim::TexStore *store = shim::store_of(cut_[texture].texture);
-            if (!store)
-                continue;
-            // The same rule as for a draw: the location's material with this texture (sets the cut's uniforms).
-            const bgfx::ProgramHandle program_cut =
-                casters.program(device, Casters::Pass::Lamp, false, location_caster_material(store));
-            if (!bgfx::isValid(program_cut))
-                continue;
-            store->sync();
-            scissor_tile(s, face, columns_, face_size_);
-            bgfx::setUniform(u_caster_, caster);
-            bgfx::setTexture(0, casters.sampler(), store->handle);
-            bgfx::setTransform(m.data());
-            bgfx::setVertexBuffer(0, static_vb_);
-            if (slot.moving)
-                bgfx::setIndexBuffer(&cut[i].second);
-            else
-                bgfx::setIndexBuffer(slot.cut[i].second);
-            bgfx::setState(kCasterState);
-            bgfx::submit(kLampStaticView, program_cut);
+            bgfx::submit(kLampStaticView, program_part);
         }
     }
     static_faces_ += 6;
@@ -694,8 +847,11 @@ void LampShadows::draw_static(shim::Device &device, bool all, Casters &casters)
         Slot &slot = slot_[s];
         if (slot.lamp == kMovingLamp)
         {
-            // A light that moves: every time it has moved (and at once when it appears).
-            if (!slot.redraw)
+            // A light that moves: every time it has moved (and at once when it appears). A ship's lantern: once its
+            // ship's geometry is here (the ship is asked for it: ship_geometry_wanted), and when that changes.
+            if (!slot.redraw || (slot.ship && std::none_of(ship_geometry_.begin(), ship_geometry_.end(), [&](const ShipGeometry &g) {
+                                     return g.ship == slot.ship;
+                                 })))
                 continue;
             draw_faces(device, casters, s);
             slot.redraw = false;
@@ -741,14 +897,31 @@ void LampShadows::submit_caster(shim::Device &device, const float *world, bool s
         const fx::Lamp &l = slot.at;
         if (slot.lamp == -1 || !slot.ready || distance(l.position, {center[0], center[1], center[2]}) > l.range + radius)
             continue;
+        // A ship's own still geometry is in the still faces of its lanterns.
+        if (slot.ship && slot.ship == drawn_ship_)
+            continue;
+        // The faces of a ship's lantern are in the ship's space.
+        fx::Lamp in_faces = l;
+        fx::Vec3 at{center[0], center[1], center[2]};
+        std::array<float, 16> to_faces{};
+        memcpy(to_faces.data(), world, sizeof(to_faces));
+        if (slot.ship)
+        {
+            in_faces.position = slot.local;
+            bx::mtxMul(to_faces.data(), world, slot.to_local.data());
+            const float *t = slot.to_local.data();
+            at = {center[0] * t[0] + center[1] * t[4] + center[2] * t[8] + t[12],
+                  center[0] * t[1] + center[1] * t[5] + center[2] * t[9] + t[13],
+                  center[0] * t[2] + center[1] * t[6] + center[2] * t[10] + t[14]};
+        }
         ++slot.casters;
         for (int face = 0; face < 6; ++face)
         {
-            if (!fx::SphereInLampFace(l.position, face, {center[0], center[1], center[2]}, radius))
+            if (!fx::SphereInLampFace(in_faces.position, face, at, radius))
                 continue;
-            const std::array<float, 16> m = face_matrix(l, s, face, columns_, rows_);
+            const std::array<float, 16> m = face_matrix(in_faces, s, face, columns_, rows_);
             std::array<float, 16> wm{};
-            bx::mtxMul(wm.data(), world, m.data());
+            bx::mtxMul(wm.data(), to_faces.data(), m.data());
             // A lamp's own model (a street lantern's, a ship lantern's) and the hand that carries a lantern cast no
             // shadow of it.
             const float caster[4] = {static_cast<float>(dynamic_face_size_), 1.0f / l.range, std::max(slot.holder, kLanternHolder),
@@ -811,7 +984,10 @@ void LampShadows::end_frame()
     if (!moving_this_frame_)
         moving_.clear();
     if (!ship_lights_this_frame_)
+    {
         ship_lights_.clear();
+        ships_.clear();
+    }
     moving_this_frame_ = ship_lights_this_frame_ = false;
     if (!prepared_)
         last_slots_ = 0;
@@ -832,6 +1008,8 @@ void LampShadows::shutdown()
             bgfx::destroy(*b);
     for (Slot &slot : slot_)
         free_slot(slot);
+    for (ShipGeometry &geometry : ship_geometry_)
+        free_ship_geometry(geometry);
     for (bgfx::UniformHandle *u : {&s_static_, &s_dynamic_, &s_grid_, &s_room_, &u_view_, &u_lamps_, &u_grid_, &u_caster_})
         if (bgfx::isValid(*u))
             bgfx::destroy(*u);
@@ -845,6 +1023,9 @@ void LampShadows::on_device_lost()
     static_vb_ = clear_vb_ = BGFX_INVALID_HANDLE;
     s_static_ = s_dynamic_ = s_grid_ = s_room_ = u_view_ = u_lamps_ = u_grid_ = u_caster_ = BGFX_INVALID_HANDLE;
     slot_.assign(slot_.size(), Slot{});
+    for (int s = static_slots(); s < slots_; ++s)
+        slot_[s].moving = true;
+    ship_geometry_.clear();
     layout_dirty_ = grid_dirty_ = geometry_dirty_ = true;
     room_dirty_ = true;
     room_ready_ = false;

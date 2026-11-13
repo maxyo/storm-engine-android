@@ -125,11 +125,6 @@ struct EffectsPointLight
 };
 void SetEffectsDynamicLights(std::span<const EffectsPointLight> lights);
 
-// SHIP_LIGHTS, every frame at sea: the lanterns of the ships that are lit (world space, with this frame's flicker;
-// not the flashes of the cannons). The nearest to the camera take the lamp slots of the lights that move
-// (fx_lamp_moving) and cast the shadows of masts, rigging, sails, deck and crew. A frame without the call has none.
-void SetEffectsShipLights(std::span<const EffectsPointLight> lights);
-
 // Location, every frame it draws: its static lamps (the lights of lights.ini at its locators, colour with this
 // frame's flicker). The ones around the camera relight the location per pixel, each with its shadow
 // (fx_lamp_shadows).
@@ -162,6 +157,48 @@ struct EffectsLocationGeometry
     std::array<float, 3> room_lo{}, room_hi{};
 };
 void SetEffectsLocationGeometry(const EffectsLocationGeometry &geometry);
+
+// SHIP_LIGHTS, every frame at sea: the ships that carry lit lanterns and those lanterns (world space, with this
+// frame's flicker; not the flashes of the cannons). The nearest to the camera take the lamp slots of the lights that
+// move (fx_lamp_moving). A lantern stands still on its ship, so the shadows of the ship itself (hull, masts, deck)
+// are drawn once into faces in the ship's own space and stay while the ship sails; the crew, the sails and other
+// ships cast every frame. A frame without the call has none.
+struct EffectsShip
+{
+    uint64_t id = 0;               // names the ship while it lives (not 0)
+    std::array<float, 16> world{}; // ship space -> absolute world (row vectors), rigid
+    uint64_t signature = 0;        // changes when the ship's still geometry does (a mast falls, the lanterns change)
+};
+struct EffectsShipLight
+{
+    EffectsPointLight light;
+    uint64_t ship = 0;             // an EffectsShip::id of the same call
+    std::array<float, 3> local{};  // the lantern in the ship's space
+};
+void SetEffectsShipLights(std::span<const EffectsShip> ships, std::span<const EffectsShipLight> lights);
+// True when one of the ship's lanterns holds a slot and the effects do not have the ship's still geometry of this
+// signature: the ship then reports it (SetEffectsShipGeometry) before the frame draws.
+bool EffectsShipGeometryWanted(uint64_t ship, uint64_t signature);
+// The ship's still geometry in its own space (triangle list; uvs and surfaces as in EffectsLocationGeometry, the
+// textures alive while the ship's lanterns are reported). Empty: it could not be read; the ship casts nothing still.
+struct EffectsShipGeometry
+{
+    std::span<const std::array<float, 3>> positions;
+    std::span<const std::array<float, 2>> uvs;
+    std::span<const uint32_t> indices;
+    std::span<const EffectsLocationGeometry::Surface> surfaces;
+};
+void SetEffectsShipGeometry(uint64_t ship, uint64_t signature, const EffectsShipGeometry &geometry);
+// While one lives, the draws are the still geometry of this ship (what SetEffectsShipGeometry reports): they are in
+// the cached faces of the ship's own lanterns and cast every frame only for other lights.
+class EffectsShipDraw
+{
+  public:
+    explicit EffectsShipDraw(uint64_t ship);
+    ~EffectsShipDraw();
+    EffectsShipDraw(const EffectsShipDraw &) = delete;
+    EffectsShipDraw &operator=(const EffectsShipDraw &) = delete;
+};
 
 
 // Location, once an outdoor location is loaded: its lightmapped ground (the still models with a shadow.tga lightmap:

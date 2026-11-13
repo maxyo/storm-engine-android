@@ -63,9 +63,10 @@ float ffAoVolume(vec3 P, vec3 Ng, vec3 Nw)
 // u_fxLampGrid[2]: xyz the room light's corner, w > 0 = this draw takes its ambient from the room light, times w
 // u_fxLampGrid[3]: xyz 1 / the room light's extent, w 1 = 5x5 filter on the static faces
 // u_fxLampGrid[4]: x the first slot of the lights that move, y how many such slots (they are not in the grid)
+// u_fxLampGrid[5..7], [8..10]: per such slot, the rows of the turn from the world into the space of its faces
 uniform mat4 u_fxLampView;
 uniform vec4 u_fxLamps[50];
-uniform vec4 u_fxLampGrid[5];
+uniform vec4 u_fxLampGrid[11];
 SAMPLER3D(s_fxRoomLight, 8);
 SAMPLER3D(s_fxLampGrid, 9);
 SAMPLER2DSHADOW(s_fxLampDynamic, 10);
@@ -209,7 +210,16 @@ void ffLampAdd(float id, vec3 Pw, vec3 Ng, vec3 N, inout vec4 sum)
     if (u_fxLampGrid[0].w > 0.5)
         rgb = ffLampDebugColor(slot) * dot(rgb, vec3(0.299, 0.587, 0.114));
     float moving = color.w > 1.5 ? 1.0 : 0.0;
-    sum.rgb += rgb * (light * ffLampVisibility(slot, L, lamp.w, color.w - 2.0 * moving, Ng, ngl));
+    // The faces of a ship's lantern are in the ship's space: the direction and the normal turn into it.
+    vec3 Lf = L;
+    vec3 Nf = Ng;
+    if (moving > 0.5)
+    {
+        int turn = 5 + 3 * int(slot - u_fxLampGrid[4].x + 0.5);
+        Lf = vec3(dot(L, u_fxLampGrid[turn].xyz), dot(L, u_fxLampGrid[turn + 1].xyz), dot(L, u_fxLampGrid[turn + 2].xyz));
+        Nf = vec3(dot(Ng, u_fxLampGrid[turn].xyz), dot(Ng, u_fxLampGrid[turn + 1].xyz), dot(Ng, u_fxLampGrid[turn + 2].xyz));
+    }
+    sum.rgb += rgb * (light * ffLampVisibility(slot, Lf, lamp.w, color.w - 2.0 * moving, Nf, ngl));
     sum.a += dot(rgb, vec3(0.299, 0.587, 0.114)) * light;
 }
 

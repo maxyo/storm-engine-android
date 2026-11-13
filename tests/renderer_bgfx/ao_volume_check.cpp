@@ -386,6 +386,47 @@ int main()
                     ok &= pass;
                 }
             render::SetEffectsDynamicLights({});
+            // A ship's lantern: the same room is now a ship (its geometry in the ship's space, reported once when the
+            // effects ask), the lantern stands at (-2, 2, -2) on it. The shadow of the pillar lies where the ship puts
+            // it, and when the ship turns a quarter it turns with it, from the same faces: nothing is reported again.
+            render::SetEffectsLocationGeometry({});
+            render::ConfigureEffects(2, {{"fx_ao_volume", 0}, {"fx_lamp_shadows", 8}, {"fx_lamp_moving", 1}});
+            int reports = 0;
+            for (const float quarter : {0.0f, 1.0f})
+            {
+                const float c = quarter > 0.5f ? 0.0f : 1.0f, sn = quarter > 0.5f ? 1.0f : 0.0f;
+                const auto turned = [&](float x, float y, float z) { return std::array<float, 3>{x * c + z * sn, y, -x * sn + z * c}; };
+                render::EffectsShip ship;
+                ship.id = 7;
+                ship.signature = 1;
+                ship.world = {c, 0.0f, -sn, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, sn, 0.0f, c, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f};
+                const render::EffectsShipLight lantern{{turned(-2.0f, 2.0f, -2.0f), {4.0f, 3.6f, 3.0f}, 15.0f, 0.5f, 0.0f, 0.1f},
+                                                       ship.id,
+                                                       {-2.0f, 2.0f, -2.0f}};
+                std::vector<uint8_t> picture;
+                for (int frame = 0; frame < 400; ++frame)
+                {
+                    render::SetEffectsShipLights(std::span(&ship, 1), std::span(&lantern, 1));
+                    if (render::EffectsShipGeometryWanted(ship.id, ship.signature))
+                    {
+                        render::SetEffectsShipGeometry(ship.id, ship.signature, {positions, {}, indices, {}});
+                        ++reports;
+                    }
+                    picture = harness.render();
+                    if (!render::CurrentEffects().pending && frame > 150)
+                        break;
+                    SDL_Delay(5);
+                }
+                const std::array<float, 3> behind = turned(0.5f, 0.0f, 0.5f), open = turned(-2.5f, 0.0f, -0.5f);
+                const float shadowed = mean(picture, (behind[0] + 3.0f) / 6.0f, (3.0f - behind[2]) / 6.0f);
+                const float lit = mean(picture, (open[0] + 3.0f) / 6.0f, (3.0f - open[2]) / 6.0f);
+                const bool pass = !render::CurrentEffects().pending && lit > 150.0f && shadowed < 0.8f * lit && reports == 1;
+                std::printf("%s ship's lantern, the ship turned %.0f quarter: floor behind the pillar %.1f, the open spot %.1f, "
+                            "the ship's geometry reported %d time(s)\n",
+                            pass ? "PASS" : "FAIL", quarter, shadowed, lit, reports);
+                ok &= pass;
+            }
+            render::SetEffectsShipLights({}, {});
             harness.texture = nullptr;
             white->Release();
             render::SetEffectsLamps({});
