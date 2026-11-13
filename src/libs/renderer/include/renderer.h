@@ -320,7 +320,8 @@ class VRenderer : public SERVICE, public storm::render::TextureColorReader
     // log an error and do nothing (Lock returns nullptr, the size is 0).
     virtual int32_t CreateVertexBuffer(int32_t type, size_t nverts, uint32_t usage,
                                        uint32_t dwPool = D3DPOOL_DEFAULT) = 0;
-    virtual int32_t CreateIndexBuffer(size_t ntrgs, uint32_t dwUsage = D3DUSAGE_WRITEONLY) = 0;
+    virtual int32_t CreateIndexBuffer(size_t ntrgs, uint32_t dwUsage = D3DUSAGE_WRITEONLY,
+                                      D3DFORMAT format = D3DFMT_INDEX16) = 0;
 
     virtual int32_t GetVertexBufferFVF(int32_t id) = 0;
     virtual void *LockVertexBuffer(int32_t id, uint32_t dwFlags = 0) = 0;

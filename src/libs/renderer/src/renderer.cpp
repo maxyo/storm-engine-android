@@ -2433,7 +2433,7 @@ int32_t Renderer::GetVertexBufferFVF(int32_t id)
 }
 
 //################################################################################
-int32_t Renderer::CreateIndexBuffer(size_t size, uint32_t dwUsage)
+int32_t Renderer::CreateIndexBuffer(size_t size, uint32_t dwUsage, D3DFORMAT format)
 {
     int32_t b;
     for (b = 0; b < MAX_BUFFERS; b++)
@@ -2443,9 +2443,7 @@ int32_t Renderer::CreateIndexBuffer(size_t size, uint32_t dwUsage)
     if (b == MAX_BUFFERS)
         return -1;
 
-    // d3d9->CreateIndexBuffer(size, D3DUSAGE_WRITEONLY, D3DFMT_INDEX16,
-    if (CHECKD3DERR(
-            d3d9->CreateIndexBuffer(size, dwUsage, D3DFMT_INDEX16, D3DPOOL_DEFAULT, &IndexBuffers[b].buff, NULL)))
+    if (CHECKD3DERR(d3d9->CreateIndexBuffer(size, dwUsage, format, D3DPOOL_DEFAULT, &IndexBuffers[b].buff, NULL)))
         return -1;
 
     IndexBuffers[b].size = size;
