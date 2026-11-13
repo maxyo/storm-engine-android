@@ -20,9 +20,7 @@
 #include <string>
 #include <vector>
 #include <thread>
-#ifdef STORM_TRACY
 #include <unistd.h>
-#endif
 
 #ifdef __ANDROID__
 #include <android/log.h>
@@ -184,6 +182,11 @@ void SetRenderThread(bool enabled)
     shim::Context::instance().set_render_thread(enabled);
 }
 
+void SetFrameOverlap(int mode)
+{
+    shim::Context::instance().set_frame_overlap(mode);
+}
+
 void HoldGamePicture(bool hold)
 {
     shim::Context::instance().hold_picture(hold);
@@ -238,9 +241,58 @@ void Context::set_render_thread(bool enabled)
     render_thread_ = enabled;
 }
 
+void Context::set_frame_overlap(int mode)
+{
+    overlap_mode_ = std::clamp(mode, -1, 1);
+    overlap_logged_ = false;
+}
+
+std::chrono::nanoseconds Context::frame_gate(uint32_t number, std::chrono::nanoseconds game, std::chrono::nanoseconds blocked)
+{
+    using Ms = std::chrono::duration<double, std::milli>;
+    std::unique_lock lock(release_mutex_);
+    const std::chrono::nanoseconds render = render_work_;
+    const std::chrono::nanoseconds interval = FramePacing::instance().preferred_interval();
+    bool changed = !overlap_logged_;
+    if (overlap_mode_ < 0)
+        changed |= overlap_.update(Ms(game).count(), Ms(render).count(), Ms(interval).count());
+    const bool overlapped = overlap_mode_ < 0 ? overlap_.overlapped() : overlap_mode_ == 1;
+    if (changed)
+    {
+        overlap_logged_ = true;
+        char why[160];
+        if (overlap_mode_ >= 0)
+            snprintf(why, sizeof(why), "render_overlap=%d", overlap_mode_);
+        else if (interval.count() <= 0)
+            snprintf(why, sizeof(why), "no frame rate to fit");
+        else
+            snprintf(why, sizeof(why), "game %.1f ms + render %.1f ms, %.0f%% of the %.2f ms frame smoothed", Ms(game).count(),
+                     Ms(render).count(), 100.0 * overlap_.load(), Ms(interval).count());
+        logf(overlapped ? "render thread: frames overlap (%s): the next frame is simulated while this one is rendered, one "
+                          "frame more from input to picture"
+                        : "render thread: frames take turns (%s): a frame is simulated after the previous one is presented, "
+                          "no added latency",
+             why);
+    }
+    const uint32_t awaited = number - (overlapped ? 1 : 0);
+    const auto started = std::chrono::steady_clock::now();
+    {
+        STORM_PROFILE_ZONE("frame gate: the render thread presents");
+        // Bounded: pacing only. A frame that takes longer is still waited for by the next bgfx::frame().
+        release_done_.wait_for(lock, std::chrono::milliseconds(500),
+                               [&] { return static_cast<int32_t>(done_frame_ - awaited) >= 0; });
+    }
+    const std::chrono::nanoseconds waited = blocked + (std::chrono::steady_clock::now() - started);
+    // What the frame needs from the two threads together: both works in turn, or the longer one when they overlap.
+    const std::chrono::nanoseconds also_work = overlapped ? std::max(render - game, std::chrono::nanoseconds::zero()) : render;
+    return std::max(waited - also_work, std::chrono::nanoseconds::zero());
+}
+
 void Context::render_frame_done(uint32_t frame)
 {
     Context &context = instance();
+    const auto now = std::chrono::steady_clock::now();
+    const std::chrono::nanoseconds present_wait = FramePacing::instance().take_present_wait();
     GlInfo info;
     bool read = false;
     // The first frame bgfx::init runs creates the GL context; start() waits for what is read here.
@@ -267,7 +319,12 @@ void Context::render_frame_done(uint32_t frame)
         {
             context.gl_info_ = std::move(info);
             context.gl_info_read_ = true;
+            context.render_tid_ = static_cast<int>(gettid());
         }
+        // The frame's work began when it was handed over, or when the frame before it was finished.
+        const auto began = std::max(context.done_time_, context.hand_time_[frame & 3]);
+        context.render_work_ = std::max<std::chrono::nanoseconds>(now - began - present_wait, std::chrono::nanoseconds::zero());
+        context.done_time_ = now;
         context.done_frame_ = frame;
     }
     context.release_done_.notify_all();
@@ -382,6 +439,8 @@ bool Context::start(SDL_Window *window, uint32_t width, uint32_t height, bool vs
     }
     if (window)
         FramePacing::instance().set_window(init.swapChain.nwh);
+    if (window && render_thread_active_)
+        FramePacing::instance().render_thread_started(render_tid_);
     flip_y_ = caps_->originBottomLeft;
     if (window)
     {
@@ -462,6 +521,9 @@ void Context::shutdown()
         frames_handed_ = false;
     }
     render_thread_active_ = false;
+    overlap_ = {};
+    overlap_logged_ = false;
+    gate_end_ = {};
     FramePacing::instance().shutdown();
     ProgramCache::instance().detach_device();
     initialised_ = false;
@@ -598,6 +660,7 @@ bool Context::run_frame(uint32_t flags, uint32_t *frame_number)
         in_frame_ = false;
         handed_frame_ = number;
         frames_handed_ = true;
+        hand_time_[number & 3] = before;
     }
     release_done_.notify_all();
     if (frame_number)
@@ -607,9 +670,13 @@ bool Context::run_frame(uint32_t flags, uint32_t *frame_number)
 
 void Context::poll_surface()
 {
-    if (release_requested_.load(std::memory_order_relaxed))
+    // A restore request is taken before the release request is looked at: the release that preceded it on
+    // Android's thread is then seen too, whenever the two arrive (the other order dropped the restore when both
+    // came between the two checks).
+    const bool restore = restore_requested_.exchange(false);
+    if (release_requested_.load())
         surface_lost();
-    if (restore_requested_.exchange(false) && initialised_ && !surface_.valid)
+    if (restore && initialised_ && !surface_.valid)
         restore_pending_ = true;
     if (restore_pending_)
         try_restore();
@@ -786,6 +853,7 @@ void Context::present(bgfx::TextureHandle game_color, uint32_t game_width, uint3
             for (auto &entry : clients_)
                 entry.client->OnUiRender(frame_);
         }
+        const auto frame_call = std::chrono::steady_clock::now();
         bool presented = false;
         {
             // With the render thread: the wait for it to finish rendering the previous frame, then the hand-over.
@@ -795,9 +863,16 @@ void Context::present(bgfx::TextureHandle game_color, uint32_t game_width, uint3
         }
         if (presented)
         {
+            double wait_ms = 0.0;
             if (render_thread_active_)
-                FramePacing::instance().game_thread_waited(frame_blocked_);
-            perf_frame_presented(render_thread_active_ ? std::chrono::duration<double, std::milli>(frame_blocked_).count() : 0.0);
+            {
+                const auto game = gate_end_ == std::chrono::steady_clock::time_point{} ? std::chrono::nanoseconds::zero()
+                                                                                       : frame_call - gate_end_;
+                FramePacing::instance().game_thread_waited(frame_gate(last_frame_, game, frame_blocked_));
+                gate_end_ = std::chrono::steady_clock::now();
+                wait_ms = std::chrono::duration<double, std::milli>(gate_end_ - frame_call).count();
+            }
+            perf_frame_presented(wait_ms);
             STORM_PROFILE_FRAME();
 #ifdef STORM_TRACY
             plot_frame_stats();

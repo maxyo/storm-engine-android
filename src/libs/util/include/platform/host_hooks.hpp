@@ -83,8 +83,10 @@ inline bool saveInProgress()
 }
 
 #ifdef __ANDROID__
-// Feeds the app's ADPF PerformanceHint session through two static methods of
-// org.stormengine.port.GamePerformance: reportFrameWork(long nanos) and updateTargetWork(long nanos), "(J)V".
+// Feeds the app's ADPF PerformanceHint session through static methods of
+// org.stormengine.port.GamePerformance: reportFrameWork(long nanos) and updateTargetWork(long nanos), "(J)V", and
+// addThread(int tid), "(I)V", for the renderer's own thread (an app without it keeps the session on the game
+// thread alone, which is logged).
 // The class and methods are resolved once through the activity's class loader (FindClass
 // on a native thread would only see the system loader) and cached as a global ref, so a
 // call is one static call without allocations. If the class or a method is missing, or
@@ -100,6 +102,31 @@ class FrameWorkHint
     void target(std::chrono::nanoseconds target)
     {
         call(&FrameWorkHint::target_, target);
+    }
+
+    // A thread that shares the frame's work with the game thread (bgfx's render thread), by its Linux tid.
+    void thread(int tid)
+    {
+        if (state_ == State::Disabled)
+            return;
+        auto *env = static_cast<JNIEnv *>(SDL_AndroidGetJNIEnv());
+        if (!env)
+            return disable("no JNIEnv for the game thread");
+        if (state_ == State::Unresolved && !resolve(env))
+            return;
+        if (!thread_)
+        {
+            __android_log_print(ANDROID_LOG_WARN, "StormPerformance",
+                                "GamePerformance.addThread(I)V not found: thread %d stays outside the ADPF hint session", tid);
+            return;
+        }
+        env->CallStaticVoidMethod(class_, thread_, static_cast<jint>(tid));
+        if (env->ExceptionCheck())
+        {
+            env->ExceptionDescribe();
+            env->ExceptionClear();
+            disable("GamePerformance.addThread threw");
+        }
     }
 
   private:
@@ -170,6 +197,9 @@ class FrameWorkHint
         target_ = env->GetStaticMethodID(found, "updateTargetWork", "(J)V");
         if (env->ExceptionCheck())
             env->ExceptionClear();
+        thread_ = env->GetStaticMethodID(found, "addThread", "(I)V"); // newer apps only
+        if (env->ExceptionCheck())
+            env->ExceptionClear();
         if (report_ && target_)
             class_ = static_cast<jclass>(env->NewGlobalRef(found));
         env->DeleteLocalRef(found);
@@ -193,6 +223,7 @@ class FrameWorkHint
     jclass class_ = nullptr;
     jmethodID report_ = nullptr;
     jmethodID target_ = nullptr;
+    jmethodID thread_ = nullptr;
 };
 
 inline FrameWorkHint &frameWorkHint()
@@ -209,6 +240,17 @@ inline void reportFrameWork(std::chrono::nanoseconds work)
     frameWorkHint().report(work);
 #else
     (void)work;
+#endif
+}
+
+// A thread that does part of every frame's work besides the game thread (the renderer's): the host's performance
+// hint covers it too. Game thread only.
+inline void frameWorkThread(int tid)
+{
+#ifdef __ANDROID__
+    frameWorkHint().thread(tid);
+#else
+    (void)tid;
 #endif
 }
 

@@ -55,6 +55,16 @@ target_compile_definitions(preset_switch_check PRIVATE NOMINMAX)
 target_compile_options(preset_switch_check PRIVATE -fsigned-char)
 target_link_libraries(preset_switch_check PRIVATE storm_bgfx storm_check_sdl)
 
+# render_thread_check: bgfx's render thread through the shim on OpenGL ES (an X display, like skinning_check): the
+# driver's strings arrive from it, the surface is released only with no frame in flight, both gate choices and
+# render_thread=0 present, the renderer restarts in either mode.
+add_executable(render_thread_check render_thread_check.cpp)
+target_include_directories(render_thread_check PRIVATE "${CMAKE_CURRENT_LIST_DIR}/../../src/libs/renderer_bgfx/src/shim"
+    "${CMAKE_CURRENT_LIST_DIR}/../../src/libs/renderer_bgfx/src")
+target_compile_definitions(render_thread_check PRIVATE NOMINMAX)
+target_compile_options(render_thread_check PRIVATE -fsigned-char)
+target_link_libraries(render_thread_check PRIVATE storm_bgfx storm_check_sdl)
+
 # program_cache_check: program binaries between renderer starts (src/shim/program_cache.hpp) on OpenGL ES (an X
 # display, like skinning_check): stored, loaded, corrupt / rejected entries relinked, the size limit.
 add_executable(program_cache_check program_cache_check.cpp)

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "bone_palettes.hpp"
+#include "frame_overlap.hpp"
 #include "shim.hpp"
 #include "storm/render/frame_owner.hpp"
 
@@ -53,8 +54,16 @@ class Context final : public render::FrameOwner
     // Before the device exists (render::SetRenderThread): false = bgfx renders on the game thread.
     void set_render_thread(bool enabled);
     bool render_thread() const { return render_thread_active_; }
+    // render::SetFrameOverlap: -1 chosen per frame (FrameOverlap), 0 never, 1 always. Any time.
+    void set_frame_overlap(int mode);
     // Valid from init on.
     const GlInfo &gl_info() const { return gl_info_; }
+    // Any thread: a frame handed to the render thread is not finished yet (rendered and presented).
+    bool frames_in_flight()
+    {
+        std::lock_guard lock(release_mutex_);
+        return !render_idle();
+    }
 
     BonePalettes &bone_palettes() { return bone_palettes_; }
 
@@ -153,6 +162,11 @@ class Context final : public render::FrameOwner
     bool render_idle() const { return !in_frame_ && (!frames_handed_ || done_frame_ == handed_frame_); }
     // Waits for render_idle(); `lock` holds release_mutex_. False after `what` was logged as an error (3 s).
     bool wait_render_idle(std::unique_lock<std::mutex> &lock, const char *what);
+    // Game thread, after presenting frame `number` was handed to the render thread: waits for the frame that
+    // frame_overlap.hpp says (this one, or the one before). `game`: the game thread's work for the frame. Returns
+    // the part of the time blocked for this frame (`blocked` in bgfx::frame() plus the wait here) that was not on
+    // the frame's critical path, for the ADPF work clock.
+    std::chrono::nanoseconds frame_gate(uint32_t number, std::chrono::nanoseconds game, std::chrono::nanoseconds blocked);
 
     SDL_Window *window_ = nullptr;
     bool initialised_ = false;
@@ -174,6 +188,10 @@ class Context final : public render::FrameOwner
     uint32_t handed_frame_ = 0;   // number of the last frame bgfx::frame() handed to the render thread
     uint32_t done_frame_ = 0;     // number of the last frame the render thread finished
     bool gl_info_read_ = false;   // gl_info_ is filled (render thread, its first finished frame)
+    int render_tid_ = 0;          // the render thread's Linux tid, with gl_info_
+    std::chrono::steady_clock::time_point hand_time_[4]{}; // when frame (number & 3) was given to bgfx::frame()
+    std::chrono::steady_clock::time_point done_time_{};    // when done_frame_ was finished
+    std::chrono::nanoseconds render_work_{0}; // render thread's time for done_frame_ without its present wait
     std::mutex release_mutex_;
     std::condition_variable release_done_;
     bool render_thread_ = true;         // requested
@@ -200,6 +218,10 @@ class Context final : public render::FrameOwner
     uint32_t last_frame_ = 0;
     uint32_t submitted_frames_ = 0;
     std::chrono::steady_clock::duration frame_blocked_{}; // the last bgfx::frame() call, wall time
+    FrameOverlap overlap_;
+    int overlap_mode_ = -1;
+    bool overlap_logged_ = false; // the first choice of this device is in the log
+    std::chrono::steady_clock::time_point gate_end_{}; // the game thread's work for the next frame starts here
 };
 
 struct Device final : Object

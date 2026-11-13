@@ -3,6 +3,8 @@
 
 #include "shim.hpp"
 
+#include <utility>
+
 #ifdef __ANDROID__
 #include "platform/host_hooks.hpp"
 #include "profiler.hpp"
@@ -96,6 +98,7 @@ void FramePacing::start(bool render_thread)
                                          : "refresh unknown to SDL",
                  to_ms(target_));
         log_error(message);
+        preferred_ = target_;
         storm::platform::frameWorkTarget(target_);
     }
     // Both ways the present goes through present_frame: the same frame times and present wait.
@@ -143,6 +146,7 @@ void FramePacing::choose_interval()
          SWAPPY_MAJOR_VERSION, SWAPPY_MINOR_VERSION, SWAPPY_BUGFIX_VERSION, STORM_SWAPPY_PACKAGE, 1e9 / target_.count(),
          rates.c_str(), current / 1e6, current ? 1e9 / current : 0.0, interval / 1e6, 1e9 / interval,
          static_cast<unsigned long long>(choice.refreshes), 1e9 / choice.period, slowest / 1e6);
+    preferred_ = std::chrono::nanoseconds(interval);
     // ADPF aims at the preferred rate (FramePacing in frame_pacing.hpp: not at a lowered one).
     storm::platform::frameWorkTarget(std::chrono::nanoseconds(interval));
 }
@@ -168,6 +172,7 @@ void FramePacing::set_frame_rate(uint32_t fps)
         choose_interval(); // logs the new interval, sets the ADPF target
         return;
     }
+    preferred_ = target_;
     logf("frame pacing: frame rate %u fps (setting); without Swappy the present stays unpaced, ADPF aims at %.2f ms", fps,
          to_ms(target_));
     storm::platform::frameWorkTarget(target_);
@@ -185,6 +190,21 @@ void FramePacing::set_window(void *native_window)
 void FramePacing::game_thread_waited(std::chrono::nanoseconds wait)
 {
     storm::platform::presentWaited(wait);
+}
+
+void FramePacing::render_thread_started(int tid)
+{
+    storm::platform::frameWorkThread(tid);
+}
+
+std::chrono::nanoseconds FramePacing::preferred_interval() const
+{
+    return preferred_;
+}
+
+std::chrono::nanoseconds FramePacing::take_present_wait()
+{
+    return std::exchange(present_wait_, std::chrono::nanoseconds::zero());
 }
 
 void FramePacing::shutdown()
@@ -226,6 +246,7 @@ bool FramePacing::present_frame(void *display, void *surface)
                  eglGetError(), failures);
     }
     const auto wait = std::chrono::duration_cast<std::chrono::nanoseconds>(after - before);
+    present_wait_ += wait;
     if (!render_thread_)
         storm::platform::presentWaited(wait); // the game thread waited here (host_hooks.hpp: game thread only)
     std::lock_guard lock(mutex_);
@@ -300,6 +321,20 @@ void FramePacing::start(bool)
 
 void FramePacing::game_thread_waited(std::chrono::nanoseconds)
 {
+}
+
+void FramePacing::render_thread_started(int)
+{
+}
+
+std::chrono::nanoseconds FramePacing::preferred_interval() const
+{
+    return std::chrono::nanoseconds::zero();
+}
+
+std::chrono::nanoseconds FramePacing::take_present_wait()
+{
+    return std::chrono::nanoseconds::zero();
 }
 
 void FramePacing::set_window(void *)

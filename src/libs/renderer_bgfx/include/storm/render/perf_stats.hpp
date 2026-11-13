@@ -46,7 +46,8 @@ struct PerfCounters
     double submit_ms = 0;   // the GL backend's submit of the frame's draws (bgfx::Stats cpuTimeBegin..End: commands,
                             // uniforms, draw calls; no present): on bgfx's render thread, or inside the game
                             // thread's bgfx::frame() with render_thread=0
-    double wait_ms = 0;     // game thread blocked in bgfx::frame() until the render thread took the frame
+    double wait_ms = 0;     // game thread waiting for the render thread: in bgfx::frame() and for the present
+                            // of the frame it paces on (shim/frame_overlap.hpp)
     double gpu_ms = 0;      // GPU time of the frames bgfx measured with timer queries (0 when unsupported)
     uint64_t gpu_frames = 0; // frames that had a GPU time
     // Current values (not totals) as of the last presented frame.

@@ -221,6 +221,10 @@ void SetGamePictureProvider(GamePictureProvider *provider);
 // for measurements (engine.ini render_thread = 0): bgfx then renders inside the game thread's bgfx::frame().
 // Call before the device is created; the choice is logged when it is ("render thread: ...").
 void SetRenderThread(bool enabled);
+// With the render thread: whether the game thread simulates the next frame while the render thread still renders
+// this one. -1 (default): only while game work + render work do not fit the frame (no added input latency where
+// they fit); 0 never; 1 always (engine.ini render_overlap, measurements). Each change is logged.
+void SetFrameOverlap(int mode);
 
 // Platform surface lifecycle, reported by the application loop (Android pause/resume).
 // Between Lost and Restored nothing is presented and FrameClient::OnUiRender is not called.

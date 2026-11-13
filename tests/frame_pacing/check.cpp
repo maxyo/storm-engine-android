@@ -1,5 +1,7 @@
-// Host checks for src/libs/renderer_bgfx/src/shim/swap_interval.hpp: the swap interval of a frame rate on
+// Host checks for src/libs/renderer_bgfx/src/shim/frame_overlap.hpp (when the game thread runs a frame ahead of the
+// render thread) and src/libs/renderer_bgfx/src/shim/swap_interval.hpp: the swap interval of a frame rate on
 // mocked display mode sets (60, 90, 120 Hz panels and their combinations).
+#include "shim/frame_overlap.hpp"
 #include "shim/swap_interval.hpp"
 
 #include <cstdio>
@@ -37,8 +39,62 @@ void expect_choice(std::vector<uint64_t> modes, double current, double fps, doub
 }
 } // namespace
 
+// Frames overlap only while game work + render work do not fit the swap interval.
+void check_frame_overlap()
+{
+    using storm::shim::FrameOverlap;
+    const double interval = 16.67;
+    {
+        // The owner's phone: 5 ms of game work, 3 ms of rendering at 60 fps. Never overlapped.
+        FrameOverlap overlap;
+        for (int i = 0; i < 1000; ++i)
+            expect(!overlap.update(5.0, 3.0, interval) && !overlap.overlapped(), "frames that fit stay serial");
+        // One long frame (a load hitch) does not switch.
+        overlap.update(60.0, 3.0, interval);
+        expect(!overlap.overlapped(), "a single long frame keeps the frames serial");
+        overlap.update(5.0, 3.0, interval);
+        expect(!overlap.overlapped(), "and so does the frame after it");
+    }
+    {
+        // A slow phone: 12 ms + 9 ms do not fit 16.67 ms, each fits alone.
+        FrameOverlap overlap;
+        int frames = 0;
+        while (!overlap.overlapped() && frames < 100)
+        {
+            overlap.update(12.0, 9.0, interval);
+            ++frames;
+        }
+        expect(frames == 2, "two frames in a row that do not fit overlap the next ones");
+        // The scene gets light: back to serial only after a calm stretch.
+        for (int i = 0; i < FrameOverlap::kCalmFrames - 1; ++i)
+            overlap.update(4.0, 3.0, interval);
+        expect(overlap.overlapped(), "a short calm stretch keeps the overlap");
+        for (int i = 0; i < 20; ++i)
+            overlap.update(4.0, 3.0, interval);
+        expect(!overlap.overlapped(), "a long calm stretch ends the overlap");
+    }
+    {
+        // A load just under the interval (15 of 16.67 ms) still overlaps: no margin for the present.
+        FrameOverlap overlap;
+        for (int i = 0; i < 60; ++i)
+            overlap.update(9.0, 6.0, interval);
+        expect(overlap.overlapped(), "a load of 90% of the interval overlaps");
+        // Around the leave threshold with peaks: stays overlapped, no flapping.
+        int changes = 0;
+        for (int i = 0; i < 2000; ++i)
+            changes += overlap.update(i % 50 == 0 ? 14.0 : 5.0, 4.0, interval);
+        expect(changes == 0 && overlap.overlapped(), "regular peaks above the calm limit keep the overlap");
+    }
+    {
+        // No known interval (desktop): overlapped at once.
+        FrameOverlap overlap;
+        expect(overlap.update(1.0, 1.0, 0.0) && overlap.overlapped(), "without a frame rate frames overlap");
+    }
+}
+
 int main()
 {
+    check_frame_overlap();
     const std::vector<uint64_t> phone = {hz(60), hz(90), hz(120)}; // e.g. Xiaomi 15 Ultra
     expect_choice(phone, 120, 60, 120, 2, "60 fps on a 120 Hz panel in its 120 Hz mode: every second refresh, no switch");
     expect_choice(phone, 60, 60, 60, 1, "60 fps in the 60 Hz mode stays there");
@@ -57,6 +113,6 @@ int main()
     expect(SlowestSwapInterval(at60, hz(30)) == 4 * hz(120), "60 fps falls back to 30 fps in whole 120 Hz refreshes");
     const auto at30 = ChooseSwapInterval(phone, hz(120), hz(30));
     expect(SlowestSwapInterval(at30, hz(30)) == at30.interval(), "30 fps has no slower fallback");
-    std::puts("PASS: frame pacing swap interval (60/90/120 Hz display mode sets)");
+    std::puts("PASS: frame overlap choice; frame pacing swap interval (60/90/120 Hz display mode sets)");
     return 0;
 }

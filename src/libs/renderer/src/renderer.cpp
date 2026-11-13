@@ -594,6 +594,12 @@ bool Renderer::Init()
         renderThread = storm::android::graphicsSetting("render_thread", renderThread);
 #endif
         storm::render::SetRenderThread(renderThread != 0);
+        // Developer key render_overlap (frame_owner.hpp SetFrameOverlap): -1 chosen per frame, 0 never, 1 always.
+        int renderOverlap = ini->GetInt(nullptr, "render_overlap", -1);
+#ifdef __ANDROID__
+        renderOverlap = storm::android::graphicsSetting("render_overlap", renderOverlap);
+#endif
+        storm::render::SetFrameOverlap(renderOverlap);
 #ifdef __ANDROID__
         ConfigureFrameRate();
 #endif
