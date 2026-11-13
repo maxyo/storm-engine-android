@@ -1,5 +1,7 @@
-// Unit tests of the DXT -> ETC2 transcode and its disk cache on synthetic textures.
+// Unit tests of the DXT transcode (rebuilt mip chains, ETC2 and BC), the mip chains themselves and the disk cache on
+// synthetic textures.
 #include "cache.hpp"
+#include "mips.hpp"
 #include "service.hpp"
 #include "synthetic.hpp"
 
@@ -13,6 +15,7 @@
 #include <cstring>
 #include <fstream>
 #include <thread>
+#include <optional>
 #include <mutex>
 #include <condition_variable>
 #include <unistd.h>
@@ -34,6 +37,24 @@ int failures = 0;
     } while (0)
 
 bx::DefaultAllocator allocator;
+
+bimg::TextureFormat::Enum bimg_format(GpuFormat format)
+{
+    switch (format)
+    {
+    case GpuFormat::Etc2Rgb8:
+        return bimg::TextureFormat::ETC2;
+    case GpuFormat::Etc2Rgba8:
+        return bimg::TextureFormat::ETC2A;
+    case GpuFormat::Bc1:
+        return bimg::TextureFormat::BC1;
+    case GpuFormat::Bc2:
+        return bimg::TextureFormat::BC2;
+    case GpuFormat::Bc3:
+        return bimg::TextureFormat::BC3;
+    }
+    return bimg::TextureFormat::Unknown;
+}
 
 struct DecodedKtx
 {
@@ -138,24 +159,23 @@ void test_decoder()
         CHECK(rgba[t * 4 + 3] == expect6[t]);
 }
 
-// The ETC2 encoder's channel order, checked through bimg's reference ETC2 decoder.
+// The encoders' channel order, checked through bimg's reference decoders.
 void test_channel_order()
 {
     std::vector<uint8_t> image(16 * 4);
     for (int i = 0; i < 16; ++i)
         image[i * 4 + 0] = 200, image[i * 4 + 1] = 60, image[i * 4 + 2] = 10, image[i * 4 + 3] = 255;
-    for (EtcFormat format : {EtcFormat::Rgb8, EtcFormat::Rgba8})
+    for (GpuFormat format : {GpuFormat::Etc2Rgb8, GpuFormat::Bc1, GpuFormat::Etc2Rgba8, GpuFormat::Bc2, GpuFormat::Bc3})
     {
-        if (format == EtcFormat::Rgba8)
-            for (int i = 0; i < 16; ++i)
-                image[i * 4 + 3] = 90;
+        const bool alpha = format == GpuFormat::Etc2Rgba8 || format == GpuFormat::Bc2 || format == GpuFormat::Bc3;
+        for (int i = 0; i < 16; ++i)
+            image[i * 4 + 3] = alpha ? 90 : 255;
         uint8_t block[16];
-        encode_etc(format, image.data(), 4, 4, block);
+        encode_gpu(format, image.data(), 4, 4, block);
         uint8_t decoded[64];
-        bimg::imageDecodeToRgba8(&allocator, decoded, block, 4, 4, 16,
-                                 format == EtcFormat::Rgb8 ? bimg::TextureFormat::ETC2 : bimg::TextureFormat::ETC2A);
+        bimg::imageDecodeToRgba8(&allocator, decoded, block, 4, 4, 16, bimg_format(format));
         CHECK(std::abs(decoded[0] - 200) <= 10 && std::abs(decoded[1] - 60) <= 10 && std::abs(decoded[2] - 10) <= 10);
-        CHECK(std::abs(decoded[3] - (format == EtcFormat::Rgb8 ? 255 : 90)) <= 2);
+        CHECK(std::abs(decoded[3] - (alpha ? 90 : 255)) <= 9); // BC2: 4-bit alpha
     }
 }
 
@@ -250,20 +270,55 @@ void test_hash()
 
     const Layout layout{DxtFormat::Bc1, 64, 32, 7, 1};
     const auto payload = test::make_payload(layout, test::Pattern::Noise, 1);
-    KeyBuilder a(layout), b(layout);
+    KeyBuilder a(layout, false), b(layout, false);
     a.add(payload.data(), payload.size());
     b.add(payload.data(), payload.size());
     CHECK(a.key() == b.key());
     auto changed = payload;
     changed[payload.size() / 2] ^= 1;
-    KeyBuilder c(layout);
+    KeyBuilder c(layout, false);
     c.add(changed.data(), changed.size());
     CHECK(c.key() != a.key());
     Layout other = layout;
     other.levels = 6;
-    KeyBuilder d(other);
+    KeyBuilder d(other, false);
     d.add(payload.data(), payload.size());
     CHECK(d.key() != a.key());
+}
+
+// The reference of a transcoded chain: the decoded top level and the chain mips.hpp builds from it, each level
+// block-aligned with its edge texels repeated (as the transcode encodes them).
+std::vector<std::vector<uint8_t>> reference_chain(const Layout &layout, const uint8_t *payload, uint32_t levels, bool alpha,
+                                                  bool punch = false)
+{
+    const uint32_t aw = blocks_x(layout.width) * 4, ah = blocks_x(layout.height) * 4;
+    std::vector<uint8_t> blocks(size_t(aw) * ah * 4), top(size_t(layout.width) * layout.height * 4);
+    decode_level(layout.format, payload, layout.width, layout.height, blocks.data());
+    for (uint32_t y = 0; y < layout.height; ++y)
+        memcpy(top.data() + size_t(y) * layout.width * 4, blocks.data() + size_t(y) * aw * 4, size_t(layout.width) * 4);
+    std::vector<std::vector<uint8_t>> chain{blocks};
+    const auto mips = build_mip_chain(top.data(), layout.width, layout.height, levels,
+                                      punch || (alpha && is_cutout_alpha(top.data(), size_t(layout.width) * layout.height)));
+    for (uint32_t level = 1; level < levels; ++level)
+    {
+        const uint32_t w = std::max(layout.width >> level, 1u), h = std::max(layout.height >> level, 1u);
+        const uint32_t bw = blocks_x(w) * 4, bh = blocks_x(h) * 4;
+        std::vector<uint8_t> aligned(size_t(bw) * bh * 4);
+        for (uint32_t y = 0; y < bh; ++y)
+            for (uint32_t x = 0; x < bw; ++x)
+                memcpy(aligned.data() + (size_t(y) * bw + x) * 4,
+                       mips[level - 1].data() + (size_t(std::min(y, h - 1)) * w + std::min(x, w - 1)) * 4, 4);
+        if (punch) // punch-through BC1: transparent black below the reference, opaque above
+            for (size_t i = 0; i < aligned.size(); i += 4)
+            {
+                if (aligned[i + 3] < kCutoutReference)
+                    aligned[i] = aligned[i + 1] = aligned[i + 2] = aligned[i + 3] = 0;
+                else
+                    aligned[i + 3] = 255;
+            }
+        chain.push_back(std::move(aligned));
+    }
+    return chain;
 }
 
 void test_quality()
@@ -273,21 +328,28 @@ void test_quality()
         DxtFormat format;
         test::Pattern pattern;
         bool punch;
-        EtcFormat expected;
+        bool bc;
+        GpuFormat expected;
         double min_psnr;
     };
     const Case cases[] = {
-        {DxtFormat::Bc1, test::Pattern::Gradient, false, EtcFormat::Rgb8, 29},
-        {DxtFormat::Bc1, test::Pattern::Mixed, false, EtcFormat::Rgb8, 33},
-        {DxtFormat::Bc1, test::Pattern::Noise, false, EtcFormat::Rgb8, 27},
-        {DxtFormat::Bc1, test::Pattern::Mixed, true, EtcFormat::Rgba8, 25},
-        {DxtFormat::Bc3, test::Pattern::Gradient, false, EtcFormat::Rgba8, 29},
-        {DxtFormat::Bc3, test::Pattern::Mixed, false, EtcFormat::Rgba8, 33},
-        {DxtFormat::Bc2, test::Pattern::Mixed, false, EtcFormat::Rgba8, 32},
+        {DxtFormat::Bc1, test::Pattern::Gradient, false, false, GpuFormat::Etc2Rgb8, 29},
+        {DxtFormat::Bc1, test::Pattern::Mixed, false, false, GpuFormat::Etc2Rgb8, 33},
+        {DxtFormat::Bc1, test::Pattern::Noise, false, false, GpuFormat::Etc2Rgb8, 27},
+        {DxtFormat::Bc1, test::Pattern::Mixed, true, false, GpuFormat::Etc2Rgba8, 25},
+        {DxtFormat::Bc3, test::Pattern::Gradient, false, false, GpuFormat::Etc2Rgba8, 29},
+        {DxtFormat::Bc3, test::Pattern::Mixed, false, false, GpuFormat::Etc2Rgba8, 33},
+        {DxtFormat::Bc2, test::Pattern::Mixed, false, false, GpuFormat::Etc2Rgba8, 32},
+        {DxtFormat::Bc1, test::Pattern::Gradient, false, true, GpuFormat::Bc1, 29},
+        {DxtFormat::Bc1, test::Pattern::Noise, false, true, GpuFormat::Bc1, 26},
+        {DxtFormat::Bc1, test::Pattern::Mixed, true, true, GpuFormat::Bc1, 25},
+        {DxtFormat::Bc3, test::Pattern::Mixed, false, true, GpuFormat::Bc3, 30},
+        {DxtFormat::Bc2, test::Pattern::Mixed, false, true, GpuFormat::Bc2, 28},
     };
     for (const Case &tc : cases)
     {
-        Layout layout{tc.format, 128, 64, 8, 1}; // down to 1x1 (levels smaller than a block)
+        // The game's chain stops at 16x8 (as most of its chains stop early); the transcode completes it.
+        Layout layout{tc.format, 128, 64, 4, 1};
         std::vector<uint8_t> payload;
         if (tc.format == DxtFormat::Bc2)
         {
@@ -302,32 +364,36 @@ void test_quality()
         else
             payload = test::make_payload(layout, tc.pattern, 7, tc.punch);
         CHECK(payload.size() == dxt_payload_size(layout));
-        const EtcFormat format = choose_etc_format(tc.format, payload.data(), payload.size());
+        const GpuFormat format = choose_gpu_format(tc.format, payload.data(), payload.size(), tc.bc);
         CHECK(format == tc.expected);
         const Blob blob = transcode_to_ktx(layout, payload.data(), format);
-        CHECK(blob.size == ktx_size(format, layout));
+        const Layout out = output_layout(layout);
+        CHECK(out.levels == 8);
+        CHECK(blob.size == ktx_size(format, out));
         const DecodedKtx ktx = decode_ktx(blob);
-        CHECK(ktx.ok && ktx.levels == layout.levels && !ktx.cube);
-        CHECK(ktx.format == (format == EtcFormat::Rgb8 ? bimg::TextureFormat::ETC2 : bimg::TextureFormat::ETC2A));
+        CHECK(ktx.ok && ktx.levels == out.levels && !ktx.cube);
+        CHECK(ktx.format == bimg_format(format));
         if (!ktx.ok)
             continue;
-        size_t offset = 0;
+        if (tc.bc) // the BC tier uploads the game's top level as it is
+            CHECK(memcmp(blob.data.get() + 64 + 4, payload.data(), dxt_level_size(tc.format, 128, 64)) == 0);
+        const bool alpha = format != GpuFormat::Etc2Rgb8 && (format != GpuFormat::Bc1 || tc.punch);
+        const auto reference =
+            reference_chain(layout, payload.data(), out.levels, alpha, format == GpuFormat::Bc1 && tc.punch);
         double worst = 99;
-        for (uint32_t level = 0; level < layout.levels; ++level)
+        for (uint32_t level = 0; level < out.levels; ++level)
         {
-            const uint32_t w = layout.level_width(level), h = layout.level_height(level);
-            std::vector<uint8_t> reference(size_t(blocks_x(w)) * 4 * blocks_x(h) * 4 * 4);
-            decode_level(tc.format, payload.data() + offset, w, h, reference.data());
-            offset += dxt_level_size(tc.format, w, h);
-            const double p = psnr(reference, ktx.rgba[level], tc.format != DxtFormat::Bc1 || tc.punch);
-            if (level < 4)
+            const double p = psnr(reference[level], ktx.rgba[level], tc.format != DxtFormat::Bc1 || tc.punch);
+            // Levels 0 and 1 against the thresholds; the synthetic patterns are full-range ramps and noise at every
+            // size, so the smaller levels pack ever steeper ramps into a block (no game texture does).
+            if (level < 2)
                 worst = std::min(worst, p);
-            if (tc.punch)
-                for (size_t i = 3; i < reference.size(); i += 4) // binary alpha must survive exactly-ish
-                    CHECK((reference[i] == 0) == (ktx.rgba[level][i] < 128));
+            if (tc.punch && level == 0)
+                for (size_t i = 3; i < reference[0].size(); i += 4) // binary alpha must survive exactly-ish
+                    CHECK((reference[0][i] == 0) == (ktx.rgba[0][i] < 128));
         }
-        printf("quality: format %d pattern %d punch %d -> %s, worst PSNR(levels 0-3) %.1f dB\n", int(tc.format),
-               int(tc.pattern), int(tc.punch), format == EtcFormat::Rgb8 ? "ETC2 RGB8" : "ETC2 RGBA8", worst);
+        printf("quality: format %d pattern %d punch %d -> gpu format %d, worst PSNR(levels 0-1) %.1f dB\n", int(tc.format),
+               int(tc.pattern), int(tc.punch), int(format), worst);
         CHECK(worst >= tc.min_psnr);
     }
 }
@@ -336,22 +402,73 @@ void test_cube()
 {
     const Layout layout{DxtFormat::Bc1, 32, 32, 6, 6};
     const auto payload = test::make_payload(layout, test::Pattern::Gradient, 3);
-    const Blob blob = transcode_to_ktx(layout, payload.data(), EtcFormat::Rgb8);
+    const Blob blob = transcode_to_ktx(layout, payload.data(), GpuFormat::Etc2Rgb8);
     const DecodedKtx ktx = decode_ktx(blob);
     CHECK(ktx.ok && ktx.cube && ktx.levels == 6 && ktx.rgba.size() == 36);
     if (!ktx.ok)
         return;
-    // face f level l of the D3D payload must land on face f level l of the container
-    size_t offset = 0;
+    // face f of the D3D payload must land on face f of the container, every level made from that face's top
+    const size_t face_bytes = dxt_payload_size(layout) / 6;
     for (uint32_t face = 0; face < 6; ++face)
+    {
+        const auto reference = reference_chain(layout, payload.data() + face * face_bytes, 6, false);
         for (uint32_t level = 0; level < 6; ++level)
         {
-            const uint32_t w = layout.level_width(level), h = layout.level_height(level);
-            std::vector<uint8_t> reference(size_t(blocks_x(w)) * 4 * blocks_x(h) * 4 * 4);
-            decode_level(layout.format, payload.data() + offset, w, h, reference.data());
-            offset += dxt_level_size(layout.format, w, h);
-            CHECK(psnr(reference, ktx.rgba[face * 6 + level], false) > 28);
+            if (level < 2) // the smaller levels pack the whole ramp into one block
+                CHECK(psnr(reference[level], ktx.rgba[face * 6 + level], false) > 28);
         }
+    }
+}
+
+// The chains themselves: complete, averaged in linear light, weighted by alpha, coverage kept for cut-outs.
+void test_mips()
+{
+    CHECK(full_mip_levels(1024, 1024) == 11 && full_mip_levels(512, 256) == 10 && full_mip_levels(1, 1) == 1);
+    // A black and white checker of single texels: its first mip is mid grey in LINEAR light (sRGB 188), not 128.
+    std::vector<uint8_t> checker(8 * 8 * 4);
+    for (int i = 0; i < 64; ++i)
+    {
+        const uint8_t v = ((i % 8) + (i / 8)) % 2 ? 255 : 0;
+        checker[i * 4] = checker[i * 4 + 1] = checker[i * 4 + 2] = v;
+        checker[i * 4 + 3] = 255;
+    }
+    auto chain = build_mip_chain(checker.data(), 8, 8, full_mip_levels(8, 8), false);
+    CHECK(chain.size() == 3 && chain[0].size() == 4 * 4 * 4 && chain[2].size() == 4);
+    CHECK(std::abs(int(chain[0][0]) - 188) <= 1 && std::abs(int(chain[2][1]) - 188) <= 1 && chain[0][3] == 255);
+    // Red opaque texels next to transparent green ones: the mip keeps red (no green fringe), alpha is the average.
+    std::vector<uint8_t> edge(2 * 2 * 4, 0);
+    edge[0] = 255, edge[3] = 255;                 // red, opaque
+    edge[4 + 1] = 255, edge[8 + 1] = 255, edge[12 + 1] = 255; // green, transparent
+    chain = build_mip_chain(edge.data(), 2, 2, 2, false);
+    CHECK(chain[0][0] == 255 && chain[0][1] == 0 && std::abs(int(chain[0][3]) - 64) <= 1);
+    // A cut-out of thin rings (a quarter of the texels pass the test).
+    std::vector<uint8_t> rings(128 * 128 * 4, 128);
+    for (int y = 0; y < 128; ++y)
+        for (int x = 0; x < 128; ++x)
+        {
+            const double r = std::sqrt((x - 63.5) * (x - 63.5) + (y - 63.5) * (y - 63.5)) / 17.0;
+            rings[(y * 128 + x) * 4 + 3] = r - std::floor(r) < 0.25 ? 255 : 0;
+        }
+    CHECK(is_cutout_alpha(rings.data(), 128 * 128));
+    auto coverage = [](const std::vector<uint8_t> &level) {
+        size_t passed = 0;
+        for (size_t i = 3; i < level.size(); i += 4)
+            passed += level[i] >= kCutoutReference;
+        return double(passed) / double(level.size() / 4);
+    };
+    const double top = coverage(rings);
+    const auto plain = build_mip_chain(rings.data(), 128, 128, 5, false);
+    const auto kept = build_mip_chain(rings.data(), 128, 128, 5, true);
+    // Down to 16x16 (a ring a texel wide): plain averaging loses most of the rings, the kept chain stays close (texels
+    // of one alpha pass or fail together, so a level matches only as finely as its alpha values allow).
+    CHECK(coverage(plain[2]) < top * 0.6);
+    for (int level = 0; level < 3; ++level)
+        CHECK(std::abs(coverage(kept[level]) - top) < 0.05);
+    // A blended (soft) alpha is not a cut-out.
+    std::vector<uint8_t> soft(16 * 16 * 4, 0);
+    for (int i = 0; i < 256; ++i)
+        soft[i * 4 + 3] = uint8_t(i);
+    CHECK(!is_cutout_alpha(soft.data(), 256));
 }
 
 void write_bytes(const fs::path &path, const std::vector<char> &bytes)
@@ -369,28 +486,32 @@ void test_cache_files(const fs::path &directory)
 {
     const Layout layout{DxtFormat::Bc3, 64, 64, 7, 1};
     const auto payload = test::make_payload(layout, test::Pattern::Mixed, 11);
-    KeyBuilder key_builder(layout);
+    KeyBuilder key_builder(layout, false);
     key_builder.add(payload.data(), payload.size());
     const uint64_t key = key_builder.key();
-    const Blob blob = transcode_to_ktx(layout, payload.data(), EtcFormat::Rgba8);
+    KeyBuilder bc_key(layout, true);
+    bc_key.add(payload.data(), payload.size());
+    CHECK(bc_key.key() != key); // the tiers do not share cache files
+    const Blob blob = transcode_to_ktx(layout, payload.data(), GpuFormat::Etc2Rgba8);
+    const Layout out = output_layout(layout);
 
-    CHECK(!read_cache_file(directory, key, layout)); // miss
-    const uint64_t written = write_cache_file(directory, key, layout, EtcFormat::Rgba8, blob);
+    CHECK(!read_cache_file(directory, key, out)); // miss
+    const uint64_t written = write_cache_file(directory, key, out, GpuFormat::Etc2Rgba8, blob);
     CHECK(written == sizeof(FileHeader) + blob.size);
     const fs::path path = cache_file_path(directory, key);
     CHECK(fs::file_size(path) == written);
-    auto loaded = read_cache_file(directory, key, layout);
+    auto loaded = read_cache_file(directory, key, out);
     CHECK(loaded && loaded->size == blob.size && memcmp(loaded->data.get(), blob.data.get(), blob.size) == 0);
     // a different layout or key with the same file name is a miss
-    Layout other = layout;
+    Layout other = out;
     other.levels = 6;
     CHECK(!read_cache_file(directory, key, other));
-    write_cache_file(directory, key, layout, EtcFormat::Rgba8, blob);
+    write_cache_file(directory, key, out, GpuFormat::Etc2Rgba8, blob);
 
     const std::vector<char> good = read_bytes(path);
     auto expect_rejected = [&](std::vector<char> bytes, const char *what) {
         write_bytes(path, bytes);
-        const bool rejected = !read_cache_file(directory, key, layout);
+        const bool rejected = !read_cache_file(directory, key, out);
         if (!rejected)
             fprintf(stderr, "damaged cache file accepted: %s\n", what);
         CHECK(rejected);
@@ -415,7 +536,7 @@ void test_cache_files(const fs::path &directory)
     bad[good.size() - 3] ^= 0x40;
     expect_rejected(bad, "payload bit flip");
     bad = good;
-    bad[offsetof(FileHeader, etc_format)] = 7;
+    bad[offsetof(FileHeader, gpu_format)] = 7;
     expect_rejected(bad, "format");
 
     // LRU eviction keeps the most recently used files
@@ -438,6 +559,40 @@ void test_cache_files(const fs::path &directory)
     CHECK(fs::exists(path));
 }
 
+// Holds every worker of the service in a task until destroyed, so submitted jobs stay queued meanwhile. Tasks run
+// only when no transcode is queued, so the workers are parked before anything is submitted.
+class ParkedWorkers
+{
+  public:
+    explicit ParkedWorkers(Service &service)
+    {
+        for (unsigned i = 0; i < Service::worker_count(); ++i)
+            service.post([this] {
+                std::unique_lock lock(mutex_);
+                ++parked_;
+                wake_.notify_all();
+                wake_.wait(lock, [this] { return open_; });
+                --parked_;
+                wake_.notify_all();
+            });
+        std::unique_lock lock(mutex_);
+        wake_.wait(lock, [this] { return parked_ == Service::worker_count(); });
+    }
+    ~ParkedWorkers()
+    {
+        std::unique_lock lock(mutex_);
+        open_ = true;
+        wake_.notify_all();
+        wake_.wait(lock, [this] { return parked_ == 0; }); // no task touches this object after it is gone
+    }
+
+  private:
+    std::mutex mutex_;
+    std::condition_variable wake_;
+    unsigned parked_ = 0;
+    bool open_ = false;
+};
+
 void test_service(const fs::path &directory)
 {
     Service &service = Service::instance();
@@ -447,38 +602,20 @@ void test_service(const fs::path &directory)
     service.configure(config, nullptr);
     const Layout layout{DxtFormat::Bc1, 256, 128, 9, 1};
     const auto payload = test::make_payload(layout, test::Pattern::Mixed, 21);
-    KeyBuilder key_builder(layout);
+    KeyBuilder key_builder(layout, false);
     key_builder.add(payload.data(), payload.size());
     const uint64_t key = key_builder.key();
     CHECK(!service.lookup(key, layout));
-    // Identical contents share the job while it is in flight. Every worker is held by a task first, so the job
-    // cannot finish (and leave the in-flight table) between the two submits on a loaded machine.
-    std::mutex hold_mutex;
-    std::condition_variable hold_wake;
-    unsigned held = 0;
-    bool open = false;
-    for (unsigned i = 0; i < Service::worker_count(); ++i)
-        service.post([&] {
-            std::unique_lock hold(hold_mutex);
-            ++held;
-            hold_wake.notify_all();
-            hold_wake.wait(hold, [&] { return open; });
-        });
-    {
-        std::unique_lock hold(hold_mutex);
-        hold_wake.wait(hold, [&] { return held == Service::worker_count(); });
-    }
-    auto job = service.submit(layout, key, EtcFormat::Rgb8, payload);
+    // Identical contents share the job while it is in flight: every worker is parked first, so the job cannot finish
+    // (and leave the in-flight table) between the two submits on a loaded machine.
+    std::optional<ParkedWorkers> parked(std::in_place, service);
+    auto job = service.submit(layout, key, GpuFormat::Etc2Rgb8, payload);
     CHECK(job != nullptr);
-    CHECK(service.submit(layout, key, EtcFormat::Rgb8, payload) == job); // deduplicated
-    {
-        std::lock_guard hold(hold_mutex);
-        open = true;
-    }
-    hold_wake.notify_all();
+    CHECK(service.submit(layout, key, GpuFormat::Etc2Rgb8, payload) == job); // deduplicated
+    parked.reset();
     for (int i = 0; i < 500 && job->state.load() != Job::Done; ++i)
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    CHECK(job->state.load() == Job::Done && job->result && job->result->size == ktx_size(EtcFormat::Rgb8, layout));
+    CHECK(job->state.load() == Job::Done && job->result && job->result->size == ktx_size(GpuFormat::Etc2Rgb8, output_layout(layout)));
     // the cache file is written before the job reports Done
     auto hit = service.lookup(key, layout);
     CHECK(hit && hit->size == job->result->size &&
@@ -488,9 +625,11 @@ void test_service(const fs::path &directory)
     cancelled_payload[0] ^= 1;
     service.shutdown();
     service.configure(config, nullptr);
+    // Workers parked again: the jobs below stay queued, so sharing, cancelling and skipping do not depend on timing.
+    parked.emplace(service);
     // shared by two holders: one release keeps it, the last one cancels it
-    auto job2 = service.submit(layout, key ^ 1, EtcFormat::Rgb8, cancelled_payload);
-    auto job2_shared = service.submit(layout, key ^ 1, EtcFormat::Rgb8, cancelled_payload);
+    auto job2 = service.submit(layout, key ^ 1, GpuFormat::Etc2Rgb8, cancelled_payload);
+    auto job2_shared = service.submit(layout, key ^ 1, GpuFormat::Etc2Rgb8, cancelled_payload);
     CHECK(job2_shared == job2);
     auto observer = job2;
     service.release(job2_shared);
@@ -498,14 +637,13 @@ void test_service(const fs::path &directory)
     service.release(job2);
     CHECK(observer->cancelled);
     // a cancelled job is never handed out again
-    auto job3 = service.submit(layout, key ^ 1, EtcFormat::Rgb8, cancelled_payload);
+    auto job3 = service.submit(layout, key ^ 1, GpuFormat::Etc2Rgb8, cancelled_payload);
     CHECK(job3 && job3 != observer && !job3->cancelled);
     service.release(job3);
+    parked.reset();
     service.shutdown();
-    // Cancelled while queued it fails without a result; a worker may already have taken it before the last
-    // release, then it completes. Either way it is finished after shutdown.
-    const int final_state = observer->state.load();
-    CHECK((final_state == Job::Failed && !observer->result) || (final_state == Job::Done && observer->result));
+    // cancelled while still queued: skipped, it fails without a result
+    CHECK(observer->state.load() == Job::Failed && !observer->result);
 }
 } // namespace
 
@@ -521,6 +659,7 @@ int main()
     test_hash();
     test_quality();
     test_cube();
+    test_mips();
     test_cache_files(directory / "files");
     test_service(directory / "service");
     fs::remove_all(directory);

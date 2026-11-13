@@ -20,6 +20,8 @@
 #include "core_private.h"
 #include "lifecycle_diagnostics_service.hpp"
 #include "logging.hpp"
+#include "log_rotation.hpp"
+#include <spdlog/details/os.h>
 #include "os_window.hpp"
 #include "app_events.hpp"
 #include "v_sound_service.h"
@@ -131,6 +133,16 @@ void RunFrame()
     lifecycleDiagnostics.notifyAfterRun();
 }
 
+// Every dialog of the engine is logged first (an error one at error level: error.log too), so what the player saw
+// is in the logs.
+void ShowEngineDialog(Uint32 flags, const char *title, const char *text)
+{
+    spdlog::log(flags & SDL_MESSAGEBOX_ERROR ? spdlog::level::err : spdlog::level::warn, "dialog \"{}\": {}", title,
+                text);
+    if (SDL_ShowSimpleMessageBox(flags, title, text, nullptr) != 0)
+        spdlog::error("cannot show the dialog \"{}\": {}", title, SDL_GetError());
+}
+
 // Last line of defence for exceptions thrown out of a frame (about 490 `throw`
 // sites are reachable from the frame loop): log, flush, tell the player, and
 // let main() shut the engine down in order. Android already caught
@@ -189,6 +201,7 @@ void AnnounceScriptPatches()
     const SDL_MessageBoxData dialog{SDL_MESSAGEBOX_WARNING, nullptr,
                                     russian ? "Исправления не применены" : "Fixes not applied", text.c_str(), 1,
                                     &button, nullptr};
+    spdlog::warn("dialog \"{}\": {}", dialog.title, dialog.message);
     if (SDL_ShowMessageBox(&dialog, nullptr) != 0)
     {
         spdlog::error("Cannot show the script patch notice: {}", SDL_GetError());
@@ -341,6 +354,27 @@ int main(int argc, char *argv[])
         __android_log_assert(nullptr, "StormEngine",
                              "SDL_main entered a second time in one process: the engine runs once per process");
     entered = true;
+#endif
+    // First, so that every later failure (the game folder, damaged fixes) is in the logs. Before anything opens a
+    // log (mimalloc's output, the loggers truncate their files): the previous process's logs are the evidence of
+    // the hang or crash this start may follow.
+    try
+    {
+        const auto logRotationFailures = storm::logging::rotatePreviousSessionLogs(fs::GetLogsPath());
+        spdlog::set_default_logger(storm::logging::getOrCreateLogger(defaultLoggerName));
+        // The diagnostics export labels each session's logs with this line's time and pid (app DiagnosticsReport).
+        spdlog::info("Logging system initialized. Running on {}, pid {}", STORM_BUILD_WATERMARK_STRING,
+                     spdlog::details::os::pid());
+        for (const auto &failure : logRotationFailures)
+            spdlog::error("Previous session logs: {}", failure);
+    }
+    catch (const std::exception &error)
+    {
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Logs unavailable: %s", error.what()); // no log file to write
+        ShowEngineDialog(SDL_MESSAGEBOX_ERROR, "Logs unavailable", error.what());
+        return EXIT_FAILURE;
+    }
+#ifdef __ANDROID__
     try
     {
         storm::android::prepareGameDirectory();
@@ -349,12 +383,12 @@ int main(int argc, char *argv[])
     }
     catch (const storm::script_patches::LayerError &error)
     {
-        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Damaged script fixes", error.what(), nullptr);
+        ShowEngineDialog(SDL_MESSAGEBOX_ERROR, "Damaged script fixes", error.what());
         return EXIT_FAILURE;
     }
     catch (const std::exception &error)
     {
-        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Game data required", error.what(), nullptr);
+        ShowEngineDialog(SDL_MESSAGEBOX_ERROR, "Game data required", error.what());
         return EXIT_FAILURE;
     }
 #endif
@@ -393,7 +427,7 @@ int main(int argc, char *argv[])
 #endif
     if (!lifecycleDiagnosticsGuard)
     {
-        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_WARNING, "Warning", "Unable to initialize lifecycle service!", nullptr);
+        ShowEngineDialog(SDL_MESSAGEBOX_WARNING, "Warning", "Unable to initialize lifecycle service!");
     }
     else
     {
@@ -403,9 +437,6 @@ int main(int argc, char *argv[])
     // Init stash
     create_directories(fs::GetSaveDataPath());
 
-    // Init logging
-    spdlog::set_default_logger(storm::logging::getOrCreateLogger(defaultLoggerName));
-    spdlog::info("Logging system initialized. Running on {}", STORM_BUILD_WATERMARK_STRING);
 #ifdef STORM_TRACY
     // Development build (cmake/tracy.cmake). The application's release packaging refuses a library with this line.
     STORM_PROFILE_THREAD("game");

@@ -56,6 +56,11 @@ class FramePacing
     void set_window(void *native_window);
     // The frame rate to pace at, frames per second; applies at once (logged), before start() at its start.
     void set_frame_rate(uint32_t fps);
+    // Game thread: while on, every present interval is also kept for take_intervals() (the automatic graphics
+    // preset's measurement, renderer auto_preset.hpp); off drops what was kept.
+    void set_sampling(bool on);
+    // Game thread: the present intervals (ms) kept since the last call.
+    std::vector<float> take_intervals();
     void shutdown();
 
   private:
@@ -80,6 +85,8 @@ class FramePacing
     std::chrono::steady_clock::time_point window_start_{};
     std::vector<float> intervals_ms_;
     double wait_ms_ = 0.0;
+    bool sampling_ = false;
+    std::vector<float> samples_ms_; // set_sampling / take_intervals
 #endif
 };
 

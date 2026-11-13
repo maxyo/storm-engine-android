@@ -1,5 +1,7 @@
 #include "cache.hpp"
 
+#include "mips.hpp"
+
 #include <bimg/bimg.h>
 #include <bx/error.h>
 #include <bx/readerwriter.h>
@@ -38,12 +40,30 @@ uint32_t read32(const uint8_t *p)
 uint64_t round64(uint64_t acc, uint64_t input) { return rotl(acc + input * P2, 31) * P1; }
 uint64_t merge64(uint64_t acc, uint64_t value) { return (acc ^ round64(0, value)) * P1 + P4; }
 
-// The KTX 1.1 container, written by bimg: `levels` holds the ETC2 data mip level-major (all faces of a level, then the
-// next level), as KTX stores it. With a sizer (and no data) it only counts the container's bytes.
-size_t write_ktx(bx::WriterI *writer, EtcFormat format, const Layout &layout, const uint8_t *levels)
+bimg::TextureFormat::Enum bimg_format(GpuFormat format)
+{
+    switch (format)
+    {
+    case GpuFormat::Etc2Rgb8:
+        return bimg::TextureFormat::ETC2;
+    case GpuFormat::Etc2Rgba8:
+        return bimg::TextureFormat::ETC2A;
+    case GpuFormat::Bc1:
+        return bimg::TextureFormat::BC1;
+    case GpuFormat::Bc2:
+        return bimg::TextureFormat::BC2;
+    case GpuFormat::Bc3:
+        return bimg::TextureFormat::BC3;
+    }
+    return bimg::TextureFormat::Unknown;
+}
+
+// The KTX 1.1 container, written by bimg: `levels` holds the encoded data mip level-major (all faces of a level, then
+// the next level), as KTX stores it. With a sizer (and no data) it only counts the container's bytes.
+size_t write_ktx(bx::WriterI *writer, GpuFormat format, const Layout &layout, const uint8_t *levels)
 {
     bx::Error error;
-    const int32_t size = bimg::imageWriteKtx(writer, format == EtcFormat::Rgb8 ? bimg::TextureFormat::ETC2 : bimg::TextureFormat::ETC2A,
+    const int32_t size = bimg::imageWriteKtx(writer, bimg_format(format),
                                              layout.faces == 6, layout.width, layout.height, 0, uint8_t(layout.levels), 1,
                                              false, levels, &error);
     if (!error.isOk())
@@ -94,55 +114,92 @@ uint64_t hash64(const void *data, size_t size, uint64_t seed)
     return h;
 }
 
-KeyBuilder::KeyBuilder(const Layout &layout)
+KeyBuilder::KeyBuilder(const Layout &layout, bool bc)
 {
-    const uint32_t shape[6] = {kEncoderVersion, uint32_t(layout.format), layout.width, layout.height, layout.levels,
-                               layout.faces};
+    const uint32_t shape[7] = {kEncoderVersion, uint32_t(layout.format), layout.width, layout.height, layout.levels,
+                               layout.faces, bc ? 1u : 0u};
     state_ = hash64(shape, sizeof(shape), 0x53544f524d544558ull);
 }
 
 void KeyBuilder::add(const uint8_t *data, size_t size) { state_ = hash64(data, size, state_); }
 
-size_t ktx_size(EtcFormat format, const Layout &layout)
+Layout output_layout(const Layout &layout)
 {
-    bx::SizerWriter sizer;
-    return write_ktx(&sizer, format, layout, nullptr);
+    Layout out = layout;
+    out.levels = full_mip_levels(layout.width, layout.height);
+    return out;
 }
 
-Blob transcode_to_ktx(const Layout &layout, const uint8_t *payload, EtcFormat format)
+size_t ktx_size(GpuFormat format, const Layout &out)
 {
-    // offsets of each (face, level) inside the face-major D3D payload
-    std::vector<size_t> source_offset(size_t(layout.faces) * layout.levels);
-    size_t offset = 0;
-    for (uint32_t face = 0; face < layout.faces; ++face)
-        for (uint32_t level = 0; level < layout.levels; ++level)
-        {
-            source_offset[face * layout.levels + level] = offset;
-            offset += dxt_level_size(layout.format, layout.level_width(level), layout.level_height(level));
-        }
-    size_t etc_bytes = 0;
-    for (uint32_t level = 0; level < layout.levels; ++level)
-        etc_bytes += etc_level_size(format, layout.level_width(level), layout.level_height(level)) * layout.faces;
-    std::vector<uint8_t> etc(etc_bytes); // level-major, as KTX
-    std::vector<uint8_t> rgba;
-    uint8_t *out = etc.data();
-    for (uint32_t level = 0; level < layout.levels; ++level)
+    bx::SizerWriter sizer;
+    return write_ktx(&sizer, format, out, nullptr);
+}
+
+Blob transcode_to_ktx(const Layout &layout, const uint8_t *payload, GpuFormat format)
+{
+    const Layout out = output_layout(layout);
+    // level-major, as KTX: each level's offset, then its faces
+    std::vector<size_t> level_offset(out.levels);
+    size_t total = 0;
+    for (uint32_t level = 0; level < out.levels; ++level)
     {
-        const uint32_t w = layout.level_width(level), h = layout.level_height(level);
-        const uint32_t aw = blocks_x(w) * 4, ah = blocks_x(h) * 4;
-        rgba.resize(size_t(aw) * ah * 4);
-        for (uint32_t face = 0; face < layout.faces; ++face)
+        level_offset[level] = total;
+        total += gpu_level_size(format, out.level_width(level), out.level_height(level)) * out.faces;
+    }
+    std::vector<uint8_t> encoded(total);
+    const size_t face_payload = dxt_payload_size(layout) / layout.faces;
+    const uint32_t aw0 = blocks_x(layout.width) * 4, ah0 = blocks_x(layout.height) * 4;
+    std::vector<uint8_t> blocks(size_t(aw0) * ah0 * 4), top(size_t(layout.width) * layout.height * 4), aligned;
+    const bool bc = !is_etc2(format);
+    for (uint32_t face = 0; face < layout.faces; ++face)
+    {
+        const uint8_t *source = payload + face * face_payload;
+        // The top level, cropped to its texels (the decoder writes whole 4x4 blocks).
+        decode_level(layout.format, source, layout.width, layout.height, blocks.data());
+        for (uint32_t y = 0; y < layout.height; ++y)
+            memcpy(top.data() + size_t(y) * layout.width * 4, blocks.data() + size_t(y) * aw0 * 4, size_t(layout.width) * 4);
+        const size_t texels = size_t(layout.width) * layout.height;
+        // A punch-through BC1 is a cut-out by its nature; other alpha by its values.
+        const bool punch = layout.format == DxtFormat::Bc1 && bc1_has_transparency(source, dxt_level_size(layout.format, layout.width, layout.height));
+        const bool alpha = format != GpuFormat::Etc2Rgb8 && (format != GpuFormat::Bc1 || punch);
+        const bool cutout = alpha && (punch || is_cutout_alpha(top.data(), texels));
+        const std::vector<std::vector<uint8_t>> chain = build_mip_chain(top.data(), layout.width, layout.height, out.levels, cutout);
+        for (uint32_t level = 0; level < out.levels; ++level)
         {
-            decode_level(layout.format, payload + source_offset[face * layout.levels + level], w, h, rgba.data());
-            encode_etc(format, rgba.data(), aw, ah, out);
-            out += etc_level_size(format, w, h);
+            const uint32_t w = out.level_width(level), h = out.level_height(level);
+            const size_t face_bytes = gpu_level_size(format, w, h);
+            uint8_t *destination = encoded.data() + level_offset[level] + face * face_bytes;
+            if (level == 0 && bc)
+            {
+                memcpy(destination, source, face_bytes); // the game's own top level
+                continue;
+            }
+            if (level == 0)
+            {
+                encode_gpu(format, blocks.data(), aw0, ah0, destination);
+                continue;
+            }
+            // Edge texels repeated up to whole blocks.
+            const uint8_t *rgba = chain[level - 1].data();
+            const uint32_t aw = blocks_x(w) * 4, ah = blocks_x(h) * 4;
+            aligned.resize(size_t(aw) * ah * 4);
+            for (uint32_t y = 0; y < ah; ++y)
+                for (uint32_t x = 0; x < aw; ++x)
+                    memcpy(aligned.data() + (size_t(y) * aw + x) * 4,
+                           rgba + (size_t(std::min(y, h - 1)) * w + std::min(x, w - 1)) * 4, 4);
+            // BC1 makes a texel transparent below 128: the game tests its alpha against kCutoutReference.
+            if (format == GpuFormat::Bc1 && punch)
+                for (size_t i = 3; i < aligned.size(); i += 4)
+                    aligned[i] = aligned[i] >= kCutoutReference ? 255 : 0;
+            encode_gpu(format, aligned.data(), aw, ah, destination);
         }
     }
     Blob blob;
-    blob.size = ktx_size(format, layout);
+    blob.size = ktx_size(format, out);
     blob.data = std::make_unique<uint8_t[]>(blob.size);
     bx::StaticMemoryBlockWriter writer(blob.data.get(), uint32_t(blob.size));
-    write_ktx(&writer, format, layout, etc.data());
+    write_ktx(&writer, format, out, encoded.data());
     return blob;
 }
 
@@ -153,12 +210,12 @@ fs::path cache_file_path(const fs::path &directory, uint64_t key)
     return directory / name;
 }
 
-FileHeader make_header(uint64_t key, const Layout &layout, EtcFormat format, const Blob &ktx)
+FileHeader make_header(uint64_t key, const Layout &layout, GpuFormat format, const Blob &ktx)
 {
     FileHeader header{};
     memcpy(header.magic, kMagic, sizeof(kMagic));
     header.version = kEncoderVersion;
-    header.etc_format = uint32_t(format);
+    header.gpu_format = uint32_t(format);
     header.width = layout.width;
     header.height = layout.height;
     header.levels = layout.levels;
@@ -175,9 +232,9 @@ bool header_valid(const FileHeader &header, uint64_t key, const Layout &layout)
         header.key != key || header.width != layout.width || header.height != layout.height ||
         header.levels != layout.levels || header.faces != layout.faces)
         return false;
-    if (header.etc_format != uint32_t(EtcFormat::Rgb8) && header.etc_format != uint32_t(EtcFormat::Rgba8))
+    if (header.gpu_format < uint32_t(GpuFormat::Etc2Rgb8) || header.gpu_format > uint32_t(GpuFormat::Bc3))
         return false;
-    return header.payload_size == ktx_size(EtcFormat(header.etc_format), layout);
+    return header.payload_size == ktx_size(GpuFormat(header.gpu_format), layout);
 }
 
 namespace
@@ -236,7 +293,7 @@ std::optional<Blob> read_file(const fs::path &directory, uint64_t key, Valid &&v
 }
 } // namespace
 
-uint64_t write_cache_file(const fs::path &directory, uint64_t key, const Layout &layout, EtcFormat format,
+uint64_t write_cache_file(const fs::path &directory, uint64_t key, const Layout &layout, GpuFormat format,
                           const Blob &ktx)
 {
     return write_file(directory, key, make_header(key, layout, format, ktx), ktx.data.get(), ktx.size);

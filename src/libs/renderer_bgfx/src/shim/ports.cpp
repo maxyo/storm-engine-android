@@ -8,7 +8,7 @@ namespace
 // The 15 vs_1_1 / ps_1_x shaders referenced by src/techniques (see shaders/ports). vsc_count must match the
 // port's PORT_VSC_COUNT (tests/renderer_bgfx/run.py checks it).
 const ShaderPort ports[] = {
-    {"grass_main", true, "vs_port_grass", 0, 42},
+    {"grass_main", true, "vs_port_grass", 0, 82},
     {"particles_vertex_shader", true, "vs_port_particles", 0, 14},
     {"particles_pixel_shader", false, "fs_port_particles", 4, 0},
     {"postprocess_shader", false, "fs_port_postprocess", 4, 0},

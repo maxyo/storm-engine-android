@@ -72,7 +72,7 @@ std::optional<Blob> Service::lookup(uint64_t key, const Layout &layout)
 {
     std::optional<Blob> blob;
     if (!config_.directory.empty())
-        blob = read_cache_file(config_.directory, key, layout);
+        blob = read_cache_file(config_.directory, key, output_layout(layout));
     ++(blob ? hits_ : misses_);
     return blob;
 }
@@ -83,7 +83,7 @@ bool Service::has_room() const
     return queue_.size() < kMaxQueuedJobs && queued_bytes_ < kMaxQueuedBytes;
 }
 
-std::shared_ptr<Job> Service::submit(const Layout &layout, uint64_t key, EtcFormat format, std::vector<uint8_t> input)
+std::shared_ptr<Job> Service::submit(const Layout &layout, uint64_t key, GpuFormat format, std::vector<uint8_t> input)
 {
     std::unique_lock lock(mutex_);
     if (auto it = in_flight_.find(key); it != in_flight_.end())
@@ -209,13 +209,14 @@ void Service::worker(unsigned index)
             Blob blob = transcode_to_ktx(job->layout, job->input.data(), job->format);
             const auto elapsed = std::chrono::steady_clock::now() - start;
             uint64_t pixels = 0;
-            for (uint32_t level = 0; level < job->layout.levels; ++level)
-                pixels += uint64_t(job->layout.level_width(level)) * job->layout.level_height(level);
+            const Layout out = output_layout(job->layout);
+            for (uint32_t level = 0; level < out.levels; ++level)
+                pixels += uint64_t(out.level_width(level)) * out.level_height(level);
             encoded_pixels_ += pixels * job->layout.faces;
             encode_nanoseconds_ += std::chrono::duration_cast<std::chrono::nanoseconds>(elapsed).count();
             if (!config_.directory.empty())
             {
-                const uint64_t written = write_cache_file(config_.directory, job->key, job->layout, job->format, blob);
+                const uint64_t written = write_cache_file(config_.directory, job->key, out, job->format, blob);
                 if (written)
                 {
                     cache_bytes_ += written;

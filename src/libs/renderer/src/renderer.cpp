@@ -4,6 +4,8 @@
 #include <platform/android_hud_presenter.hpp>
 #ifdef __ANDROID__
 #include "android_render_resolution.hpp"
+#include "auto_preset.hpp"
+#include "../../xinterface/src/string_service.h"
 #endif
 
 #include "app_events.hpp"
@@ -33,6 +35,7 @@
 #include <functional>
 #include <iterator>
 #include <map>
+#include <optional>
 #include <SDL_rwops.h>
 #include <SDL_timer.h>
 
@@ -515,10 +518,140 @@ void ConfigureFrameRate()
 // The settings screen stored a new quality preset: the effects follow it without a restart
 // (MSAA and anisotropy rebuild the scene stores at the next Present). Options engine.ini
 // gave keep its values as fallbacks.
+// The automatic graphics preset (auto_preset.hpp): armed at the start unless the player chose «Графика» or the
+// stored automatic choice was measured by this version; it measures on the title screen, applies its choice and
+// reports it to the app, which stores it (GraphicsSettings.java).
+std::optional<storm::render::AutoPresetBenchmark> autoPreset;
+storm::render::PerfCounters autoPresetPerf;
+
+void ArmAutoPreset()
+{
+    // The host answers -1 for a preset the player chose, else the version of the stored measurement (0: none).
+    constexpr int kNotReported = -2;
+    const int stored = storm::android::graphicsSetting("fx_preset_auto", kNotReported);
+    if (stored == kNotReported)
+    {
+        spdlog::error("graphics auto preset: the app reports no fx_preset_auto; preset {} stays", effectsPreset);
+        return;
+    }
+    if (stored < 0)
+    {
+        spdlog::info("graphics auto preset: off, the player chose preset {}", effectsPreset);
+        return;
+    }
+    if (const char *overrides = std::getenv("STORM_FX_OPTIONS"); overrides && *overrides)
+    {
+        spdlog::warn("graphics auto preset: off while STORM_FX_OPTIONS overrides the settings");
+        return;
+    }
+    if (stored >= storm::render::kAutoPresetVersion)
+    {
+        spdlog::info("graphics auto preset: preset {} was measured (version {}, current {})", effectsPreset, stored,
+                     storm::render::kAutoPresetVersion);
+        return;
+    }
+    spdlog::info("graphics auto preset: will measure on the title screen (stored measurement version {}, current {}; "
+                 "target {:.0f} fps, p95 present interval <= {:.2f} ms; preset {} until then{})",
+                 stored, storm::render::kAutoPresetVersion, storm::render::kAutoPresetTargetFps,
+                 storm::render::AutoPresetLimitMs(), effectsPreset,
+                 effectsOptions.empty() ? "" : "; developer fx_* overrides stay on during the measurement");
+    autoPreset.emplace();
+}
+
+void EndAutoPreset(const std::string &reason)
+{
+    if (!autoPreset)
+        return;
+    const bool running = autoPreset->running();
+    if (!autoPreset->abort(reason).aborted)
+        return;
+    if (!running)
+    {
+        spdlog::info("graphics auto preset: not measured this time: {}", reason);
+        return;
+    }
+    storm::render::SamplePresentIntervals(false);
+    spdlog::warn("graphics auto preset: measurement aborted: {}; nothing stored, preset {} again, the next start "
+                 "measures again; so far {}", reason, effectsPreset, autoPreset->report());
+}
+
+void AutoPresetFrame()
+{
+    if (!autoPreset || autoPreset->phase() == storm::render::AutoPresetBenchmark::Phase::Done ||
+        autoPreset->phase() == storm::render::AutoPresetBenchmark::Phase::Aborted)
+        return;
+    const bool running = autoPreset->running();
+    storm::render::AutoPresetBenchmark::Frame frame;
+    frame.now_s = static_cast<double>(SDL_GetTicks64()) / 1000.0;
+    frame.title = storm::android::mobileScreen == "mainmenu";
+    frame.effects_ready = frame.title && !storm::render::CurrentEffects().pending;
+    std::vector<float> intervals;
+    if (running)
+    {
+        intervals = storm::render::TakePresentIntervals();
+        const storm::render::PerfCounters &totals = storm::render::PerfTotals();
+        const storm::render::PerfCounters since = totals.Since(autoPresetPerf);
+        autoPresetPerf = totals;
+        frame.gpu_ms = since.gpu_frames ? since.gpu_ms : -1.0;
+        frame.gpu_frames = since.gpu_frames;
+    }
+    frame.intervals_ms = intervals;
+    const size_t measured = autoPreset->results().size();
+    const auto step = autoPreset->frame(frame);
+    if (autoPreset->results().size() > measured)
+    {
+        const storm::render::AutoPresetResult &r = autoPreset->results().back();
+        spdlog::info("graphics auto preset: preset {} {} frames in {:.2f} s ({:.1f} fps), present ms p50 {:.2f} p95 {:.2f} "
+                     "max {:.2f}, gpu {}: {}",
+                     r.preset, r.frames, r.seconds, r.seconds > 0.0 ? r.frames / r.seconds : 0.0, r.p50_ms, r.p95_ms,
+                     r.max_ms, r.gpu_ms >= 0.0 ? fmt::format("{:.2f} ms", r.gpu_ms) : std::string("n/a (no timer queries)"),
+                     r.passes ? "holds the target" : "misses the target");
+    }
+    if (step.aborted)
+    {
+        storm::render::SamplePresentIntervals(false);
+        spdlog::warn("graphics auto preset: measurement aborted: {}; nothing stored, preset {} again, the next start "
+                     "measures again; so far {}", autoPreset->reason(), effectsPreset, autoPreset->report());
+        ApplyEffects(effectsPreset, effectsOptions);
+        return;
+    }
+    if (step.apply_preset >= 0 && !step.finished)
+    {
+        if (!running)
+        {
+            storm::render::SamplePresentIntervals(true);
+            autoPresetPerf = storm::render::PerfTotals();
+        }
+        spdlog::info("graphics auto preset: measuring preset {}", step.apply_preset);
+        ApplyEffects(step.apply_preset, effectsOptions);
+    }
+    if (step.finished)
+    {
+        storm::render::SamplePresentIntervals(false);
+        const auto &results = autoPreset->results();
+        const bool held = std::any_of(results.begin(), results.end(), [](const auto &r) { return r.passes; });
+        spdlog::log(held ? spdlog::level::info : spdlog::level::warn, "graphics auto preset: chose preset {}{}: {}",
+                    step.apply_preset, held ? "" : " (no preset holds the target: the lowest)", autoPreset->report());
+        effectsPreset = step.apply_preset;
+        ApplyEffects(effectsPreset, effectsOptions);
+        auto *strings = static_cast<VSTRSERVICE *>(core.GetService("STRSERVICE"));
+        const char *language = strings ? strings->GetLanguage() : nullptr;
+        if (!language)
+            spdlog::error("graphics auto preset: the string service has no game language; the app's notice follows the system's");
+        storm::android::reportAutoPreset(effectsPreset, storm::render::kAutoPresetVersion, autoPreset->report(),
+                                         language ? language : "");
+    }
+}
+
 void ReconfigureGraphicsEffects()
 {
     if (!storm::android::graphicsSettingsChanged.exchange(false))
         return;
+    if (autoPreset && autoPreset->running())
+        EndAutoPreset("the player applied settings");
+    else if (autoPreset && autoPreset->phase() == storm::render::AutoPresetBenchmark::Phase::WaitingForTitle &&
+             storm::android::graphicsSetting("fx_preset_auto", -1) < 0)
+        EndAutoPreset("the player chose a preset");
     spdlog::info("graphics effects: preferences changed, applying them");
     ConfigureGraphicsEffects([](const char *name, int fallback) {
         const auto found = effectsIniValues.find(name);
@@ -602,6 +735,7 @@ bool Renderer::Init()
         storm::render::SetFrameOverlap(renderOverlap);
 #ifdef __ANDROID__
         ConfigureFrameRate();
+        ArmAutoPreset();
 #endif
 
         storm::render::TextureCacheConfig textureCache;
@@ -2299,7 +2433,7 @@ int32_t Renderer::GetVertexBufferFVF(int32_t id)
 }
 
 //################################################################################
-int32_t Renderer::CreateIndexBuffer(size_t size, uint32_t dwUsage)
+int32_t Renderer::CreateIndexBuffer(size_t size, uint32_t dwUsage, D3DFORMAT format)
 {
     int32_t b;
     for (b = 0; b < MAX_BUFFERS; b++)
@@ -2309,9 +2443,7 @@ int32_t Renderer::CreateIndexBuffer(size_t size, uint32_t dwUsage)
     if (b == MAX_BUFFERS)
         return -1;
 
-    // d3d9->CreateIndexBuffer(size, D3DUSAGE_WRITEONLY, D3DFMT_INDEX16,
-    if (CHECKD3DERR(
-            d3d9->CreateIndexBuffer(size, dwUsage, D3DFMT_INDEX16, D3DPOOL_DEFAULT, &IndexBuffers[b].buff, NULL)))
+    if (CHECKD3DERR(d3d9->CreateIndexBuffer(size, dwUsage, format, D3DPOOL_DEFAULT, &IndexBuffers[b].buff, NULL)))
         return -1;
 
     IndexBuffers[b].size = size;
@@ -2790,6 +2922,7 @@ void Renderer::RunStart()
     if (pendingViewResize_.width > 0)
         ApplyViewResize();
     ReconfigureGraphicsEffects(); // the settings screen stored new preferences
+    AutoPresetFrame(); // the automatic graphics preset measures on the title screen
     // The pause menu covers a paused game: its last 3D frame is presented again instead of drawing the scene every
     // frame (perf audit F11). The hold begins once the renderer kept a full frame and ends with the menu; a settings
     // or size change while it lasts is drawn in one full frame, which is kept in its turn.

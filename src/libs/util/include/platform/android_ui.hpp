@@ -212,6 +212,28 @@ inline int graphicsSetting(const char *key, int fallback) {
     env->DeleteLocalRef(activity);
     return value;
 }
+// The automatic graphics preset chose `preset` (renderer auto_preset.hpp, measurement `version`, `report` its
+// numbers as JSON): GameActivity.autoPresetChosen stores it unless the player chose a preset meanwhile, tells the
+// player in the game's `language` (the string service's, as the interfaces' models carry it) and asks for
+// "graphics:reload". False (logged) when the host could not be told.
+inline bool reportAutoPreset(int preset, int version, const std::string &report, const std::string &language) {
+    auto *env=static_cast<JNIEnv *>(SDL_AndroidGetJNIEnv());
+    auto activity=static_cast<jobject>(SDL_AndroidGetActivity());
+    if (!env || !activity) { spdlog::error("graphics auto preset: no game activity to report preset {} to", preset); return false; }
+    auto type=env->GetObjectClass(activity);
+    auto method=type ? env->GetMethodID(type,"autoPresetChosen","(IILjava/lang/String;Ljava/lang/String;)V") : nullptr;
+    auto text=env->NewStringUTF(report.c_str());
+    auto lang=env->NewStringUTF(language.c_str());
+    bool reported=false;
+    if (method && text && lang) { env->CallVoidMethod(activity,method,static_cast<jint>(preset),static_cast<jint>(version),text,lang); reported=true; }
+    if (env->ExceptionCheck()) { env->ExceptionDescribe(); env->ExceptionClear(); reported=false; }
+    if (!reported) spdlog::error("graphics auto preset: GameActivity.autoPresetChosen failed; preset {} is not stored", preset);
+    if (text) env->DeleteLocalRef(text);
+    if (lang) env->DeleteLocalRef(lang);
+    if (type) env->DeleteLocalRef(type);
+    env->DeleteLocalRef(activity);
+    return reported;
+}
 // Where the reload locator the hero stands in leads (the touch HUD's bottom hint), "" = none.
 inline std::string lastReloadPlace;
 inline void publishReloadPlace(const std::string &place) {

@@ -8,6 +8,7 @@
 // state and the system insets through the EngineUi natives below (queued, applied at the
 // top of the next engine frame), and receives what only Android can do (pause dialog,
 // shortcuts mailbox, system editor, About).
+#include "logging.hpp"
 #include "platform/android_ui_sink.hpp"
 
 #include "storm_ui/asset_files.h"
@@ -383,6 +384,15 @@ class EngineUi
         config.density = surface.density;
         config.game_root = std::filesystem::current_path().string(); // prepareGameDirectory
         config.show_errors = debuggable;
+        // The UI's lines (what it showed, its errors) in Logs/ui.log, its errors in error.log too; logcat has them
+        // from the UI already (tag StormUi).
+        config.on_log = [logger = storm::logging::getOrCreateLogger("ui", spdlog::level::trace, false)](
+                            storm::ui::LogLevel level, const std::string &line) {
+            logger->log(level == storm::ui::LogLevel::Error     ? spdlog::level::err
+                        : level == storm::ui::LogLevel::Warning ? spdlog::level::warn
+                                                                : spdlog::level::info,
+                        "{}", line);
+        };
         config.on_action = [this](const storm::ui::Action &action) { OnAction(action); };
         config.on_text_request = [](const storm::ui::TextRequest &request) {
             CallActivity("onUiTextRequest", "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ZZIIII)V",

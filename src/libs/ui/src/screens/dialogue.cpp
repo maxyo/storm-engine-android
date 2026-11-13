@@ -259,10 +259,14 @@ class DialogueConsumer final : public StateConsumer
     {
         if (!state.is_object() || !state.value("active", false))
         {
+            shown_ = Json();
             if (router.Using() == "dialogue")
                 router.CloseInterface();
             return;
         }
+        shown_ = state;
+        shown_.erase("editError"); // a refusal answers one submission: it is not shown again
+        shown_.erase("editIndex");
         InterfaceModel model;
         model.screen = "dialogue";
         model.opening = state.value("generation", uint64_t{0});
@@ -347,8 +351,17 @@ class DialogueConsumer final : public StateConsumer
         router.SetInterface(model);
     }
 
+    // The engine sends a dialogue node once: a game interface the dialogue's script opened over
+    // it (or one still closing as the dialogue began) must not take it away for good.
+    void Resume(Router &router) override
+    {
+        if (!shown_.is_null())
+            OnState(Json(shown_), router); // a copy: OnState stores what it shows
+    }
+
   private:
     uint64_t revision_ = 0;
+    Json shown_; // the active dialogue state last shown; null while no dialogue is active
 };
 
 } // namespace

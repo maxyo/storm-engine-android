@@ -4,6 +4,7 @@
 #pragma once
 
 #include "effects/ao_volume.hpp"
+#include "effects/visibility.hpp"
 #include "effects/lighting.hpp"
 #include "storm/fx/contact_shadows.hpp"
 #include "storm/fx/capabilities.hpp"
@@ -83,6 +84,8 @@ class Host
     // Per-pixel lighting and alpha to coverage of the fixed-function emulator (effects/lighting.hpp).
     Lighting &lighting() { return lighting_; }
     AoVolumes &ao_volumes() { return ao_; }
+    // The location's visibility volume (effects/visibility.hpp): every lit and baked draw binds it.
+    Visibility &visibility() { return visibility_; }
     // The interior's AO volume for the draws of this frame (null outdoors, before it is ready, or when off).
     const AoVolumes::Bound *ao_volume() const { return ao_bound_; }
 
@@ -190,6 +193,7 @@ class Host
     fx::DepthCopy depth_copy_;
     fx::ContactShadows contact_;
     AoVolumes ao_;
+    Visibility visibility_;
     const AoVolumes::Bound *ao_bound_ = nullptr;
     std::chrono::steady_clock::time_point last_frame_end_{}; // the lightmaps' sun turns with the time between frames
     float camera_height_ = 0.0f; // of the last world pass

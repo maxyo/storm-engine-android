@@ -155,6 +155,10 @@ struct EffectsLocationGeometry
     // beyond and only occludes there).
     bool interior = false;
     std::array<float, 3> room_lo{}, room_hi{};
+    // The still models' collision data (world space): what the location traces against (Location::Trace), which may
+    // close where nothing is drawn (a ceiling only the camera collides with). The visibility volume's occluders.
+    std::span<const std::array<float, 3>> collision_positions;
+    std::span<const uint32_t> collision_indices;
 };
 void SetEffectsLocationGeometry(const EffectsLocationGeometry &geometry);
 

@@ -468,6 +468,17 @@ bool GEOM::HasCollision() const
     return !sroot.empty();
 }
 
+void GEOM::AppendCollisionTriangles(std::vector<glm::vec3> &positions, std::vector<uint32_t> &indices) const
+{
+    if (sroot.empty())
+        return;
+    const auto base = static_cast<uint32_t>(positions.size());
+    positions.insert(positions.end(), vrt.begin(), vrt.end());
+    for (const RDF_BSPTRIANGLE &t : btrg)
+        for (size_t k = 0; k < 3; ++k)
+            indices.push_back(base + static_cast<uint32_t>(t.getIndex(k)));
+}
+
 const std::string &GEOM::LightmapFile() const
 {
     return lightmap_file_;

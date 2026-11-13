@@ -321,7 +321,7 @@ void Lighting::prepare(const shim::Device &device, const shim::LayoutInfo &layou
             }
         }
     }
-    if (ao || lamp_on)
+    if (ao || lamp_on || visibility_)
     {
         memcpy(draw.view.data(), &device.s.view.m[0][0], sizeof(float) * 16);
         draw.origin = origin_;
@@ -516,6 +516,7 @@ void Lighting::submit(const FfDraw &draw)
     if (draw.shadow)
         shadows_.bind(draw.view);
     bind_ao_volume(draw);
+    bind_visibility(draw);
     lamps_.bind(draw.lamps, draw.world_view, draw.room_light);
 }
 
@@ -578,6 +579,41 @@ void Lighting::bind_ao_volume(const FfDraw &draw)
     bgfx::setTexture(fx::kAoVolumeStage, s_ao_volume_, ao_volume_->texture);
 }
 
+void Lighting::bind_visibility(const FfDraw &draw)
+{
+    if (!bgfx::isValid(u_visibility_params_))
+    {
+        s_visibility_ = bgfx::createUniform("s_fxVisibility", bgfx::UniformType::Sampler);
+        u_visibility_matrix_ = bgfx::createUniform("u_fxVisibility", bgfx::UniformType::Mat4);
+        u_visibility_params_ = bgfx::createUniform("u_fxVisibilityParams", bgfx::UniformType::Vec4);
+    }
+    // Like the AO volume: the 3D sampler needs a 3D texture on its unit whether or not this draw has a volume.
+    if (!visibility_)
+    {
+        if (!bgfx::isValid(visibility_open_))
+        {
+            const uint8_t open[4] = {255, 255, 0, 0};
+            visibility_open_ = bgfx::createTexture3D(1, 1, 1, false, bgfx::TextureFormat::RGBA8, BGFX_SAMPLER_POINT, bgfx::copy(open, 4));
+        }
+        const float off[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+        bgfx::setUniform(u_visibility_params_, off);
+        bgfx::setTexture(fx::kVisibilityStage, s_visibility_, visibility_open_);
+        return;
+    }
+    if (draw.world_view != visibility_view_)
+    {
+        float inverse_view[16];
+        bx::mtxInverse(inverse_view, draw.world_view.data());
+        bx::mtxMul(visibility_view_to_uvw_.data(), inverse_view, visibility_->world_to_uvw.data());
+        visibility_view_ = draw.world_view;
+    }
+    // y: the receivers' offset along their normal, one cell.
+    const float params[4] = {settings_.visibility_debug ? 2.0f : 1.0f, visibility_->cell, 0.0f, 0.0f};
+    bgfx::setUniform(u_visibility_matrix_, visibility_view_to_uvw_.data());
+    bgfx::setUniform(u_visibility_params_, params);
+    bgfx::setTexture(fx::kVisibilityStage, s_visibility_, visibility_->texture);
+}
+
 bool Lighting::aerial_fog(const D3DMATRIX &view, bool vs_port, std::array<float, 2> &haze)
 {
     if (!(flags_ & fx::kLightingAerial) || !sky_)
@@ -626,8 +662,12 @@ void Lighting::shutdown()
     casters_.shutdown();
     if (bgfx::isValid(ao_open_))
         bgfx::destroy(ao_open_);
+    if (bgfx::isValid(visibility_open_))
+        bgfx::destroy(visibility_open_);
+    visibility_open_ = BGFX_INVALID_HANDLE;
     ao_open_ = BGFX_INVALID_HANDLE;
-    for (bgfx::UniformHandle *u : {&u_coverage_, &u_ff_, &u_aerial_up_, &s_ao_volume_, &u_ao_matrix_, &u_ao_params_})
+    for (bgfx::UniformHandle *u : {&u_coverage_, &u_ff_, &u_aerial_up_, &s_ao_volume_, &u_ao_matrix_, &u_ao_params_, &s_visibility_,
+                                   &u_visibility_matrix_, &u_visibility_params_})
     {
         if (bgfx::isValid(*u))
             bgfx::destroy(*u);
@@ -643,8 +683,9 @@ void Lighting::on_device_lost()
     lamps_.on_device_lost();
     casters_.on_device_lost();
     u_coverage_ = u_ff_ = u_aerial_up_ = s_ao_volume_ = u_ao_matrix_ = u_ao_params_ = BGFX_INVALID_HANDLE;
+    s_visibility_ = u_visibility_matrix_ = u_visibility_params_ = BGFX_INVALID_HANDLE;
     ao_view_ = {};
-    ao_open_ = BGFX_INVALID_HANDLE;
+    ao_open_ = visibility_open_ = BGFX_INVALID_HANDLE;
 }
 
 } // namespace storm::effects

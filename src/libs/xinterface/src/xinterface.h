@@ -266,6 +266,8 @@ class XINTERFACE : public XINTERFACE_BASE
     char *SaveFileFind(int32_t saveNum, char *buffer, size_t bufSize, int32_t &fileSize);
     bool NewSaveFileName(const char *fileName) const;
     void DeleteSaveFile(const char *fileName);
+    // The autosave record of `profile` to write next (save_autosave.hpp).
+    std::string NextAutosaveRecord(const std::string &profile) const;
     // node control
     void AddNodeToList(CINODE *nod, int32_t priority = 80);
     // locked function

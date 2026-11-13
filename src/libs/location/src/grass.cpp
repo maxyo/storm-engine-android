@@ -31,6 +31,7 @@
 #define GRASS_MAX_POINTS 8192
 
 #define GRASS_DEFTEXTURE "Grass\\grass.tga"
+#define GRASS_CHARACTERS 16 // characters bending the grass in one frame (vs_port_grass.sc GRASS_CHARACTERS)
 
 // ============================================================================================
 // Construction, destruction
@@ -57,7 +58,6 @@ Grass::Grass()
     strcpy_s(textureName, GRASS_DEFTEXTURE);
 
     vb = ib = -1;
-    vbuffer = nullptr;
 
     quality = rq_full;
     windAng = 0.0f;
@@ -80,12 +80,7 @@ Grass::~Grass()
         if (texture >= 0)
             rs->TextureRelease(texture);
         if (vb >= 0)
-        {
-            if (vbuffer)
-                rs->UnLockVertexBuffer(vb);
-            vbuffer = nullptr;
             rs->ReleaseVertexBuffer(vb);
-        }
         if (ib >= 0)
             rs->ReleaseIndexBuffer(ib);
     }
@@ -116,27 +111,11 @@ bool Grass::Init()
         throw std::runtime_error("No service: renderer");
     // Vertex declaration
     CreateVertexDeclaration();
-    // Buffer for dynamic data
-    vb = rs->CreateVertexBuffer(0, GRASS_MAX_POINTS * 4 * sizeof(Vertex), D3DUSAGE_DYNAMIC);
-    if (vb < 0)
-        return false;
-    // Vertex Addressing Indexes
-    ib = rs->CreateIndexBuffer(GRASS_MAX_POINTS * 6 * sizeof(uint16_t));
+    // The indices of the blades drawn in a frame (DrawRuns)
+    ib = rs->CreateIndexBuffer(GRASS_MAX_POINTS * 6 * sizeof(uint32_t), D3DUSAGE_DYNAMIC | D3DUSAGE_WRITEONLY,
+                               D3DFMT_INDEX32);
     if (ib < 0)
         return false;
-    auto *index = static_cast<uint16_t *>(rs->LockIndexBuffer(ib));
-    if (!index)
-        return false;
-    for (int32_t i = 0, point = 0; i < GRASS_MAX_POINTS; i++, index += 6, point += 4)
-    {
-        index[0] = static_cast<uint16_t>(point + 0);
-        index[1] = static_cast<uint16_t>(point + 1);
-        index[2] = static_cast<uint16_t>(point + 2);
-        index[3] = static_cast<uint16_t>(point + 2);
-        index[4] = static_cast<uint16_t>(point + 1);
-        index[5] = static_cast<uint16_t>(point + 3);
-    }
-    rs->UnLockIndexBuffer(ib);
 
     // Constants
     static const auto pi2 = 2.0f * 3.141592653f;
@@ -262,13 +241,68 @@ bool Grass::LoadData(const char *patchName)
     catch (const std::exception &e)
     {
         core.Trace("Grass: incorrect grs file %s (%s)", patchName, e.what());
+        numElements = 0;
         delete miniMap;
         miniMap = nullptr;
         delete block;
         block = nullptr;
     }
     delete load;
+    CreateBuffer();
     return true;
+}
+
+void Grass::CreateBuffer()
+{
+    if (vb >= 0)
+        rs->ReleaseVertexBuffer(vb);
+    vb = -1;
+    if (!block || numElements <= 0)
+        return;
+    if (miniX * GRASS_BLK_SIZE > 32767 || miniZ * GRASS_BLK_SIZE > 32767)
+        throw std::runtime_error("Grass: a minimap over 1023 blocks does not fit the 16-bit blade places");
+    vb = rs->CreateVertexBuffer(0, static_cast<size_t>(numElements) * 4 * sizeof(Vertex), D3DUSAGE_WRITEONLY);
+    auto *v = vb >= 0 ? static_cast<Vertex *>(rs->LockVertexBuffer(vb)) : nullptr;
+    if (!v)
+        throw std::runtime_error("Grass: no static vertex buffer for the blades");
+    float low = block[0].y, high = block[0].y;
+    for (int32_t i = 0; i < numElements; i++)
+    {
+        low = std::min(low, block[i].y);
+        high = std::max(high, block[i].y);
+    }
+    constexpr int32_t kHeightSteps = 16383;
+    heightMin = low;
+    heightStep = high > low ? (high - low) / kHeightSteps : 1.0f;
+    const auto nibble = [](uint8_t value) { return static_cast<uint32_t>(value / 17); }; // LoadData: 17 * 0..15
+    // The blades in the order of block[]: a block's blade i is vertex 4 * (start + i)
+    for (int32_t mz = 0; mz < miniZ; mz++)
+        for (int32_t mx = 0; mx < miniX; mx++)
+        {
+            const GRSMiniMapElement &mm = miniMap[mz * miniX + mx];
+            const float cx = startX + mx * GRASS_BLK_DST, cz = startZ + mz * GRASS_BLK_DST;
+            for (int32_t i = 0; i < mm.num[0]; i++)
+            {
+                const GRSMapElementEx &el = block[mm.start + i];
+                // RenderBlock draws the first num[lod] blades of a block (num[] does not grow with the LOD)
+                int32_t maxLod = 0;
+                for (int32_t lod = 1; lod < 4; lod++)
+                    if (i < mm.num[lod])
+                        maxLod = lod;
+                // The step in the block LoadData placed the blade at (el.x = step * GRASS_STEP + cx)
+                const int32_t sx = static_cast<int32_t>(lroundf((el.x - cx) / GRASS_STEP));
+                const int32_t sz = static_cast<int32_t>(lroundf((el.z - cz) / GRASS_STEP));
+                const int32_t xq = mx * GRASS_BLK_SIZE + sx, zq = mz * GRASS_BLK_SIZE + sz;
+                const int32_t step = std::clamp(static_cast<int32_t>(lroundf((el.y - low) / heightStep)), 0, kHeightSteps);
+                const auto height = static_cast<int16_t>(step * 4 + maxLod - 32768);
+                const auto data = static_cast<int16_t>(static_cast<uint16_t>(
+                    nibble(el.frame) | nibble(el.h) << 4 | nibble(el.w) << 8 | nibble(el.ang) << 12));
+                for (int32_t c = 0; c < 4; c++, v++)
+                    *v = {static_cast<int16_t>(c & 1 ? xq - 32768 : xq), static_cast<int16_t>(c & 2 ? zq - 32768 : zq),
+                          height, data};
+            }
+        }
+    rs->UnLockVertexBuffer(vb);
 }
 
 // Set texture
@@ -609,9 +643,26 @@ void Grass::Realize(uint32_t delta_time)
     if (camz >= miniZ)
         camz = miniZ - 1;
     // Preparing blocks for rendering
-    numPoints = 0;
+    DrawGrass(pos, plane, numPlanes, left, right, top, bottom);
+
+    rs->SetRenderState(D3DRS_FOGDENSITY, dwOldFogDensity);
+
+    for (size_t i = 0; i < characters.size(); i++)
+    {
+        if (characters[i].useCounter > 2)
+        {
+            characters[i].chr->SetGrassSound();
+        }
+    }
+}
+
+void Grass::DrawGrass(const glm::vec3 &pos, const PLANE *plane, int32_t numPlanes, int32_t left, int32_t right,
+                      int32_t top, int32_t bottom)
+{
+    runs.clear();
+    chrNear.assign(characters.size(), 0);
     rs->SetTransform(D3DTS_WORLD, storm::math::d3dMatrix(glm::mat4()));
-    
+
     if (right != miniX - 1 || bottom != miniZ - 1)
     {
         for (auto mx = left; mx < right; mx++)
@@ -627,26 +678,16 @@ void Grass::Realize(uint32_t delta_time)
                 }
             }
         }
-    } else
+    }
+    else
     {
-        for (const auto& [mx, mz] : cachedMiniMap)
+        for (const auto &[mx, mz] : cachedMiniMap)
         {
             RenderBlock(pos, plane, numPlanes, mx, mz);
         }
     }
 
-    // Draw a buffer
-    DrawBuffer();
-
-    rs->SetRenderState(D3DRS_FOGDENSITY, dwOldFogDensity);
-
-    for (size_t i = 0; i < characters.size(); i++)
-    {
-        if (characters[i].useCounter > 2)
-        {
-            characters[i].chr->SetGrassSound();
-        }
-    }
+    DrawRuns();
 }
 
 uint64_t Grass::ProcessMessage(MESSAGE &message)
@@ -688,11 +729,6 @@ void Grass::RestoreRender()
 // Draw a block with coordinates on the minimap
 void Grass::RenderBlock(const glm::vec3 &camPos, const PLANE *plane, int32_t numPlanes, int32_t mx, int32_t mz)
 {
-    // Draw a buffer if overflowed
-    if (numPoints >= GRASS_MAX_POINTS - (GRASS_CNT_MIN + GRASS_CNT_DLT) * 3)
-    {
-        DrawBuffer();
-    }
     glm::vec3 min, max;
     // The block we draw
     GRSMiniMapElement &mm = miniMap[mz * miniX + mx];
@@ -737,8 +773,120 @@ void Grass::RenderBlock(const glm::vec3 &camPos, const PLANE *plane, int32_t num
         // Add an index
         blockChrs.push_back(i);
     }
-    // Render block
-    RenderBlock(mm, kLod);
+    QueueBlock(mx, mz, kLod);
+}
+
+// The block's LOD, as the vertex shader finds it (vs_port_grass.sc)
+static int32_t BlockLod(float kLod, int32_t quality)
+{
+    const int32_t lod = static_cast<int32_t>(kLod * 3.9999f);
+    return lod < quality ? quality : lod;
+}
+
+void Grass::QueueBlock(int32_t mx, int32_t mz, float kLod)
+{
+    GRSMiniMapElement &mm = miniMap[mz * miniX + mx];
+    const int32_t lod = BlockLod(kLod, quality);
+    Assert(lod >= 0 && lod < 4);
+    // The block's first num[lod] blades, as RenderBlock draws them; DrawRuns writes their indices
+    if (mm.num[lod] > 0)
+        runs.emplace_back(mm.start, mm.num[lod]);
+    if (blockChrs.empty() || quality > rq_middle)
+        return;
+    // The characters' grass contacts (Character::SetGrassSound), counted as RenderBlock counts them; the characters
+    // touching a drawn blade go to the vertex shader
+    const GRSMapElementEx *b = block + mm.start;
+    for (int32_t i = 0; i < mm.num[lod]; i++)
+        for (size_t chr = 0; chr < blockChrs.size(); chr++)
+        {
+            CharacterPos &cp = characters[blockChrs[chr]];
+            if (fabsf(cp.pos.y - b[i].y) >= 0.7f)
+                continue;
+            const float pldx = ((b[i].x - cp.pos.x) + (b[i].x - cp.lastPos.x)) * 0.5f;
+            const float pldz = ((b[i].z - cp.pos.z) + (b[i].z - cp.lastPos.z)) * 0.5f;
+            const float dst = pldx * pldx + pldz * pldz;
+            if (dst < 0.8f * 0.8f && dst > 0.0f)
+            {
+                cp.useCounter++;
+                chrNear[blockChrs[chr]] = 1; // the vertex shader bends this blade around the character
+            }
+        }
+}
+
+void Grass::DrawRuns()
+{
+    if (runs.empty() || vb < 0)
+        return;
+    // c42.. (vs_port_grass.sc): the wind, LOD and characters for the vertex shader
+    VSConstant c[8 + 2 * GRASS_CHARACTERS];
+    const float wAdd = winForce * (1.0f + cosf(phase[1] + sinPh5)) * 0.25f;
+    float lowWind = 0.01f * winForce + 0.1f * winForce * winForce + 2.0f * winF10;
+    if (lowWind > 1.0f)
+        lowWind = 1.0f;
+    c[0] = VSConstant(winDir.x * wAdd, winDir.z * wAdd, winDir.x * kDirWF, winDir.z * kDirWF);
+    c[1] = VSConstant(winDir.x, winDir.z, winForce, lowWind);
+    c[2] = VSConstant(phase[0], phase[3], phase[4], cosPh1);
+    c[3] = VSConstant(sinPh2, sinPh5, sinPh6, winPow);
+    glm::vec3 pos, ang;
+    float prs;
+    rs->GetCamera(pos, ang, prs);
+    c[5] = VSConstant(startX, startZ, pos.x, pos.z);
+    c[6] = VSConstant(m_fMinVisibleDist, m_fMaxVisibleDist, m_fMinGrassLod, heightMin);
+    c[7] = VSConstant(heightStep, 0.0f, 0.0f, 0.0f);
+    int32_t count = 0;
+    for (size_t i = 0; i < characters.size(); i++)
+    {
+        if (!chrNear[i])
+            continue;
+        if (count == GRASS_CHARACTERS)
+        {
+            if (!tooManyLogged)
+                core.Trace("ERROR: Grass: more than %d characters in the grass of one frame; the grass bends around "
+                           "the first %d only", GRASS_CHARACTERS, GRASS_CHARACTERS);
+            tooManyLogged = true;
+            break;
+        }
+        const CharacterPos &cp = characters[i];
+        c[8 + 2 * count] = VSConstant(cp.pos.x, cp.pos.y, cp.pos.z, 0.0f);
+        c[9 + 2 * count] = VSConstant(cp.lastPos.x, cp.lastPos.y, cp.lastPos.z, 0.0f);
+        count++;
+    }
+    c[4] = VSConstant(winF10, kAmpWF, static_cast<float>(quality), static_cast<float>(count));
+    rs->SetVertexShaderConstantF(42, (const float *)c, 8 + 2 * count);
+
+    // The blades in drawing order as indices into the static buffer, GRASS_MAX_POINTS blades a draw like the CPU path
+    rs->SetVertexDeclaration(vertexDecl_);
+    rs->SetStreamSource(0, vb, sizeof(Vertex));
+    const char *technique = isGrassLightsOn == 1 ? "Grass" : "GrassDark";
+    uint32_t *index = nullptr;
+    int32_t blades = 0;
+    const auto draw = [&] {
+        rs->UnLockIndexBuffer(ib);
+        index = nullptr;
+        rs->DrawBuffer(-1, sizeof(Vertex), ib, 0, static_cast<size_t>(numElements) * 4, 0, blades * 2, technique);
+        blades = 0;
+    };
+    for (const auto &[start, count] : runs)
+    {
+        if (index && blades + count > GRASS_MAX_POINTS)
+            draw();
+        if (!index && !(index = static_cast<uint32_t *>(rs->LockIndexBuffer(ib, D3DLOCK_DISCARD))))
+            return;
+        for (int32_t i = 0; i < count; i++, index += 6)
+        {
+            const auto point = static_cast<uint32_t>(start + i) * 4;
+            index[0] = point;
+            index[1] = point + 1;
+            index[2] = point + 2;
+            index[3] = point + 2;
+            index[4] = point + 1;
+            index[5] = point + 3;
+        }
+        blades += count;
+    }
+    if (index)
+        draw();
+    rs->SetStreamSource(0, -1, 0);
 }
 
 // Box visibility check
@@ -774,198 +922,6 @@ inline bool Grass::VisibleTest(const PLANE *plane, int32_t numPlanes, const glm:
     return true;
 }
 
-// Draw block
-inline void Grass::RenderBlock(GRSMiniMapElement &mme, float kLod)
-{
-    // Protect from yourself
-    if (!vbuffer)
-    {
-        vbuffer = static_cast<Vertex *>(rs->LockVertexBuffer(vb));
-        if (!vbuffer)
-            return;
-    }
-    // Position in the vertex array
-    Vertex *v = vbuffer + numPoints * 4;
-    // Blocks
-    GRSMapElementEx *b = block + mme.start;
-    // Determine the parameters of the lod
-    kLod = kLod * 3.9999f;
-    int32_t lod = static_cast<int32_t>(kLod);
-    if (lod < quality)
-        lod = quality;
-    Assert(lod >= 0 && lod < 4);
-    float kBlend = 1.0f - (kLod - lod);
-    if (kBlend > 1.0f)
-        kBlend = 1.0f;
-    if (kBlend < 0.0f)
-        kBlend = 0.0f;
-    // The number of blades of grass in total
-    const int32_t num = mme.num[lod];
-    Assert(num <= GRASS_CNT_MIN + GRASS_CNT_DLT);
-    // Quantity drawn without LODs
-    const int32_t lodNum = lod < 3 ? mme.num[lod + 1] : 0;
-    // Wind addition
-    float wAddX, wAddZ, kwDirX, kwDirZ;
-    if (quality <= rq_middle)
-    {
-        wAddX = winDir.x * winForce * (1.0f + cosf(phase[1] + sinPh5)) * 0.25f;
-        wAddZ = winDir.z * winForce * (1.0f + cosf(phase[1] + sinPh5)) * 0.25f;
-        kwDirX = winDir.x * kDirWF;
-        kwDirZ = winDir.z * kDirWF;
-    }
-    else
-    {
-        wAddX = 0.01f * winForce + 0.1f * winForce * winForce + 2.0f * winF10;
-        if (wAddX > 1.0f)
-            wAddX = 1.0f;
-    }
-    // Cycle through Blades
-    float alpha;
-    for (int32_t i = 0; i < num; i++)
-    {
-        // Alpha
-        if (i < lodNum)
-        {
-            alpha = 1.0f;
-        }
-        else
-        {
-            alpha = kBlend;
-        }
-        // Swaying grass
-        float winx = sinf(b[i].x * cosPh1 + b[i].z * 0.06f + phase[0]);
-        float winz = cosf(b[i].x * 0.11f + b[i].z * sinPh2 + phase[0]);
-        if (quality <= rq_middle)
-        {
-            // Position
-            const float x = b[i].x;
-            const float y = b[i].y;
-            const float z = b[i].z;
-            // Wind waves
-            const float dx = winDir.x * x * 0.5f + phase[3];
-            const float dz = winDir.z * z * 0.5f + phase[4];
-            const float k1 = sinf(dx + dz);
-            const float a1 = (0.001f + sinPh5 * sinf((dx + dz) * 0.5f));
-            const float k2 = cosf(winDir.z * x * (a1 + sinPh6) - winDir.x * z * a1);
-            float kamp = powf(k1 * k2 * 0.5f + 0.5f, winPow) + winF10 + winForce * 0.7f;
-            if (kamp > 1.0f)
-                kamp = 1.0f;
-            // Resulting displacement vector
-            kamp *= kAmpWF;
-            winx = (0.9f * winx + kwDirX) * kamp + wAddX;
-            winz = (0.9f * winz + kwDirZ) * kamp + wAddZ;
-            // take into account the characters
-            for (size_t chr = 0; chr < blockChrs.size(); chr++)
-            {
-                CharacterPos &cp = characters[blockChrs[chr]];
-                if (fabsf(cp.pos.y - y) < 0.7f)
-                {
-                    float pldx = ((x - cp.pos.x) + (x - cp.lastPos.x)) * 0.5f;
-                    float pldz = ((z - cp.pos.z) + (z - cp.lastPos.z)) * 0.5f;
-                    float dst = pldx * pldx + pldz * pldz;
-                    if (dst < 0.8f * 0.8f && dst > 0.0f)
-                    {
-                        // work
-                        if (dst > 0.0f)
-                        {
-                            dst = sqrtf(dst);
-                            const float k = 0.5f / dst;
-                            pldx *= k;
-                            pldz *= k;
-                        }
-                        dst *= 1.0f / 0.8f;
-                        dst = 1.0f - dst;
-                        dst *= dst;
-                        winx += (pldx - winx) * dst;
-                        winz += (pldz - winz) * dst;
-                        cp.useCounter++;
-                    }
-                }
-            }
-            float wLen = sqrtf(winx * winx + winz * winz);
-            if (wLen > 1.2f)
-            {
-                wLen = 1.2f / wLen;
-                winx *= wLen;
-                winz *= wLen;
-            }
-            winx *= 0.4f;
-            winz *= 0.4f;
-        }
-        else
-        {
-            winx *= wAddX;
-            winz *= wAddX;
-        }
-        // Initial data
-        GRSMapElementEx &el = b[i];
-        // Coordinates
-        v[0].x = el.x;
-        v[0].y = el.y;
-        v[0].z = el.z;
-        v[0].data = el.data;
-        v[0].offset = 0x00000000;
-        v[0].wx = winx;
-        v[0].wz = winz;
-        v[0].alpha = alpha;
-
-        v[1].x = el.x;
-        v[1].y = el.y;
-        v[1].z = el.z;
-        v[1].data = el.data;
-        v[1].offset = 0x00ff0000;
-        v[1].wx = winx;
-        v[1].wz = winz;
-        v[1].alpha = alpha;
-
-        v[2].x = el.x;
-        v[2].y = el.y;
-        v[2].z = el.z;
-        v[2].data = el.data;
-        v[2].offset = 0x0000ff00;
-        v[2].wx = winx;
-        v[2].wz = winz;
-        v[2].alpha = alpha;
-
-        v[3].x = el.x;
-        v[3].y = el.y;
-        v[3].z = el.z;
-        v[3].data = el.data;
-        v[3].offset = 0x00ffff00;
-        v[3].wx = winx;
-        v[3].wz = winz;
-        v[3].alpha = alpha;
-
-        v += 4;
-        numPoints++;
-    }
-}
-
-// Draw the contents of the buffer
-void Grass::DrawBuffer()
-{
-    if (vbuffer)
-    {
-        rs->UnLockVertexBuffer(vb);
-        vbuffer = nullptr;
-    }
-    // boal shader selection -->
-    if (numPoints > 0)
-    {
-        rs->SetVertexDeclaration(vertexDecl_);
-        if (isGrassLightsOn == 1)
-        {
-            rs->DrawBuffer(vb, sizeof(Vertex), ib, 0, numPoints * 4, 0, numPoints * 2, "Grass");
-        }
-        else
-        {
-            rs->DrawBuffer(vb, sizeof(Vertex), ib, 0, numPoints * 4, 0, numPoints * 2, "GrassDark");
-        }
-        // boal shader selection <--
-        numPoints = 0;
-    }
-}
-
 int32_t Grass::GetColor(glm::vec3 color)
 {
     if (color.x > 1.0f)
@@ -991,13 +947,8 @@ void Grass::CreateVertexDeclaration()
     if (!vertexDecl_)
     {
         constexpr D3DVERTEXELEMENT9 VertexElements[] = {
-            {0, 0, D3DDECLTYPE_FLOAT3, D3DDECLMETHOD_DEFAULT, D3DDECLUSAGE_POSITION, 0},
-            {0, 12, D3DDECLTYPE_D3DCOLOR, D3DDECLMETHOD_DEFAULT, D3DDECLUSAGE_COLOR, 0},
-            {0, 16, D3DDECLTYPE_D3DCOLOR, D3DDECLMETHOD_DEFAULT, D3DDECLUSAGE_COLOR, 1},
-            {0, 20, D3DDECLTYPE_FLOAT3, D3DDECLMETHOD_DEFAULT, D3DDECLUSAGE_TEXCOORD, 0},
-            D3DDECL_END()};
+            {0, 0, D3DDECLTYPE_SHORT4, D3DDECLMETHOD_DEFAULT, D3DDECLUSAGE_POSITION, 0}, D3DDECL_END()};
 
         vertexDecl_ = rs->CreateVertexDeclaration(VertexElements);
     }
-
 }

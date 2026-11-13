@@ -51,7 +51,7 @@ hub after `SDL_InitSubSystem`, calls `dispatch()` once per loop iteration after
   mechanism. `AppWillEnterBackground` is raised whenever SDL suspends the game
   thread: the activity leaving the foreground and the app's modal gameplay
   dialogs (which pause through SDL as well). The app's interface overlay
-  handles it with a background autosave (`interface/android_background_save.c`
+  handles it with a background autosave (`interface/android_autosave.c`
   in corsairs-android). The handlers run synchronously on the game thread and
   the time they took is logged (`AppWillEnterBackground handlers took N ms`);
   the Android UI thread does not wait for them (its `surfaceDestroyed` waits only

@@ -568,10 +568,12 @@ void SEA::CalculateLOD(const glm::vec3 &v1, const glm::vec3 &v2, int32_t &iMaxLO
             fMin = CalcLod(vCamPos.x, vSeaCenterPos.y, vCamPos.z);
     }
 
-    iMaxLOD = static_cast<int>(0.5f * logf(fLodScale * fMax) / logf(2));
+    // At least 1 under the logarithm: a block around the camera has fMin = 0, and log(0) = -inf has no int (undefined
+    // behaviour; arm64 and x86 convert it differently). Below LOD 4 the result is clamped anyway.
+    iMaxLOD = static_cast<int>(0.5f * logf(std::max(fLodScale * fMax, 1.0f)) / logf(2));
     if (iMaxLOD < 4)
         iMaxLOD = 4;
-    iMinLOD = static_cast<int>(0.5f * logf(fLodScale * fMin) / logf(2));
+    iMinLOD = static_cast<int>(0.5f * logf(std::max(fLodScale * fMin, 1.0f)) / logf(2));
     if (iMinLOD < 4)
         iMinLOD = 4;
 }

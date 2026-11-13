@@ -7,6 +7,11 @@
 
 SUNGLOW::SUNGLOW()
 {
+    // DrawReflection (the sea's sun road, MSG_SEA_SUNROAD_DRAW) can run before the first Realize computes the fade:
+    // the main menu's sea draws its sun road while the scripts build the scene. Uninitialised, fFadeout held garbage
+    // (1.7e25 on the title) whose int conversion is undefined: x86 gave alpha 0, arm64 saturates to alpha 255, an
+    // opaque sun reflection that turned the title's sea white on every phone. Fully visible until Realize fades it.
+    fFadeout = 1.0f;
     fAlpha = 0.0f;
     fAlphaFlare = 0.0f;
     fAlphaOverflow = 0.0f;

@@ -35,13 +35,59 @@ CoastFoam::~CoastFoam()
     iIBuffer = -1;
 }
 
+namespace
+{
+constexpr uint32_t kBatchVertices = 5000;
+constexpr uint32_t kBatchIndices = 30000;
+} // namespace
+
+void CoastFoam::AddStrand(int32_t texture, uint32_t vertices, uint32_t indices, FoamVertex *&pFV, uint16_t *&pI,
+                          uint16_t &base)
+{
+    if (texture != iBatchTexture || aBatchVertices.size() + vertices > kBatchVertices ||
+        aBatchIndices.size() + indices > kBatchIndices)
+        FlushStrands();
+    iBatchTexture = texture;
+    base = static_cast<uint16_t>(aBatchVertices.size());
+    aBatchVertices.resize(aBatchVertices.size() + vertices);
+    aBatchIndices.resize(aBatchIndices.size() + indices);
+    pFV = aBatchVertices.data() + base;
+    pI = aBatchIndices.data() + aBatchIndices.size() - indices;
+}
+
+void CoastFoam::FlushStrands()
+{
+    if (!aBatchIndices.empty())
+    {
+        auto *pFV = static_cast<FoamVertex *>(rs->LockVertexBuffer(iVBuffer, D3DLOCK_DISCARD));
+        auto *pI = static_cast<uint16_t *>(rs->LockIndexBuffer(iIBuffer, D3DLOCK_DISCARD));
+        if (pFV && pI)
+        {
+            memcpy(pFV, aBatchVertices.data(), aBatchVertices.size() * sizeof(FoamVertex));
+            memcpy(pI, aBatchIndices.data(), aBatchIndices.size() * sizeof(uint16_t));
+        }
+        rs->UnLockIndexBuffer(iIBuffer);
+        rs->UnLockVertexBuffer(iVBuffer);
+        if (pFV && pI)
+        {
+            rs->SetWorld(glm::mat4(1.0f));
+            rs->TextureSet(0, iBatchTexture);
+            rs->DrawBuffer(iVBuffer, sizeof(FoamVertex), iIBuffer, 0, aBatchVertices.size(), 0,
+                           aBatchIndices.size() / 3, "CoastFoam");
+        }
+    }
+    aBatchVertices.clear();
+    aBatchIndices.clear();
+    iBatchTexture = -1;
+}
+
 bool CoastFoam::Init()
 {
     rs = static_cast<VRenderer *>(core.GetService("renderer"));
 
     iVBuffer = rs->CreateVertexBuffer(D3DFVF_XYZ | D3DFVF_DIFFUSE | D3DFVF_TEX1 | D3DFVF_TEXTUREFORMAT2,
-                                      sizeof(FoamVertex) * 5000, D3DUSAGE_DYNAMIC | D3DUSAGE_WRITEONLY);
-    iIBuffer = rs->CreateIndexBuffer(10000 * 2 * 3, D3DUSAGE_DYNAMIC | D3DUSAGE_WRITEONLY);
+                                      sizeof(FoamVertex) * kBatchVertices, D3DUSAGE_DYNAMIC | D3DUSAGE_WRITEONLY);
+    iIBuffer = rs->CreateIndexBuffer(kBatchIndices * sizeof(uint16_t), D3DUSAGE_DYNAMIC | D3DUSAGE_WRITEONLY);
 
     iCursorTex = rs->TextureCreate("cursor.tga");
 
@@ -116,6 +162,7 @@ void CoastFoam::Realize(uint32_t Delta_Time)
         else
             ExecuteFoamType2(pF, fDeltaTime);
     }
+    FlushStrands();
     RDTSC_E(dw1);
 
     // rs->Print(0, 300, "dwNumPenasExecuted = %d, ticks = %d", dwNumPenasExecuted, dw1);
@@ -503,10 +550,9 @@ void CoastFoam::ExecuteFoamType2(Foam *pF, float fDeltaTime)
 
         pF->fMove[k] += pF->fSpeed[k] * fDeltaTime;
 
-        auto *pFV = static_cast<FoamVertex *>(rs->LockVertexBuffer(iVBuffer, D3DLOCK_DISCARD));
-        auto *pI = static_cast<uint16_t *>(rs->LockIndexBuffer(iIBuffer, D3DLOCK_DISCARD));
-
-        int32_t iNumVertices = 0;
+        FoamVertex *pFV;
+        uint16_t *pI, base;
+        AddStrand(pF->iTexture, 8 * iLen, 7 * 6 * (iLen - 1), pFV, pI, base);
 
         for (int32_t y = 0; y < 8; y++)
         {
@@ -531,7 +577,6 @@ void CoastFoam::ExecuteFoamType2(Foam *pF, float fDeltaTime)
                 pFV[x + y * iLen].dwColor = dwColor;
                 pFV[x + y * iLen].tu = pF->fSX[k] + pWP->tu;
                 pFV[x + y * iLen].tv = 1.0f - dy;
-                iNumVertices++;
             }
         }
 
@@ -540,24 +585,16 @@ void CoastFoam::ExecuteFoamType2(Foam *pF, float fDeltaTime)
         {
             for (int32_t x = 0; x < iLen - 1; x++)
             {
-                *pI++ = static_cast<uint16_t>((y + 0) * iLen + x);
-                *pI++ = static_cast<uint16_t>((y + 1) * iLen + x);
-                *pI++ = static_cast<uint16_t>((y + 0) * iLen + x + 1);
+                *pI++ = static_cast<uint16_t>(base + (y + 0) * iLen + x);
+                *pI++ = static_cast<uint16_t>(base + (y + 1) * iLen + x);
+                *pI++ = static_cast<uint16_t>(base + (y + 0) * iLen + x + 1);
 
-                *pI++ = static_cast<uint16_t>((y + 1) * iLen + x);
-                *pI++ = static_cast<uint16_t>((y + 1) * iLen + x + 1);
-                *pI++ = static_cast<uint16_t>((y + 0) * iLen + x + 1);
+                *pI++ = static_cast<uint16_t>(base + (y + 1) * iLen + x);
+                *pI++ = static_cast<uint16_t>(base + (y + 1) * iLen + x + 1);
+                *pI++ = static_cast<uint16_t>(base + (y + 0) * iLen + x + 1);
             }
         }
 
-        rs->UnLockIndexBuffer(iIBuffer);
-        rs->UnLockVertexBuffer(iVBuffer);
-
-        glm::mat4 mI;
-        mI = glm::mat4(1.0f);
-        rs->SetWorld(mI);
-        rs->TextureSet(0, pF->iTexture);
-        rs->DrawBuffer(iVBuffer, sizeof(FoamVertex), iIBuffer, 0, iNumVertices, 0, 7 * 2 * (iLen - 1), "CoastFoam");
     }
 }
 
@@ -621,10 +658,9 @@ void CoastFoam::ExecuteFoamType1(Foam *pF, float fDeltaTime)
     if (IsClipped(pF))
         return;
 
-    auto *pFV = static_cast<FoamVertex *>(rs->LockVertexBuffer(iVBuffer, D3DLOCK_DISCARD));
-    auto *pI = static_cast<uint16_t *>(rs->LockIndexBuffer(iIBuffer, D3DLOCK_DISCARD));
-
-    int32_t iNumVertices = 0;
+    FoamVertex *pFV;
+    uint16_t *pI, base;
+    AddStrand(pF->iTexture, 8 * iLen, 7 * 6 * (iLen - 1), pFV, pI, base);
 
     dwNumPenasExecuted++;
 
@@ -667,7 +703,6 @@ void CoastFoam::ExecuteFoamType1(Foam *pF, float fDeltaTime)
             pFV[x + y * iLen].dwColor = dwColor;
             pFV[x + y * iLen].tu = pWP->tu;
             pFV[x + y * iLen].tv = dy * 2.0f;
-            iNumVertices++;
         }
     }
 
@@ -676,24 +711,16 @@ void CoastFoam::ExecuteFoamType1(Foam *pF, float fDeltaTime)
     {
         for (int32_t x = 0; x < iLen - 1; x++)
         {
-            *pI++ = static_cast<uint16_t>((y + 0) * iLen + x);
-            *pI++ = static_cast<uint16_t>((y + 1) * iLen + x);
-            *pI++ = static_cast<uint16_t>((y + 0) * iLen + x + 1);
+            *pI++ = static_cast<uint16_t>(base + (y + 0) * iLen + x);
+            *pI++ = static_cast<uint16_t>(base + (y + 1) * iLen + x);
+            *pI++ = static_cast<uint16_t>(base + (y + 0) * iLen + x + 1);
 
-            *pI++ = static_cast<uint16_t>((y + 1) * iLen + x);
-            *pI++ = static_cast<uint16_t>((y + 1) * iLen + x + 1);
-            *pI++ = static_cast<uint16_t>((y + 0) * iLen + x + 1);
+            *pI++ = static_cast<uint16_t>(base + (y + 1) * iLen + x);
+            *pI++ = static_cast<uint16_t>(base + (y + 1) * iLen + x + 1);
+            *pI++ = static_cast<uint16_t>(base + (y + 0) * iLen + x + 1);
         }
     }
 
-    rs->UnLockIndexBuffer(iIBuffer);
-    rs->UnLockVertexBuffer(iVBuffer);
-
-    glm::mat4 mI;
-    mI = glm::mat4(1.0f);
-    rs->SetWorld(mI);
-    rs->TextureSet(0, pF->iTexture);
-    rs->DrawBuffer(iVBuffer, sizeof(FoamVertex), iIBuffer, 0, iNumVertices, 0, 7 * 2 * (iLen - 1), "CoastFoam");
 }
 
 void CoastFoam::RecalculateFoam(int32_t iFoam)

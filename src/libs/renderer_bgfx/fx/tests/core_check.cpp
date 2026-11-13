@@ -7,6 +7,7 @@
 #include "storm/fx/lamp_shadows.hpp"
 #include "storm/fx/sun_fit.hpp"
 #include "storm/fx/town_light.hpp"
+#include "storm/fx/visibility.hpp"
 #include "storm/fx/color_lut.hpp"
 #include "storm/fx/light_set.hpp"
 #include "storm/fx/lighting_model.hpp"
@@ -1676,6 +1677,46 @@ void CheckTownLight()
     CHECK(pixel(east, 4.0f, 0.0f) > 2.0f * pixel(game, 4.0f, 0.0f) && pixel(east, -4.0f, 0.0f) < 0.5f * pixel(game, -4.0f, 0.0f));
 }
 
+void CheckVisibility()
+{
+    // A 40 x 40 m ground; a closed hall (10 x 10 m, its ceiling 12 m up); an awning 3 m over a 6 x 6 m patch.
+    std::vector<Vec3> p;
+    std::vector<uint32_t> idx;
+    AddBox(p, idx, {-20.0f, -0.5f, -20.0f}, {20.0f, 0.0f, 20.0f});
+    AddBox(p, idx, {5.0f, 0.0f, 5.0f}, {5.3f, 12.0f, 15.0f});
+    AddBox(p, idx, {14.7f, 0.0f, 5.0f}, {15.0f, 12.0f, 15.0f});
+    AddBox(p, idx, {5.0f, 0.0f, 5.0f}, {15.0f, 12.0f, 5.3f});
+    AddBox(p, idx, {5.0f, 0.0f, 14.7f}, {15.0f, 12.0f, 15.0f});
+    AddBox(p, idx, {5.0f, 12.0f, 5.0f}, {15.0f, 12.3f, 15.0f});
+    AddBox(p, idx, {-12.0f, 3.0f, -12.0f}, {-6.0f, 3.1f, -6.0f});
+    const Occluders occluders(p, idx);
+    VisibilityParams params;
+    params.cell = 1.0f;
+    params.threads = 1;
+    const VisibilityVolume one = BakeVisibility(occluders, p, idx, params);
+    params.threads = 4;
+    const VisibilityVolume four = BakeVisibility(occluders, p, idx, params);
+    const auto open = one.Sample({-15.0f, 1.0f, 12.0f}), hall = one.Sample({10.0f, 1.5f, 10.0f}),
+               awning = one.Sample({-9.0f, 1.0f, -9.0f});
+    std::printf("visibility: %dx%dx%d cells of %.2f m; open ground sky %.2f open %.2f, hall %.2f %.2f, awning %.2f %.2f\n",
+                one.size[0], one.size[1], one.size[2], one.cell, open[0], open[1], hall[0], hall[1], awning[0], awning[1]);
+    CHECK(!one.Empty() && one.rgba == four.rgba); // the thread count does not change it
+    CHECK(open[0] > 0.9f && open[1] > 0.9f);
+    CHECK(hall[0] < 0.05f && hall[1] < 0.05f);  // a ceiling 12 m up closes it
+    // A wall read one cell off it (as ffVisibility does) on either side: the hall's side closed, the street's open.
+    const float inside_wall = one.Sample({5.3f + one.cell, 1.5f, 10.0f})[0], outside_wall = one.Sample({5.0f - one.cell, 1.5f, 10.0f})[0];
+    std::printf("visibility: by the hall's wall inside %.2f, outside %.2f\n", inside_wall, outside_wall);
+    CHECK(inside_wall < 0.15f && outside_wall > 0.5f); // outside: the 12 m wall itself hides half the sky
+    CHECK(awning[1] < 0.5f && awning[0] < open[0] - 0.3f);
+    // The cache entry: back as baked; another key is refused.
+    const uint64_t key = VisibilityKey(p, idx, params);
+    std::string error;
+    const std::optional<VisibilityVolume> back = DecodeVisibility(EncodeVisibility(one, key), key, error);
+    CHECK(back && back->rgba == one.rgba && back->size == one.size && back->cell == one.cell);
+    CHECK(!DecodeVisibility(EncodeVisibility(one, key), key + 1, error) && !error.empty());
+    CHECK(VisibilityVolume{}.Sample({0.0f, 0.0f, 0.0f})[0] == 1.0f); // none: open
+}
+
 int main()
 {
     CheckSettings();
@@ -1698,6 +1739,7 @@ int main()
     CheckCutout();
     CheckSunFit();
     CheckTownLight();
+    CheckVisibility();
     if (failures)
     {
         std::printf("%d check(s) failed\n", failures);

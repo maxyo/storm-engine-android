@@ -20,6 +20,9 @@ namespace storm::fx
 // variants never run a port and bind their own textures to those units after the shim, so every combination fits
 // in the 16 units of GLES 3.0.
 inline constexpr uint8_t kShadowMapStage = 15; // 13 is the renderer's bone palette (vertex shader)
+// The location's visibility volume (fx/visibility.hpp): the unit of the stage 0 cube map, which no lit or baked
+// variant has (a cube-mapped fixed-function draw keeps vertex lighting: Lighting::prepare).
+inline constexpr uint8_t kVisibilityStage = 5;
 inline constexpr uint8_t kAoVolumeStage = 12;    // the interior's AO volume (RGBA8 3D, four lobes)
 inline constexpr uint8_t kLampDynamicStage = 10; // lamp shadow atlases (characters / location)
 inline constexpr uint8_t kLampStaticStage = 11;
@@ -147,7 +150,8 @@ struct Settings
     // Towns light their lightmapped surfaces with our own bake for the live sun instead of the game's lightmaps
     // (needs kLightingPerPixel; src/effects/town_light.hpp).
     bool town_light = false;
-    bool town_light_debug = false; // our town lightmaps show their sun visibility (grey) instead of the relit paint
+    bool town_light_debug = false;
+    bool visibility_debug = false; // lit and baked surfaces show the location's visibility volume (red sky, green open) // our town lightmaps show their sun visibility (grey) instead of the relit paint
     // Ambient-occlusion volume of interiors (ao_volume.hpp): 0 off, else one of the strengths AoVolumeLevel names.
     uint8_t ao_volume = 0;
     // The lamps of a location relight it with shadows (lamp_shadows.hpp): how many lamps around the camera take

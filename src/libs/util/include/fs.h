@@ -19,7 +19,7 @@ inline path GetStashPath()
     if (path.empty())
     {
 #if defined(__ANDROID__)
-        path = storm::android::storagePaths().user;
+        path = storm::android::userDirectory();
 #else
         char *pref_path = nullptr;
         pref_path = SDL_GetPrefPath("Akella", "Sea Dogs");

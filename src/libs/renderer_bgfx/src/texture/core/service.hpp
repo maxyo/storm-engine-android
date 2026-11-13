@@ -1,4 +1,5 @@
-// Background DXT -> ETC2 transcode service: cache lookups (main thread), a small
+// Background transcode service for DXT textures (their mip chains rebuilt, mips.hpp; encoded as ETC2 or BC,
+// cache.hpp): cache lookups (main thread), a small
 // low-priority worker pool, cache writes/eviction and the summary log line.
 // No bgfx calls happen here; the shim swaps textures on its own thread.
 #pragma once
@@ -44,7 +45,7 @@ struct Job
     };
     Layout layout;
     uint64_t key = 0;
-    EtcFormat format = EtcFormat::Rgb8;
+    GpuFormat format = GpuFormat::Etc2Rgb8; // `layout` is the input's; output_layout() of it is the result's
     std::vector<uint8_t> input; // D3D payload, released once encoded
     std::shared_ptr<const Blob> result; // set before state becomes Done
     std::atomic<int> state{Queued};
@@ -71,7 +72,7 @@ class Service
     std::optional<Blob> lookup(uint64_t key, const Layout &layout);
     // Main thread. Returns nullptr when the queue is full (try again later).
     // Returns a job the caller holds until it calls release(); identical contents share one job.
-    std::shared_ptr<Job> submit(const Layout &layout, uint64_t key, EtcFormat format, std::vector<uint8_t> input);
+    std::shared_ptr<Job> submit(const Layout &layout, uint64_t key, GpuFormat format, std::vector<uint8_t> input);
     // Drops the caller's hold and resets `job`; the job is cancelled when no holder is left.
     void release(std::shared_ptr<Job> &job);
     bool has_room() const;

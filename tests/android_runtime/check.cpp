@@ -27,6 +27,7 @@ int main()
     const auto direct = storm::android::storagePaths("/private", "/external", "/storage/emulated/0/TEHO");
     assert(direct.game == "/storage/emulated/0/TEHO");
     assert(direct.user == "/private/storm");
+    assert(storm::android::userDirectory("/private") == "/private/storm"); // the logs' root, without a game folder
     bool relativeRejected = false;
     try { storm::android::storagePaths("/private", "/external", "relative/game"); }
     catch (const std::runtime_error &) { relativeRejected = true; }

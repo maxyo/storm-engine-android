@@ -34,6 +34,17 @@ Vec3 Direction(float azimuth_deg, float elevation_deg)
 
 } // namespace
 
+void ParallelRanges(size_t count, unsigned threads, const std::function<void(size_t, size_t)> &work)
+{
+    threads = std::max(1u, std::min<unsigned>(threads, static_cast<unsigned>(std::max<size_t>(1, count / 256))));
+    std::vector<std::thread> pool;
+    for (unsigned t = 1; t < threads; ++t)
+        pool.emplace_back([&, t] { work(count * t / threads, count * (t + 1) / threads); });
+    work(0, count / threads);
+    for (std::thread &th : pool)
+        th.join();
+}
+
 Occluders::Occluders(std::span<const Vec3> positions, std::span<const uint32_t> indices,
                      std::span<const std::array<float, 2>> uvs, std::vector<Cut> cut, float cell)
     : Occluders(positions, indices, cell)

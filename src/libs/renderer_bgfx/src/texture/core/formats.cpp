@@ -55,11 +55,13 @@ void decode_level(DxtFormat format, const uint8_t *src, uint32_t width, uint32_t
     bimg::imageDecodeToRgba8(&allocator, rgba, src, aligned_width, aligned_height, aligned_width * 4, source);
 }
 
-EtcFormat choose_etc_format(DxtFormat format, const uint8_t *payload, size_t size)
+GpuFormat choose_gpu_format(DxtFormat format, const uint8_t *payload, size_t size, bool bc)
 {
+    if (bc)
+        return format == DxtFormat::Bc1 ? GpuFormat::Bc1 : format == DxtFormat::Bc2 ? GpuFormat::Bc2 : GpuFormat::Bc3;
     if (format != DxtFormat::Bc1)
-        return EtcFormat::Rgba8;
-    return bc1_has_transparency(payload, size) ? EtcFormat::Rgba8 : EtcFormat::Rgb8;
+        return GpuFormat::Etc2Rgba8;
+    return bc1_has_transparency(payload, size) ? GpuFormat::Etc2Rgba8 : GpuFormat::Etc2Rgb8;
 }
 
 D3dFormat d3d_format(uint32_t d3d)
@@ -152,10 +154,11 @@ bool decode_rgba8(uint32_t d3d, const uint8_t *data, uint32_t width, uint32_t he
 namespace
 {
 // Encodes RGBA8 with bimg (etcpak inside); an encoder error is a programming error (sizes and formats are ours).
-void encode(bimg::TextureFormat::Enum dst, const uint8_t *rgba, uint32_t width, uint32_t height, uint8_t *out)
+void encode(bimg::TextureFormat::Enum dst, const uint8_t *rgba, uint32_t width, uint32_t height, uint8_t *out,
+            bimg::Quality::Enum quality = bimg::Quality::Default)
 {
     bx::Error error;
-    bimg::imageEncodeFromRgba8(&allocator, out, rgba, width, height, 1, dst, bimg::Quality::Default, &error);
+    bimg::imageEncodeFromRgba8(&allocator, out, rgba, width, height, 1, dst, quality, &error);
     if (!error.isOk())
     {
         fprintf(stderr, "bimg encode to format %d failed: %.*s\n", int(dst), int(error.getMessage().getLength()),
@@ -200,10 +203,15 @@ std::vector<uint8_t> encode_eac_chain(EacFormat format, const uint8_t *texels, u
     return out;
 }
 
-void encode_etc(EtcFormat format, const uint8_t *rgba, uint32_t aligned_width, uint32_t aligned_height, uint8_t *out)
+void encode_gpu(GpuFormat format, const uint8_t *rgba, uint32_t aligned_width, uint32_t aligned_height, uint8_t *out)
 {
-    encode(format == EtcFormat::Rgb8 ? bimg::TextureFormat::ETC2 : bimg::TextureFormat::ETC2A, rgba, aligned_width,
-           aligned_height, out);
+    static constexpr bimg::TextureFormat::Enum kFormats[] = {bimg::TextureFormat::Unknown, bimg::TextureFormat::ETC2,
+                                                             bimg::TextureFormat::ETC2A,   bimg::TextureFormat::BC1,
+                                                             bimg::TextureFormat::BC2,     bimg::TextureFormat::BC3};
+    // libsquish's range fit for BC: its cluster fit takes seconds per large texture on a phone core, and only the mips
+    // are encoded (the game's top level stays as it is).
+    encode(kFormats[static_cast<int>(format)], rgba, aligned_width, aligned_height, out,
+           is_etc2(format) ? bimg::Quality::Default : bimg::Quality::Fastest);
 }
 
 } // namespace storm::texture

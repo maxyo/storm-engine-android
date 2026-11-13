@@ -33,6 +33,7 @@
 #pragma once
 
 #include "effects/ao_volume.hpp"
+#include "effects/visibility.hpp"
 #include "effects/casters.hpp"
 #include "effects/lamp_shadows.hpp"
 #include "effects/normal_maps.hpp"
@@ -166,6 +167,8 @@ class Lighting
     void set_sky(const fx::SkyState *sky) { sky_ = sky; }
     // The interior's AO volume for this frame's draws into the game picture (null: none).
     void set_ao_volume(const AoVolumes::Bound *volume) { ao_volume_ = volume; }
+    // The location's visibility volume for this frame's lit and baked draws (null: none yet, or no location).
+    void set_visibility(const Visibility::Bound *volume) { visibility_ = volume; }
     NormalMaps &normal_maps() { return normal_maps_; }
     SunShadows &shadows() { return shadows_; }
     TownLight &town_light() { return town_light_; }
@@ -234,6 +237,14 @@ class Lighting
     bgfx::UniformHandle u_ao_matrix_ = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle u_ao_params_ = BGFX_INVALID_HANDLE;
     bgfx::TextureHandle ao_open_ = BGFX_INVALID_HANDLE; // 1x1x1 RGBA8 = 255 for draws without the volume
+    // Visibility volume (ff_fragment.sh ffVisibility): sampler stage kVisibilityStage, view -> volume uvw, x on
+    void bind_visibility(const FfDraw &draw);
+    const Visibility::Bound *visibility_ = nullptr;
+    bgfx::UniformHandle s_visibility_ = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle u_visibility_matrix_ = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle u_visibility_params_ = BGFX_INVALID_HANDLE;
+    bgfx::TextureHandle visibility_open_ = BGFX_INVALID_HANDLE; // 1x1x1: sky 1, open 1
+    std::array<float, 16> visibility_view_{}, visibility_view_to_uvw_{};
     std::array<float, 16> ao_view_{};     // the camera ao_view_to_uvw_ was made for
     std::array<float, 16> ao_view_to_uvw_{};
     bgfx::UniformHandle u_coverage_ = BGFX_INVALID_HANDLE;

@@ -10,6 +10,7 @@
 #include "xinterface.h"
 #include "profiler.hpp"
 #include "load_watch.hpp"
+#include "save_autosave.hpp"
 #include "save_description.hpp"
 #include <set>
 #include <spdlog/spdlog.h>
@@ -1366,6 +1367,11 @@ uint64_t XINTERFACE::ProcessMessage(MESSAGE &message)
     case MSG_INTERFACE_DELETE_SAVE_FILE: {
         const std::string &param = message.String();
         DeleteSaveFile(param.c_str());
+    }
+    break;
+    case MSG_INTERFACE_AUTOSAVE_RECORD: {
+        const std::string &profile = message.String();
+        message.ScriptVariablePointer()->Set(NextAutosaveRecord(profile).c_str());
     }
     break;
     case MSG_INTERFACE_SET_FORMATEDTEXT: {
@@ -3651,12 +3657,48 @@ bool XINTERFACE::NewSaveFileName(const char *fileName) const
     {
         return false;
     }
+    // The autosave records' names are taken for good: a record of the player never gets one,
+    // so an autosave never replaces it (save_autosave.hpp). The game then tries its next name.
+    if (storm::save::AutosaveRecordNumber(fileName) != 0)
+    {
+        return false;
+    }
 
     // Save names come from player input; no fixed-size buffer.
     const char *sSavePath = AttributesPointer->GetAttribute("SavePath");
     const std::string param = sSavePath == nullptr ? std::string(fileName) : std::string(sSavePath) + "\\" + fileName;
 
     return !(fio->_FileOrDirectoryExists(param.c_str()));
+}
+
+std::string XINTERFACE::NextAutosaveRecord(const std::string &profile) const
+{
+    const std::string folder = "SAVE\\" + profile;
+    fio->_CreateDirectory(folder.c_str());
+    storm::save::AutosaveRotation<std::filesystem::file_time_type> rotation;
+    int present = 0;
+    for (const std::filesystem::path &file : fio->_GetFsPathsByMask(folder.c_str(), nullptr, true))
+    {
+        const auto utf8 = file.filename().u8string();
+        const std::string name(utf8.begin(), utf8.end());
+        if (storm::save::AutosaveRecordNumber(name) == 0)
+            continue;
+        std::error_code error;
+        const auto written = std::filesystem::last_write_time(file, error);
+        if (error)
+        {
+            // Unreadable: treated as written longest ago, so it is the one replaced.
+            spdlog::error("Autosave record '{}': cannot read its time: {}", file.string(), error.message());
+            rotation.Add(name, std::filesystem::file_time_type::min());
+        }
+        else
+            rotation.Add(name, written);
+        ++present;
+    }
+    const std::string record = storm::save::AutosaveRecordName(rotation.Next());
+    spdlog::info("Autosave record for profile '{}': '{}' ({} of {} exist; {})", profile, record, present,
+                 storm::save::kAutosaveRecords, present < storm::save::kAutosaveRecords ? "a free one" : "the oldest");
+    return record;
 }
 
 void XINTERFACE::DeleteSaveFile(const char *fileName)

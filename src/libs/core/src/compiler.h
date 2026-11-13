@@ -83,6 +83,11 @@ enum COMPILER_STAGE
 
 class CoreImpl;
 
+namespace storm::save
+{
+class ReferenceIndex;
+}
+
 class COMPILER : public VIRTUAL_COMPILER
 {
     friend CoreImpl;
@@ -223,9 +228,6 @@ class COMPILER : public VIRTUAL_COMPILER
 
     void SaveVariable(DATA *pV, bool bdim = false);
     bool ReadVariable(char *name, /*DWORD code,*/ bool bdim = false, uint32_t a_index = 0);
-    bool FindReferencedVariable(DATA *pRef, uint32_t &var_index, uint32_t &array_index);
-    bool FindReferencedVariableByRootA(ATTRIBUTES *pA, uint32_t &var_index, uint32_t &array_index);
-    ATTRIBUTES *TraceARoot(ATTRIBUTES *pA, const char *&pAccess);
     void SaveAttributesData(ATTRIBUTES *pRoot);
     void ReadAttributesData(ATTRIBUTES *pRoot, ATTRIBUTES *pParent);
     void WriteVDword(uint32_t v);
@@ -307,6 +309,10 @@ private:
     uint32_t InstructionPointer;
 
     char *pBuffer;
+    // While SaveState writes the variables: where references point (save_references.hpp) and
+    // the variable being written, for the error lines.
+    const storm::save::ReferenceIndex *save_references_{};
+    const char *save_variable_name_ = "";
     uint32_t dwCurPointer, dwMaxSize;
 
     char *ProgramDirectory;

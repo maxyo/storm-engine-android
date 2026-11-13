@@ -227,7 +227,7 @@ class Renderer : public VRenderer
 
     // Renderer: Vertex/Index Buffers Section
     int32_t CreateVertexBuffer(int32_t type, size_t nverts, uint32_t usage, uint32_t dwPool) override;
-    int32_t CreateIndexBuffer(size_t ntrgs, uint32_t dwUsage) override;
+    int32_t CreateIndexBuffer(size_t ntrgs, uint32_t dwUsage, D3DFORMAT format = D3DFMT_INDEX16) override;
 
     int32_t GetVertexBufferFVF(int32_t id) override;
     void *LockVertexBuffer(int32_t id, uint32_t dwFlags = 0) override;

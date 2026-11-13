@@ -103,11 +103,12 @@ struct TexStore
     bool any_dirty = false;
     uint32_t bound_frame = 0;
 
-    // DXT -> ETC2 transcode (tier 2): `handle` is either the ETC2 texture or a
-    // temporary uncompressed one while `transcode_job` runs.
+    // DXT textures on the BC and ETC2 tiers (texture/core/service.hpp): `handle` is either the transcoded texture
+    // with its rebuilt mip chain or, while `transcode_job` runs, an interim one made from the game's levels.
     bool transcoded = false;          // the handle is not in `format`; re-locking recreates it
+    bool full_chain = false;          // the handle holds the rebuilt chain down to 1x1 (texture/core/mips.hpp)
     uint64_t transcode_key = 0;
-    int64_t fallback_bytes = 0;       // size of the temporary texture, 0 once ETC2 is in place
+    int64_t fallback_bytes = 0;       // size of the interim texture, 0 once the transcoded one is in place
     std::shared_ptr<texture::Job> transcode_job;
     // Effects: the texture's alpha cuts holes into what it covers (foliage, nets, gratings, rigging): its alpha at a
     // small size, made when the game file is loaded (effects/texture_pixels.hpp); null for textures without holes.
@@ -137,7 +138,7 @@ struct TexStore
     bool shadow_released = false;
     void create_sampled();
     void destroy_sampled();
-    bool create_transcoded();
+    bool create_transcoded(bool bc);
     void finish_transcode();
     void keep_interim(const char *reason);
 };

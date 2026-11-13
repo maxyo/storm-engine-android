@@ -215,14 +215,15 @@ const bgfx::Memory *ref_blob(std::shared_ptr<const texture::Blob> blob)
 
 enum class Tier
 {
-    Direct,    // DXT uploaded as BC (GPU supports S3TC)
-    Transcode, // ETC2 from the cache or the transcode workers
-    Rgba,      // decoded to RGBA8 here
+    Direct, // formats other than DXT: uploaded as they are
+    Bc,     // DXT: BC with the rebuilt mip chain, from the cache or the transcode workers (GPU supports S3TC)
+    Etc2,   // DXT: ETC2 with the rebuilt mip chain, from the cache or the transcode workers
+    Rgba,   // DXT decoded to RGBA8 here, with the game's own mips (texture_compression=rgba, or a GPU without either)
 };
 
 const char *tier_name(Tier tier)
 {
-    return tier == Tier::Direct ? "bc" : tier == Tier::Transcode ? "etc2" : "rgba8";
+    return tier == Tier::Bc ? "bc" : tier == Tier::Etc2 ? "etc2" : "rgba8";
 }
 
 // The tier for DXT payloads is fixed per texture kind when the first texture is created:
@@ -234,18 +235,18 @@ Tier resolve_tier(uint16_t need, const char *kind)
     const bool bc = (caps->formats[bgfx::TextureFormat::BC1] & need) && (caps->formats[bgfx::TextureFormat::BC2] & need) &&
                     (caps->formats[bgfx::TextureFormat::BC3] & need);
     const bool etc2 = (caps->formats[bgfx::TextureFormat::ETC2] & need) && (caps->formats[bgfx::TextureFormat::ETC2A] & need);
-    const Tier best = bc ? Tier::Direct : etc2 ? Tier::Transcode : Tier::Rgba;
+    const Tier best = bc ? Tier::Bc : etc2 ? Tier::Etc2 : Tier::Rgba;
     Tier tier = best;
     const char *requested = "auto";
     switch (texture::Service::instance().mode())
     {
     case texture::Mode::Bc:
         requested = "bc";
-        tier = bc ? Tier::Direct : best;
+        tier = bc ? Tier::Bc : best;
         break;
     case texture::Mode::Etc2:
         requested = "etc2";
-        tier = etc2 ? Tier::Transcode : best;
+        tier = etc2 ? Tier::Etc2 : best;
         break;
     case texture::Mode::Rgba:
         requested = "rgba";
@@ -261,6 +262,8 @@ Tier resolve_tier(uint16_t need, const char *kind)
     if (tier == Tier::Rgba && texture::Service::instance().mode() != texture::Mode::Rgba)
         logf("ERROR: this GPU supports neither S3TC nor ETC2 for %s textures: DXT data is decoded to RGBA8 "
              "(up to 8x the texture memory)", kind);
+    if (tier == Tier::Rgba)
+        logf("texture tier rgba8: DXT %s textures keep the game's own mip chains (no rebuilt chains on this tier)", kind);
     logf("texture tier for DXT %s textures: %s (requested %s, S3TC=%d, ETC2=%d)", kind, tier_name(tier), requested, bc, etc2);
     return tier;
 }
@@ -381,7 +384,7 @@ const bgfx::Memory *make_dds(const TexStore &store, bgfx::TextureFormat::Enum gp
     return memory;
 }
 
-void submit_transcode(TexStore &store)
+void submit_transcode(TexStore &store, bool bc)
 {
     texture::Service &service = texture::Service::instance();
     if (!service.has_room())
@@ -389,7 +392,7 @@ void submit_transcode(TexStore &store)
     for (const TexStore::Sub &sub : store.subs)
         if (sub.data.empty())
         {
-            trap("ETC2 transcode requested without the texture's DXT data");
+            trap("transcode requested without the texture's DXT data");
             return;
         }
     std::vector<uint8_t> input;
@@ -400,13 +403,26 @@ void submit_transcode(TexStore &store)
     for (const TexStore::Sub &sub : store.subs)
         input.insert(input.end(), sub.data.begin(), sub.data.end());
     const texture::Layout layout = layout_of(store);
-    const texture::EtcFormat format = texture::choose_etc_format(layout.format, input.data(), input.size());
+    const texture::GpuFormat format = texture::choose_gpu_format(layout.format, input.data(), input.size(), bc);
     store.transcode_job = service.submit(layout, store.transcode_key, format, std::move(input));
 }
 
-bgfx::TextureFormat::Enum etc_format(texture::EtcFormat format)
+bgfx::TextureFormat::Enum bgfx_format(texture::GpuFormat format)
 {
-    return format == texture::EtcFormat::Rgb8 ? bgfx::TextureFormat::ETC2 : bgfx::TextureFormat::ETC2A;
+    switch (format)
+    {
+    case texture::GpuFormat::Etc2Rgb8:
+        return bgfx::TextureFormat::ETC2;
+    case texture::GpuFormat::Etc2Rgba8:
+        return bgfx::TextureFormat::ETC2A;
+    case texture::GpuFormat::Bc1:
+        return bgfx::TextureFormat::BC1;
+    case texture::GpuFormat::Bc2:
+        return bgfx::TextureFormat::BC2;
+    case texture::GpuFormat::Bc3:
+        return bgfx::TextureFormat::BC3;
+    }
+    return bgfx::TextureFormat::Unknown;
 }
 } // namespace
 
@@ -428,7 +444,7 @@ void TexStore::release_shadow()
 void TexStore::create_sampled()
 {
     const Tier tier = select_tier(*this);
-    if (tier == Tier::Transcode && create_transcoded())
+    if ((tier == Tier::Bc || tier == Tier::Etc2) && create_transcoded(tier == Tier::Bc))
     {
         for (Sub &s : subs)
             s.dirty = false;
@@ -453,13 +469,13 @@ void TexStore::create_sampled()
         release_shadow();
 }
 
-bool TexStore::create_transcoded()
+bool TexStore::create_transcoded(bool bc)
 {
     for (const Sub &s : subs)
         if (s.data.empty())
             return false;
     const texture::Layout layout = layout_of(*this);
-    texture::KeyBuilder key(layout);
+    texture::KeyBuilder key(layout, bc);
     for (const Sub &s : subs)
         key.add(s.data.data(), s.data.size());
     transcode_key = key.key();
@@ -468,29 +484,31 @@ bool TexStore::create_transcoded()
     {
         const uint32_t internal_format = blob->data[28] | blob->data[29] << 8;
         handle = bgfx::createTexture(counted_texture_upload(ref_blob(std::make_shared<const texture::Blob>(std::move(*blob)))));
-        gpu_format = internal_format == 0x9274 ? bgfx::TextureFormat::ETC2 : bgfx::TextureFormat::ETC2A;
+        gpu_format = internal_format == 0x9274   ? bgfx::TextureFormat::ETC2
+                     : internal_format == 0x9278 ? bgfx::TextureFormat::ETC2A
+                                                 : bc_format(format); // the BC tier keeps the DXT format
         gpu_compressed = true;
         transcoded = bgfx::isValid(handle);
+        full_chain = transcoded;
         return transcoded;
     }
-    // Miss: show the DXT data now (without its top level when large, which
-    // bounds the RGBA8 copy bgfx makes on GPUs without S3TC) and swap in the
-    // ETC2 texture once a worker has produced it.
-    const uint32_t first_level = levels > 1 && std::max(width, height) >= 1024 ? 1 : 0;
+    // Miss: show the game's levels now and swap in the transcoded texture once a worker has made it. On the ETC2
+    // tier without S3TC bgfx decodes the interim DXT to RGBA8: its top level is left out when large.
     gpu_compressed = true;
     gpu_format = bc_format(format);
+    const bool bc_native = Context::instance().caps()->formats[gpu_format] &
+                           (kind == TexKind::Cube ? BGFX_CAPS_FORMAT_TEXTURE_CUBE : BGFX_CAPS_FORMAT_TEXTURE_2D);
+    const uint32_t first_level = !bc_native && levels > 1 && std::max(width, height) >= 1024 ? 1 : 0;
     handle = bgfx::createTexture(counted_texture_upload(make_dds(*this, gpu_format, first_level)));
     if (!bgfx::isValid(handle))
         return false;
     transcoded = true;
-    const bool bc_native = Context::instance().caps()->formats[gpu_format] &
-                           (kind == TexKind::Cube ? BGFX_CAPS_FORMAT_TEXTURE_CUBE : BGFX_CAPS_FORMAT_TEXTURE_2D);
     for (uint32_t level = first_level; level < levels; ++level)
         fallback_bytes += bc_native ? level_size(format, level_width(level), level_height(level))
                                     : int64_t(level_width(level)) * level_height(level) * 4;
     fallback_bytes *= faces();
     service.add_fallback_bytes(fallback_bytes);
-    submit_transcode(*this);
+    submit_transcode(*this, bc);
     return true;
 }
 
@@ -514,10 +532,10 @@ void TexStore::finish_transcode()
         // The queue was full at creation, or a job failed: (re)submit while the DXT data is still here.
         if (shadow_released)
         {
-            keep_interim("ETC2 transcode cannot be retried: the DXT data was already released");
+            keep_interim("transcode cannot be retried: the DXT data was already released");
             return;
         }
-        submit_transcode(*this);
+        submit_transcode(*this, select_tier(*this) == Tier::Bc);
         release_shadow(); // only once a job holds a copy of the data
         return;
     }
@@ -526,28 +544,29 @@ void TexStore::finish_transcode()
     {
         service.release(transcode_job);
         if (shadow_released)
-            keep_interim("ETC2 transcode failed and the DXT data is gone; the texture keeps its interim copy");
+            keep_interim("transcode failed and the DXT data is gone; the texture keeps its interim copy");
         return; // otherwise resubmitted on the next call
     }
     if (state != texture::Job::Done)
         return;
-    const bgfx::TextureHandle etc = bgfx::createTexture(counted_texture_upload(ref_blob(transcode_job->result)));
-    const bgfx::TextureFormat::Enum etc_gpu_format = etc_format(transcode_job->format);
-    if (!bgfx::isValid(etc))
+    const bgfx::TextureHandle made = bgfx::createTexture(counted_texture_upload(ref_blob(transcode_job->result)));
+    const bgfx::TextureFormat::Enum made_format = bgfx_format(transcode_job->format);
+    if (!bgfx::isValid(made))
     {
-        keep_interim("creating the transcoded ETC2 texture failed; the texture keeps its interim copy");
+        keep_interim("creating the transcoded texture failed; the texture keeps its interim copy");
         return;
     }
     service.release(transcode_job);
     bgfx::destroy(handle);
-    handle = etc;
-    gpu_format = etc_gpu_format;
+    handle = made;
+    gpu_format = made_format;
+    full_chain = true;
     texture::Service::instance().add_fallback_bytes(-fallback_bytes);
     fallback_bytes = 0;
 }
 
 // For holders of the bgfx handle outside the shim (UI game pictures): the handle must not change
-// afterwards, so a pending ETC2 transcode is completed here instead of being swapped in later.
+// afterwards, so a pending transcode is completed here instead of being swapped in later.
 void TexStore::settle()
 {
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(20);
@@ -558,7 +577,7 @@ void TexStore::settle()
             break;
         if (std::chrono::steady_clock::now() > deadline)
         {
-            keep_interim("ETC2 transcode of a pinned texture did not finish; it keeps its interim copy");
+            keep_interim("transcode of a pinned texture did not finish; it keeps its interim copy");
             break;
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(2));
@@ -571,6 +590,7 @@ void TexStore::destroy_sampled()
     texture::Service::instance().add_fallback_bytes(-fallback_bytes);
     fallback_bytes = 0;
     transcoded = false;
+    full_chain = false;
     shadow_released = false;
     if (bgfx::isValid(handle))
         bgfx::destroy(handle);

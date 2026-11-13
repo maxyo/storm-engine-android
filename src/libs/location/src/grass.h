@@ -29,13 +29,13 @@ class Grass : public Entity
 
 #pragma pack(push, 1)
 
+    // A corner of a blade in the static buffer, 8 bytes (layout: vs_port_grass.sc); the vertex shader computes the
+    // wind, the bending around characters and the LOD blend the CPU once wrote into every vertex of every frame.
     struct Vertex
     {
-        float x, y, z;
-        uint32_t data;
-        uint32_t offset;
-        float wx, wz;
-        float alpha;
+        int16_t x, z;      // place on the minimap in 1/32 blocks; the corner's offset in the sign bit
+        int16_t height;    // base height step * 4 + the highest LOD that still draws the blade, less 32768
+        int16_t data;      // frame, height, width, angle: 4 bits each
     };
 
     struct VSConstant
@@ -145,10 +145,15 @@ class Grass : public Entity
     void RenderBlock(const glm::vec3 &camPos, const PLANE *plane, int32_t numPlanes, int32_t mx, int32_t mz);
     // Box visibility check
     bool VisibleTest(const PLANE *plane, int32_t numPlanes, const glm::vec3 &min, const glm::vec3 &max);
-    // Render block
-    void RenderBlock(GRSMiniMapElement &mme, float kLod);
-    // Draw the contents of the buffer
-    void DrawBuffer();
+    // The block's drawn blades are queued; the characters' grass contacts are counted
+    void QueueBlock(int32_t mx, int32_t mz, float kLod);
+    // The per-frame constants c42.. and the draws of the queued blades
+    void DrawRuns();
+    // The static buffer of all blades (LoadData)
+    void CreateBuffer();
+    // The visible blocks
+    void DrawGrass(const glm::vec3 &pos, const PLANE *plane, int32_t numPlanes, int32_t left, int32_t right, int32_t top,
+                   int32_t bottom);
     // Get the color
     static int32_t GetColor(glm::vec3 color);
     // Vertex declaration
@@ -157,9 +162,8 @@ class Grass : public Entity
   private:
     // Render service
     VRenderer *rs;
-    // Buffers
+    // Buffers: every blade, 4 vertices each, in the order of block[]; the indices of the blades drawn (DrawRuns)
     int32_t vb, ib;
-    int32_t numPoints;
     // Texture
     int32_t texture;
 
@@ -189,7 +193,10 @@ class Grass : public Entity
     float winForce;  // Wind speed coefficient 0..1
     glm::vec3 winDir;  // Normalized wind direction
 
-    Vertex *vbuffer; // Locked buffer
+    std::vector<std::pair<int32_t, int32_t>> runs; // first blade, count of each block drawn this frame, in order
+    std::vector<uint8_t> chrNear;             // characters touching a drawn blade this frame
+    float heightMin = 0.0f, heightStep = 1.0f; // the base heights of Vertex::height
+    bool tooManyLogged = false;
 
     RenderQuality quality; // Rendering quality
 

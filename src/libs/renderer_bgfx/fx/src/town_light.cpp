@@ -42,18 +42,6 @@ void Basis(const Vec3 &n, Vec3 &t, Vec3 &b)
     b = Cross(n, t);
 }
 
-// Runs `work(first, last)` over [0, count) on `threads` threads.
-template <class F> void Parallel(size_t count, unsigned threads, F &&work)
-{
-    threads = std::max(1u, std::min<unsigned>(threads, static_cast<unsigned>(std::max<size_t>(1, count / 256))));
-    std::vector<std::thread> pool;
-    for (unsigned t = 1; t < threads; ++t)
-        pool.emplace_back([&, t] { work(count * t / threads, count * (t + 1) / threads); });
-    work(0, count / threads);
-    for (std::thread &th : pool)
-        th.join();
-}
-
 constexpr float kSurfaceOffset = 0.05f; // metres along the normal: the ray starts off its own surface
 
 } // namespace
@@ -156,7 +144,7 @@ std::vector<uint8_t> SkyVisibility(const Occluders &occluders, const LightmapTex
                                    unsigned threads)
 {
     std::vector<uint8_t> out(texels.texel.size(), 255);
-    Parallel(texels.texel.size(), threads, [&](size_t first, size_t last) {
+    ParallelRanges(texels.texel.size(), threads, [&](size_t first, size_t last) {
         Occluders::Scratch scratch;
         for (size_t i = first; i < last; ++i)
         {
@@ -190,7 +178,7 @@ std::vector<uint8_t> SunVisibility(const Occluders &occluders, const LightmapTex
     std::vector<uint8_t> out(texels.texel.size(), 0);
     Vec3 st, sb;
     Basis(sun, st, sb);
-    Parallel(texels.texel.size(), threads, [&](size_t first, size_t last) {
+    ParallelRanges(texels.texel.size(), threads, [&](size_t first, size_t last) {
         Occluders::Scratch scratch;
         for (size_t i = first; i < last; ++i)
         {
