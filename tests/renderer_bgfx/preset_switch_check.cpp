@@ -53,6 +53,12 @@ struct SceneVertex
     uint32_t color;
 };
 
+struct UnlitVertex
+{
+    float x, y, z;
+    uint32_t color;
+};
+
 struct UiVertex
 {
     float x, y, z, rhw;
@@ -78,7 +84,10 @@ class Frames
 
     // One game frame: the 3D scene, the scene boundary, the interface; the game picture read back, then presented.
     // Every interface marks the end of the scene (as each game interface calls Renderer::MakePostProcess).
-    Picture render(int interfaces = 1)
+    // `late`: after the interfaces, a far unlit green quad over the whole picture and a near blue one in the middle,
+    // depth-tested, as the 3D the game draws after the scene boundary (ship foam, particles, coronas): the scene must
+    // hide the far one, the near one is drawn over it.
+    Picture render(int interfaces = 1, bool late = false)
     {
         check(d_.BeginScene(), "BeginScene");
         check(d_.SetRenderTarget(0, back_), "SetRenderTarget");
@@ -129,6 +138,24 @@ class Frames
         {
             render::EffectsSceneComplete();
             check(d_.DrawPrimitiveUP(D3DPT_TRIANGLELIST, 2, ui, sizeof(UiVertex)), "draw (interface)");
+        }
+        if (late)
+        {
+            D3DMATRIX far_world = identity;
+            far_world.m[3][2] = 40.0f;
+            d_.SetTransform(D3DTS_WORLD, &far_world);
+            d_.SetRenderState(D3DRS_ZENABLE, TRUE);
+            const UnlitVertex green[6] = {{-80, -80, 0, 0xFF00FF00}, {80, -80, 0, 0xFF00FF00}, {-80, 80, 0, 0xFF00FF00},
+                                          {-80, 80, 0, 0xFF00FF00}, {80, -80, 0, 0xFF00FF00}, {80, 80, 0, 0xFF00FF00}};
+            d_.SetFVF(D3DFVF_XYZ | D3DFVF_DIFFUSE);
+            check(d_.DrawPrimitiveUP(D3DPT_TRIANGLELIST, 2, green, sizeof(UnlitVertex)), "draw (late 3D)");
+            // ... and a small blue one in front of the scene, in the middle: drawn.
+            D3DMATRIX near_world = identity;
+            near_world.m[3][2] = 3.0f;
+            d_.SetTransform(D3DTS_WORLD, &near_world);
+            const UnlitVertex blue[6] = {{-0.4f, -0.4f, 0, 0xFF0000FF}, {0.4f, -0.4f, 0, 0xFF0000FF}, {-0.4f, 0.4f, 0, 0xFF0000FF},
+                                         {-0.4f, 0.4f, 0, 0xFF0000FF}, {0.4f, -0.4f, 0, 0xFF0000FF}, {0.4f, 0.4f, 0, 0xFF0000FF}};
+            check(d_.DrawPrimitiveUP(D3DPT_TRIANGLELIST, 2, blue, sizeof(UnlitVertex)), "draw (late 3D, near)");
         }
         check(d_.EndScene(), "EndScene");
         check(d_.GetRenderTargetData(back_, readback_), "GetRenderTargetData");
@@ -243,6 +270,30 @@ int main()
                 ok &= expect(std::fabs(mean - low_mean) < low_mean * 0.35, "«Высокая»: the processed scene is shown");
             }
             ok &= expect(programs() == before, "the first frames of «Высокая» link no program");
+            // «Высокая» draws the scene at a render scale: 3D drawn after the scene boundary lands on the display-size
+            // picture, whose depth must hold the scene's (it was cleared: such draws showed through everything).
+            ok &= expect(render::CurrentEffects().summary.find("scale=1.00") == std::string::npos,
+                         "«Высокая»: the scene at a render scale");
+            const Picture plain = frames.render();
+            const Picture late = frames.render(1, true);
+            // The near quad covers about 22 x 16 pixels around the middle; the rest of the middle half must not change.
+            uint32_t hidden_worst = 0;
+            for (uint32_t y = kHeight / 4; y < kHeight * 3 / 4; ++y)
+                for (uint32_t x = kWidth / 4; x < kWidth * 3 / 4; ++x)
+                {
+                    if (std::abs(int(x) - int(kWidth / 2)) < 16 && std::abs(int(y) - int(kHeight / 2)) < 12)
+                        continue;
+                    const size_t i = (y * kWidth + x) * 4;
+                    for (int c = 0; c < 3; ++c)
+                        hidden_worst = std::max<uint32_t>(hidden_worst, std::abs(int(plain[i + c]) - int(late[i + c])));
+                }
+            const uint8_t *middle = &late[(kHeight / 2 * kWidth + kWidth / 2) * 4];
+            std::printf("     late 3D: worst change %u behind the scene, middle pixel %u %u %u\n", hidden_worst, middle[0],
+                        middle[1], middle[2]);
+            ok &= expect(hidden_worst <= 2, "3D drawn after the scene boundary is hidden by the scene in front of it");
+            // Blue whichever byte order the readback has (BGRA or RGBA): a strong channel 0 or 2, the others dark.
+            const bool blue = middle[1] < 60 && std::max(middle[0], middle[2]) > 200 && std::min(middle[0], middle[2]) < 60;
+            ok &= expect(blue, "... and drawn where it is in front of the scene");
             // Three interfaces end the scene three times: the post chain still runs once (the same picture as one).
             const Picture one = frames.render(1);
             const Picture three = frames.render(3);

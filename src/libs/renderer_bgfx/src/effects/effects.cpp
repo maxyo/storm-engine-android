@@ -202,6 +202,7 @@ void Host::on_device_lost()
     lighting_.on_device_lost();
     sky_.OnDeviceLost();
     sea_depth_.OnDeviceLost();
+    depth_copy_.OnDeviceLost();
     u_sea_fx_ = s_sea_depth_ = BGFX_INVALID_HANDLE;
     sea_depth_frame_ = UINT32_MAX;
     contact_.OnDeviceLost();
@@ -218,6 +219,7 @@ void Host::shutdown()
     lighting_.shutdown();
     sky_.Shutdown();
     sea_depth_.Shutdown();
+    depth_copy_.Shutdown();
     for (bgfx::UniformHandle *uniform : {&u_sea_fx_, &s_sea_depth_})
         if (bgfx::isValid(*uniform))
         {
@@ -486,6 +488,7 @@ void Host::advance_switch()
     int budget = per_frame;
     // The post chain's programs also on «Низкая»: the underwater wobble runs on every preset.
     const bool ready = post_.Prepare(target_, budget) && (!target_.sea_soft_edges || sea_depth_.Prepare(budget)) &&
+                       (target_.render_scale >= 1.0f || depth_copy_.Prepare(budget)) &&
                        contact_.Prepare(target_, budget) &&
                        lighting_.prepare_programs(*device, target_, budget);
     switch_programs_ += per_frame - budget;

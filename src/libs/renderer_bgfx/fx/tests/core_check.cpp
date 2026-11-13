@@ -336,11 +336,12 @@ void CheckSupport()
     // No sampleable scene depth: occlusion and the sea's soft edges off.
     Support no_depth = all;
     no_depth.scene_depth = false;
-    CHECK(ValidateSettings(high, no_depth).size() == 2);
+    // ... and the render scale: the 3D drawn after the scene needs the scene depth on the display-size picture.
+    CHECK(ValidateSettings(high, no_depth).size() == 3);
     std::vector<std::string> changes;
     Settings constrained = ConstrainSettings(high, no_depth, changes);
-    CHECK(!constrained.ssao && !constrained.sea_soft_edges && constrained.sea_band_limit);
-    CHECK(changes.size() == 2);
+    CHECK(!constrained.ssao && !constrained.sea_soft_edges && constrained.sea_band_limit && constrained.render_scale == 1.0f);
+    CHECK(changes.size() == 3);
     CHECK(constrained.shadows == high.shadows && constrained.bloom && constrained.lighting_flags == high.lighting_flags);
     CHECK(ValidateSettings(constrained, no_depth).empty());
 
@@ -398,7 +399,8 @@ void CheckSupport()
     no_msaa_depth.msaa_depth = false;
     changes.clear();
     constrained = ConstrainSettings(high, no_msaa_depth, changes);
-    CHECK(constrained.msaa == 4 && !constrained.ssao && !constrained.sea_soft_edges && changes.size() == 2);
+    CHECK(constrained.msaa == 4 && !constrained.ssao && !constrained.sea_soft_edges && constrained.render_scale == 1.0f &&
+          changes.size() == 3);
     // No MSAA at all: alpha to coverage goes with it, and then depth-based effects are fine again.
     Support no_msaa = no_msaa_depth;
     no_msaa.msaa = false;

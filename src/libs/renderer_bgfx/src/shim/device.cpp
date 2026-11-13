@@ -299,7 +299,7 @@ void Device::enter_scaled_picture()
     view_dirty = true;
 }
 
-void Device::leave_scaled_picture(bool copy)
+void Device::leave_scaled_picture(bool copy, bool depth_kept)
 {
     if (!held_color)
         return;
@@ -317,7 +317,7 @@ void Device::leave_scaled_picture(bool copy)
     back_depth->store = std::move(held_depth);
     held_color.reset();
     held_depth.reset();
-    held_depth_clear = true;
+    held_depth_clear = !depth_kept; // else it holds the scene's (copy_scene_depth)
     view_dirty = true;
 }
 
@@ -547,7 +547,8 @@ void Device::scene_complete()
     out->sync();
     clear_if_new(out);
     const uint16_t budget = render::kGameViewEnd - render::kGameViewBegin;
-    if (views_used + fx::PostChain::kMaxViews > budget)
+    // A scaled scene also carries its depth to the display-size picture afterwards (one view).
+    if (views_used + fx::PostChain::kMaxViews + (scaled ? 1 : 0) > budget)
     {
         if (!post_view_logged)
             logf("ERROR: effects: %u game views used, no room for the post chain (%u): frame presented without it",
@@ -575,7 +576,18 @@ void Device::scene_complete()
     views_used += host.submit_post(targets);
     // The interface is drawn on the processed picture, which is then presented.
     if (scaled)
-        leave_scaled_picture(false);
+    {
+        // The game draws 3D after the scene boundary too (ship foam, particles, coronas, the ship pointer): on the
+        // display-size picture, depth-tested against the scene as on the original renderer. Its depth gets the
+        // scene's (the scaled depth is sampleable: Host::scene_depth_read); left cleared, those draws showed
+        // through ships and islands.
+        TexStore *scene_depth = back_depth->store.get();
+        TexStore *display_depth = held_depth.get();
+        host.copy_scene_depth(static_cast<bgfx::ViewId>(render::kGameViewBegin + views_used++), scene_depth->handle,
+                              framebuffer(held_color.get(), 0, 0, display_depth),
+                              static_cast<uint16_t>(display_depth->width), static_cast<uint16_t>(display_depth->height));
+        leave_scaled_picture(false, true);
+    }
     else
         std::swap(back_color->store, post_color);
     view_dirty = true;
