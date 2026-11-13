@@ -272,7 +272,7 @@ int main()
             ok &= expect(programs() == before, "the first frames of «Высокая» link no program");
             // «Высокая» draws the scene at a render scale: 3D drawn after the scene boundary lands on the display-size
             // picture, whose depth must hold the scene's (it was cleared: such draws showed through everything).
-            ok &= expect(render::CurrentEffects().summary.find("scale=1.00") == std::string::npos,
+            ok &= expect(render::CurrentEffects().summary.find("scene_height=0 ") == std::string::npos,
                          "«Высокая»: the scene at a render scale");
             const Picture plain = frames.render();
             const Picture late = frames.render(1, true);

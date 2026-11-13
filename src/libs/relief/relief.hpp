@@ -1,63 +1,98 @@
-// Relief preparation ("Подготовка рельефа"): normal maps for the game's stone, wood, building, plaster and ground
-// textures, made once from the player's game files with DeepBump (fx/deepbump.hpp) through onnxruntime, and stored in
-// the relief directory (fx/relief_store.hpp) that the game reads. Runs at game import (Android launcher:
-// NativeRelief.prepare, android/README in this folder) and on the host (storm_relief_cli). Contract: README.md here.
+// Relief maps from DeepBump (fx/deepbump.hpp) through onnxruntime, for the game's stone, wood, building, plaster and
+// ground textures, made from the player's game files into the relief directory (fx/relief_store.hpp) the game reads.
+// The game makes them while it runs (renderer_bgfx effects/relief_generator.hpp: Session, List, Prune, MarkComplete);
+// the host tool makes a whole game at once (Prepare). Contract: README.md here.
 #pragma once
 
 #include "storm/fx/relief_store.hpp"
 
-#include <atomic>
 #include <cstdint>
 #include <filesystem>
 #include <functional>
+#include <memory>
 #include <span>
 #include <string>
+#include <vector>
 
 namespace storm::relief
 {
 
+// The relief textures of a game (its RESOURCE/Textures), by name. Only names are read (a scan of the models for the
+// most used ones took minutes on a phone's storage, in the way of the textures on screen).
+std::vector<std::filesystem::path> List(const std::filesystem::path &textures);
+
+enum class Outcome
+{
+    Prepared,
+    Existing, // its map is there already
+    Skipped,  // no prepared map for it: unknown format, too small, a grey height map (the game derives it), no rule
+    Failed,   // logged with the reason
+};
+
+// The model loaded once (onnxruntime, CPU provider) for many textures. One thread at a time (Cancel aside).
+class Session
+{
+  public:
+    struct Stats
+    {
+        int prepared = 0;
+        double infer_seconds = 0.0, max_texture_ms = 0.0;
+        std::string provider;
+    };
+    // `threads`: inference threads; 0 = every core. Null and `error` on failure.
+    static std::unique_ptr<Session> Open(std::span<const uint8_t> model, int threads, std::string &error);
+    ~Session();
+    // One texture file under `textures` (the game's RESOURCE/Textures; the key does not depend on where the game
+    // lies), unless its map is there already.
+    Outcome PrepareFile(const std::filesystem::path &textures, const std::filesystem::path &file,
+                        const std::filesystem::path &output, int map_size, std::string &failure);
+    // Any thread (the game's shutdown): the texture being prepared fails at once, and every later one.
+    void Cancel();
+    const Stats &stats() const;
+
+  private:
+    struct Impl;
+    explicit Session(std::unique_ptr<Impl> impl);
+    std::unique_ptr<Impl> impl_;
+};
+
+// After a complete pass: removes the maps of textures this game no longer has (another game, an older method; the
+// game's own height maps too, it derives them again). Returns how many.
+int Prune(const std::filesystem::path &textures, const std::filesystem::path &output, int map_size);
+// The mark of a complete pass (Prune done): the method, the map size and how many relief textures the game had. Cheap
+// to check (names only): the game skips its background pass while the mark matches.
+void MarkComplete(const std::filesystem::path &textures, const std::filesystem::path &output, int map_size);
+bool Complete(const std::filesystem::path &textures, const std::filesystem::path &output, int map_size);
+
+// The whole job at once (host tool and checks): List, every texture, Prune.
 struct Job
 {
     std::filesystem::path textures; // the game's RESOURCE/Textures
     std::filesystem::path output;   // the relief directory
-    std::span<const uint8_t> model; // deepbump256.onnx
-    int map_size = fx::kReliefMapSize; // larger side of the maps (the game reads maps of that size)
-    int threads = 0;                // inference threads; 0 = every core
+    std::span<const uint8_t> model; // the DeepBump model (model/README.md)
+    int map_size = fx::kReliefMapSize;
+    int threads = 0;
 };
-
 struct Progress
 {
-    int done = 0;  // textures handled (prepared, already there, or failed)
-    int total = 0; // relief textures found
+    int done = 0, total = 0;
     std::string current;
 };
-
 struct Result
 {
     int status = 0; // 0 complete, 1 cancelled, 2 error (`error` says why); failed textures alone do not make an error
     std::string error;
-    int total = 0, prepared = 0, existing = 0, failed = 0, skipped = 0;
-    int removed = 0; // stale maps deleted after a complete run
-    long long tiles = 0;
-    double seconds = 0.0, infer_seconds = 0.0;
-    double max_texture_ms = 0.0;
+    int total = 0, prepared = 0, existing = 0, failed = 0, skipped = 0, removed = 0;
+    double seconds = 0.0, infer_seconds = 0.0, max_texture_ms = 0.0;
     long long peak_rss_kb = 0;
-    std::string provider; // the onnxruntime execution provider that ran the model
+    std::string provider;
     std::string Json() const;
 };
-
-// `progress` is called on the calling thread after each texture (and once with done = 0 when the list is known);
-// returning true cancels. Synchronous: call it from a worker thread. Resumable: textures whose map exists are skipped.
+// `progress` after each texture (and once with done = 0); returning true cancels.
 Result Prepare(const Job &job, const std::function<bool(const Progress &)> &progress);
 
-// The relief textures of a game and how many of them have no map yet (for the launcher: whether to offer the step).
-struct Status
-{
-    int total = 0, missing = 0;
-};
-Status Check(const std::filesystem::path &textures, const std::filesystem::path &output, int map_size);
-
-// Logging of the library: Android log tag "storm-relief", stderr elsewhere.
+long long PeakRssKb();
+// Logging of the library: Android log tag "storm-relief" and stderr.
 void Log(const char *format, ...);
 
 } // namespace storm::relief

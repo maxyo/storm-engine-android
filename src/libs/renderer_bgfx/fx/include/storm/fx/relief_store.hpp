@@ -1,7 +1,7 @@
-// The prepared relief maps on the device: one file per texture in the relief directory (Android: the app's external
+// The relief maps on the device: one file per texture in the relief directory (Android: the app's external
 // files directory, or its internal one, + "/relief"; desktop: the stash + "/relief"; engine.ini relief_dir overrides).
-// The import step ("Подготовка рельефа", src/libs/relief) writes them from the game's files with DeepBump; the game
-// reads them and derives nothing for colour textures. Derived from the player's files: never ship or commit them.
+// The game makes them from its files with DeepBump while it runs (src/libs/relief, renderer_bgfx
+// effects/relief_generator.hpp) and reads them. Derived from the player's files: never ship or commit them.
 //
 // A texture's key covers the method and the map's options and the texture itself: its normalized path and the bytes of
 // its first mip level no larger than kReliefProbeSize (the game may skip top mips, texture_degradation, so the top level
@@ -26,7 +26,7 @@ inline constexpr int kReliefMapSize = 512;
 // Method tag of the height maps ("bump" textures) the game derives itself (DeriveNormalMap) into the same directory.
 inline constexpr uint32_t kReliefHeightMethod = 0x48000001u;
 // Bump when the prepared maps change (model, its post-processing, strength reference, map size, file layout).
-inline constexpr uint32_t kReliefMethodVersion = 2;
+inline constexpr uint32_t kReliefMethodVersion = 3;
 
 // Index of the probe level: the first of `levels` levels (sizes halving from width x height) whose larger side is at
 // most kReliefProbeSize; -1 when that level would be smaller than a 4x4 block on a side (no relief).

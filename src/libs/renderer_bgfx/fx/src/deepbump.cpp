@@ -46,63 +46,38 @@ std::vector<float> DeepBumpInput(std::span<const uint8_t> rgba, int width, int h
     return grey;
 }
 
-int DeepBumpTileCount(int width, int height)
+void DeepBumpInputSize(int width, int height, int &padded_width, int &padded_height)
 {
-    constexpr int stride = kDeepBumpTile - kDeepBumpOverlap;
-    const auto along = [](int n) { return (n + kDeepBumpOverlap + stride - 1) / stride; };
-    return along(width) * along(height);
+    padded_width = (width + 2 * kDeepBumpPad + 31) / 32 * 32;
+    padded_height = (height + 2 * kDeepBumpPad + 31) / 32 * 32;
 }
 
 std::vector<float> DeepBumpNormals(std::span<const float> grey, int width, int height, const DeepBumpInfer &infer)
 {
-    constexpr int T = kDeepBumpTile, O = kDeepBumpOverlap, S = T - O;
     const size_t texels = static_cast<size_t>(width) * height;
     if (width <= 0 || height <= 0 || grey.size() < texels)
         return {};
-    float ramp[T];
-    for (int i = 0; i < T; ++i)
-        ramp[i] = static_cast<float>(std::min(std::min(i + 1, T - i), O)) / O;
-    std::vector<float> sum(texels * 3, 0.0f), weight(texels, 0.0f), tile(static_cast<size_t>(T) * T),
-        out(static_cast<size_t>(3) * T * T);
-    // Tile origins in texture coordinates (the image wraps): -O, -O + S, ... while the tile starts inside the image.
-    for (int ty = -O; ty < height; ty += S)
-        for (int tx = -O; tx < width; tx += S)
+    int pw = 0, ph = 0;
+    DeepBumpInputSize(width, height, pw, ph);
+    const size_t plane = static_cast<size_t>(pw) * ph;
+    std::vector<float> image(plane), out(plane * 3);
+    for (int y = 0; y < ph; ++y)
+        for (int x = 0; x < pw; ++x)
+            image[static_cast<size_t>(y) * pw + x] =
+                grey[static_cast<size_t>(Wrap(y - kDeepBumpPad, height)) * width + Wrap(x - kDeepBumpPad, width)];
+    if (!infer(image.data(), pw, ph, out.data()))
+        return {};
+    std::vector<float> normals(texels * 3);
+    for (int y = 0; y < height; ++y)
+        for (int x = 0; x < width; ++x)
         {
-            for (int y = 0; y < T; ++y)
-                for (int x = 0; x < T; ++x)
-                    tile[static_cast<size_t>(y) * T + x] =
-                        grey[static_cast<size_t>(Wrap(ty + y, height)) * width + Wrap(tx + x, width)];
-            if (!infer(tile.data(), out.data()))
-                return {};
-            for (int y = 0; y < T; ++y)
-            {
-                const int py = ty + y;
-                if (py < 0 || py >= height)
-                    continue;
-                for (int x = 0; x < T; ++x)
-                {
-                    const int px = tx + x;
-                    if (px < 0 || px >= width)
-                        continue;
-                    const float m = ramp[y] * ramp[x];
-                    const size_t t = static_cast<size_t>(py) * width + px, o = static_cast<size_t>(y) * T + x;
-                    for (int c = 0; c < 3; ++c)
-                        sum[t * 3 + c] += out[c * T * T + o] * m;
-                    weight[t] += m;
-                }
-            }
+            const size_t o = static_cast<size_t>(y + kDeepBumpPad) * pw + x + kDeepBumpPad, t = static_cast<size_t>(y) * width + x;
+            float n[3] = {out[o] - 0.5f, -(out[plane + o] - 0.5f), out[2 * plane + o] - 0.5f}; // the model's +y points up
+            const float length = std::sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
+            for (int c = 0; c < 3; ++c)
+                normals[t * 3 + c] = length > 0.0f ? n[c] / length : (c == 2 ? 1.0f : 0.0f);
         }
-    for (size_t t = 0; t < texels; ++t)
-    {
-        float n[3];
-        for (int c = 0; c < 3; ++c)
-            n[c] = sum[t * 3 + c] / std::max(weight[t], 1e-6f) - 0.5f;
-        n[1] = -n[1]; // the model's +y points up the image; ours follows +v (down the rows)
-        const float length = std::sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
-        for (int c = 0; c < 3; ++c)
-            sum[t * 3 + c] = length > 0.0f ? n[c] / length : (c == 2 ? 1.0f : 0.0f);
-    }
-    return sum;
+    return normals;
 }
 
 float TiltRms(const NormalMap &rg8)

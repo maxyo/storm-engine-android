@@ -56,8 +56,8 @@ class Host
     bool post_active() const { return device_ready_ && (!settings_.PostIsIdentity() || wobble_.on); }
     void set_wobble(const render::EffectsWobble &wobble) { wobble_ = wobble; }
     // The scene depth is sampled: by an effect (ambient occlusion, the sea's soft edges), or carried to the
-    // display-size picture for the 3D drawn after the scene boundary when the scene draws at a render scale.
-    bool scene_depth_read() const { return settings_.ssao || settings_.sea_soft_edges || settings_.render_scale < 1.0f; }
+    // display-size picture for the 3D drawn after the scene boundary when the scene may draw at a lower height.
+    bool scene_depth_read() const { return settings_.ssao || settings_.sea_soft_edges || settings_.render_height > 0; }
     // Render scale: the scene depth (`source`, internal size) into the depth of the display-size picture (`target`)
     // in `view`, after the post chain upscaled the scene (Device::scene_complete).
     void copy_scene_depth(bgfx::ViewId view, bgfx::TextureHandle source, bgfx::FrameBufferHandle target, uint16_t width,

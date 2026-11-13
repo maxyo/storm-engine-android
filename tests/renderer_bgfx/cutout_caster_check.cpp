@@ -222,7 +222,7 @@ shim::Texture2D *make_texture(Device &device, bool checker, const char *name)
             std::memcpy(static_cast<uint8_t *>(rect.pBits) + y * rect.Pitch + x * 4, &texel, 4);
         }
     texture->UnlockRect(0);
-    render::SetEffectsTextureSource(texture, name);
+    render::SetEffectsTextureSource(texture, name, {}); // no game file: no relief here
     return texture;
 }
 

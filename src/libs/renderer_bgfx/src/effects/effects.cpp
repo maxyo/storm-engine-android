@@ -1,4 +1,5 @@
 #include "effects/effects.hpp"
+#include "effects/relief_generator.hpp"
 
 #include "effects/casters.hpp"
 #include "effects/texture_pixels.hpp"
@@ -488,7 +489,7 @@ void Host::advance_switch()
     int budget = per_frame;
     // The post chain's programs also on «Низкая»: the underwater wobble runs on every preset.
     const bool ready = post_.Prepare(target_, budget) && (!target_.sea_soft_edges || sea_depth_.Prepare(budget)) &&
-                       (target_.render_scale >= 1.0f || depth_copy_.Prepare(budget)) &&
+                       (target_.render_height == 0 || depth_copy_.Prepare(budget)) &&
                        contact_.Prepare(target_, budget) &&
                        lighting_.prepare_programs(*device, target_, budget);
     switch_programs_ += per_frame - budget;
@@ -774,18 +775,23 @@ void SetEffectsShipLights(std::span<const EffectsPointLight> lights)
     effects::Host::instance().lighting().lamp_shadows().set_ship_lights(std::move(moving));
 }
 
-void SetEffectsTextureSource(storm::shim::BaseTexture *texture, const char *path)
+void SetEffectsTextureSource(storm::shim::BaseTexture *texture, const char *path, const std::filesystem::path &file)
 {
     if (shim::TexStore *store = shim::store_of(texture))
     {
         store->cutout = effects::texture_cutout(*store);
-        effects::Host::instance().lighting().normal_maps().on_texture_loaded(*store, path);
+        effects::Host::instance().lighting().normal_maps().on_texture_loaded(*store, path, file);
     }
 }
 
-void ConfigureReliefDirectory(const std::filesystem::path &directory)
+void ConfigureRelief(const ReliefConfig &config)
 {
-    effects::ConfigureReliefDirectory(directory);
+    effects::ConfigureRelief({config.directory, config.textures, config.model});
+}
+
+void ShutdownRelief()
+{
+    effects::ReliefGenerator::instance().shutdown();
 }
 
 std::string TakeEffectsNotice()
