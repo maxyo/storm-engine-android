@@ -489,7 +489,7 @@ void Host::advance_switch()
     int budget = per_frame;
     // The post chain's programs also on «Низкая»: the underwater wobble runs on every preset.
     const bool ready = post_.Prepare(target_, budget) && (!target_.sea_soft_edges || sea_depth_.Prepare(budget)) &&
-                       (target_.render_scale >= 1.0f || depth_copy_.Prepare(budget)) &&
+                       (target_.render_height == 0 || depth_copy_.Prepare(budget)) &&
                        contact_.Prepare(target_, budget) &&
                        lighting_.prepare_programs(*device, target_, budget);
     switch_programs_ += per_frame - budget;

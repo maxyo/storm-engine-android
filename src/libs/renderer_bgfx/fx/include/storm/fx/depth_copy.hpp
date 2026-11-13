@@ -1,4 +1,4 @@
-// The scene depth carried to another depth target, scaled (nearest): with Settings::render_scale < 1 the 3D scene
+// The scene depth carried to another depth target, scaled (nearest): with a render scale below 1 (Settings::render_height) the 3D scene
 // draws at the internal size, and the 3D that the game draws after the scene boundary (Renderer::MakePostProcess:
 // the ship foam, particles, coronas, the ship pointer) lands on the display-size picture. That picture's depth must
 // hold the scene, as on the original renderer, or those draws show through ships and islands.
