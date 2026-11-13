@@ -1,6 +1,88 @@
-#!/usr/bin/env bash
-# CXX for scripts that run the C++ compiler directly (tests/*/run.py, tools/android/test_*.py):
-# compiles with $STORM_CCACHE_CXX (default c++) through tools/ccache/launcher. Set by
-# tools/ci/run_host_tests.py and tools/android/ci_dependencies.sh; never for CMake projects,
-# which get the launcher from cmake/StormBuildCache.cmake.
-exec "${BASH_SOURCE[0]%/*}/launcher" "${STORM_CCACHE_CXX:-c++}" "$@"
+#!/usr/bin/env python3
+"""CXX for scripts that run the C++ compiler directly (tests/*/run.py, tools/android/test_*.py,
+tools/game_checks/*/run.py): compiles with $STORM_CCACHE_CXX (default c++) through
+tools/ccache/launcher. Set by tools/ci/run_host_tests.py and tools/android/ci_dependencies.sh; never
+for CMake projects, which get the launcher from cmake/StormBuildCache.cmake.
+
+ccache cannot cache a compile-and-link command (`$CXX a.cpp b.cpp -o check`), which is how most checks
+build. Such a command is split here: every source is compiled on its own with `-c` (cached, in
+parallel), then the objects are linked with the original command. Commands this script does not
+understand (stdin, -x, response files, preprocess/assembly only) run unchanged through the launcher;
+STORM_CXX_NO_SPLIT=<reason> turns the split off (printed on every call).
+"""
+import concurrent.futures
+import os
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
+
+here = Path(__file__).resolve().parent
+launcher = [str(here / 'launcher'), os.environ.get('STORM_CCACHE_CXX', 'c++')]
+args = sys.argv[1:]
+SOURCE = ('.c', '.cc', '.cpp', '.cxx', '.c++', '.C', '.m', '.mm')
+# Options whose value is the next argument (GCC/Clang driver).
+SEPARATE = {'-o', '-I', '-isystem', '-iquote', '-idirafter', '-include', '-imacros', '-D', '-U', '-MF', '-MT',
+            '-MQ', '-L', '-l', '-Xlinker', '-Xpreprocessor', '-Xassembler', '-T', '-u', '-z', '-target',
+            '--target', '-arch', '-isysroot', '--sysroot', '-B', '-e'}
+# Link-only options: dropped from the per-source compiles (Clang's -Werror rejects unused arguments).
+LINK_SEPARATE = {'-L', '-l', '-Xlinker', '-T', '-u', '-z', '-e'}
+LINK_PREFIX = ('-l', '-L', '-Wl,', '-static', '-shared', '-rdynamic', '-pie', '-no-pie', '-nostdlib',
+               '-nodefaultlibs', '-nostartfiles')
+NO_SPLIT = {'-c', '-S', '-E', '-M', '-MM', '-x', '-', '-fsyntax-only', '--version', '-v', '-###'}
+
+
+def run_unchanged():
+    os.execv(launcher[0], launcher + args)
+
+
+reason = os.environ.get('STORM_CXX_NO_SPLIT')
+if reason:
+    print(f'tools/ccache/cxx: compile-and-link not split (STORM_CXX_NO_SPLIT: {reason}): not cached', file=sys.stderr)
+    run_unchanged()
+if any(a in NO_SPLIT or a.startswith('@') for a in args):
+    run_unchanged()
+
+sources, compile_flags, link_tail, output = [], [], [], 'a.out'
+i = 0
+while i < len(args):
+    a = args[i]
+    value = args[i + 1] if a in SEPARATE and i + 1 < len(args) else None
+    if a == '-o' and value is not None:
+        output = value
+        i += 2
+        continue
+    if value is not None:
+        (link_tail if a in LINK_SEPARATE else compile_flags).extend([a, value])
+        i += 2
+        continue
+    if not a.startswith('-') and a.endswith(SOURCE):
+        sources.append(a)
+    elif not a.startswith('-'):
+        link_tail.append(a)  # objects, archives, shared libraries
+    elif a.startswith(LINK_PREFIX):
+        link_tail.append(a)
+    else:
+        compile_flags.append(a)
+    i += 1
+if not sources:
+    run_unchanged()
+
+# Link flags that also matter when compiling (sanitizers, -pthread, -std, optimisation) stay in
+# compile_flags and are passed to the link as well: the link command is the original with every
+# source replaced by its object, in the original order.
+out_dir = Path(output).resolve().parent
+out_dir.mkdir(parents=True, exist_ok=True)
+with tempfile.TemporaryDirectory(prefix='.cxx-', dir=out_dir) as objects_dir:
+    objects = {source: str(Path(objects_dir) / f'{n}-{Path(source).stem}.o') for n, source in enumerate(sources)}
+
+    def compile_one(source):
+        return subprocess.run(launcher + compile_flags + ['-c', source, '-o', objects[source]]).returncode
+
+    jobs = min(len(sources), int(os.environ.get('STORM_CXX_JOBS', '4')))
+    with concurrent.futures.ThreadPoolExecutor(jobs) as pool:
+        codes = list(pool.map(compile_one, sources))
+    if any(codes):
+        sys.exit(next(code for code in codes if code))
+    link = [objects.get(a, a) if a in objects else a for a in args]
+    sys.exit(subprocess.run(launcher + link).returncode)

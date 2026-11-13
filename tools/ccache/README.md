@@ -112,5 +112,7 @@ Checks in `tests/*/run.py` and `tools/android/test_*.py` that call `$CXX` themse
 `tools/android/ci_dependencies.sh`; it runs `$STORM_CCACHE_CXX` (the real compiler, default
 `c++`) through the launcher. Running such a check by hand:
 `CXX=tools/ccache/cxx STORM_CCACHE_CXX=clang++ python3 tests/<name>/run.py`. Their `-c` compiles
-are cached; single-step compile-and-link commands (`$CXX check.cpp -o check`) are not cacheable
-by ccache, and are small.
+are cached, and so are their compile-and-link commands (`$CXX check.cpp a.cpp -o check`): ccache
+cannot cache those, so `cxx` splits them into one cached `-c` compile per source (in parallel) and the
+original link. A source generated into a fresh temporary directory still misses (its path or its
+includes differ on every run). `STORM_CXX_NO_SPLIT="<reason>"` turns the split off, loudly.
