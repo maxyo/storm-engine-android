@@ -244,6 +244,15 @@ class SettingsScreen final : public Screen
                     DebugSegment(bindings, debug, "fx_gloss_debug", "Блеск: отладка", {-1, 0, 1, 2, 3, 4},
                                  {"пресет", "выкл", "блеск", "нормали", "солнце", "металл"});
                 }
+                // Waves from objects (49b75861): ripples, their lift of the surface, the ships' wakes, their views.
+                if (Known("fx_sea_waves"))
+                {
+                    DebugSegment(bindings, debug, "fx_sea_waves", "Море: рябь от объектов", {-1, 0, 1}, onOff);
+                    DebugSegment(bindings, debug, "fx_sea_waves_lift", "Море: рябь поднимает воду", {-1, 0, 1}, onOff);
+                    DebugSegment(bindings, debug, "fx_sea_wakes", "Море: кильватер", {-1, 0, 1}, onOff);
+                    DebugSegment(bindings, debug, "fx_sea_waves_debug", "Море: волны, отладка", {-1, 0, 1, 2},
+                                 {"пресет", "выкл", "слои", "наклон"});
+                }
                 // The renderer's thread, its frame overlap and the graphics API (read at the game's start).
                 if (Known("render_backend"))
                 {

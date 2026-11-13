@@ -396,7 +396,8 @@ static void Settings(const std::string &models)
                                 "fx_lamp_debug", "fx_sail_light", "fx_town_light", "fx_town_light_debug", "fx_lamp_tint",
                                 "render_backend", "render_thread", "render_overlap", "fx_bounce", "fx_bounce_debug",
                                 "fx_town_walls", "fx_gloss", "fx_gloss_strength",
-                                "fx_gloss_debug"}) // GraphicsSettings.DEBUG_KEYS, -1 = the preset's
+                                "fx_gloss_debug", "fx_sea_waves", "fx_sea_waves_lift",
+                                "fx_sea_wakes", "fx_sea_waves_debug"}) // GraphicsSettings.DEBUG_KEYS, -1 = the preset's
             reported[key] = -1;
         debug.SetState("appSettings", reported);
         debug.SetInterface(Load(models, "settings.json"));
@@ -430,6 +431,9 @@ static void Settings(const std::string &models)
         Expect(row("app-fx_gloss").is_object() && row("app-fx_gloss_strength").is_object() &&
                    row("app-fx_gloss_debug")["options"].size() == 6,
                "effects debug: gloss maps: " + rows.dump());
+        Expect(row("app-fx_sea_waves").is_object() && row("app-fx_sea_wakes").is_object() &&
+                   row("app-fx_sea_waves_debug")["options"].size() == 4,
+               "effects debug: waves from objects: " + rows.dump());
         Expect(row("app-fx_town_light")["options"] == Json::array({"пресет", "игра", "наш"}) && row("app-fx_town_light_debug").is_object(),
                "effects debug: the town light, game's or ours, and its view: " + rows.dump());
         debug.OnEvent({"app-fx_render_height", "change", "2"});
