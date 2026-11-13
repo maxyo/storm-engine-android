@@ -9,6 +9,7 @@
 #include "character.h"
 #include "math_inlines.h"
 #include "shared/mast_msg.h"
+#include "storm/render/effects.hpp"
 #include "shared/messages.h"
 #include "shared/sail_msg.h"
 #include "shared/sea_ai/script_defines.h"
@@ -1123,7 +1124,12 @@ void SHIP::Realize(uint32_t dtime)
     SetLights();
 
     pRS->SetRenderState(D3DRS_LIGHTING, true);
-    pM->ProcessStage(Stage::realize, dtime);
+    {
+        // The ship's model is what its lanterns' cached shadows hold (ShipLights::ReportToEffects).
+        const storm::render::EffectsShipDraw still(
+            static_cast<uint64_t>(reinterpret_cast<uintptr_t>(static_cast<VAI_OBJBASE *>(this))));
+        pM->ProcessStage(Stage::realize, dtime);
+    }
     pRS->SetRenderState(D3DRS_LIGHTING, false);
 
     UnSetLights();

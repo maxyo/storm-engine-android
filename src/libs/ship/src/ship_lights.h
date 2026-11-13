@@ -140,6 +140,7 @@ class ShipLights : public IShipLights
 
     bool Init() override;
     void Execute(uint32_t dwDeltaTime);
+    void ReportToEffects();
     void Realize(uint32_t dwDeltaTime);
     uint64_t ProcessMessage(MESSAGE &message) override;
 

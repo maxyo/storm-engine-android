@@ -11,9 +11,14 @@
 //     skinned lit draws, submitted like the sun casters), redrawn every frame into the faces their sphere reaches;
 //   * its number in the lamp grid (a small 3D texture: which slots reach which cell of the place).
 // A lamp fades in once its faces are drawn and fades out before its slot goes to another lamp.
-// The last Settings::lamp_moving slots are for the lights that move (render::SetEffectsDynamicLights: carried
-// lanterns and torches), the nearest to the camera: their still faces are drawn again from the triangles around
-// them whenever they move, the receivers take them without the grid, and they only add light (no bake holds theirs).
+// The last Settings::lamp_moving slots are for the lights that move, the nearest to the camera; the receivers take
+// them without the grid, and they only add light (no bake holds theirs):
+//   * carried lanterns and torches (render::SetEffectsDynamicLights): their still faces are drawn again from the
+//     location's triangles around them whenever they move;
+//   * the ships' lanterns (render::SetEffectsShipLights): a lantern stands still on its ship, so its faces are in
+//     the ship's space (the receivers and the casters turn into it): the still faces hold the ship itself
+//     (render::SetEffectsShipGeometry, drawn once and when the ship changes), the dynamic ones the crew, the sails
+//     and other ships.
 // Receivers (the lit and baked variants into the game picture, ff_fragment.sh ffLampLight) look the lamps of their
 // cell up, evaluate each with the game's own attenuation and compare against both atlases. A lamp without a slot
 // lights nothing per pixel: no light without its shadow.
@@ -62,12 +67,24 @@ class LampShadows
         moving_ = std::move(lamps);
         moving_this_frame_ = true;
     }
-    // ... and the lanterns of the ships at sea (render::SetEffectsShipLights): lights that move like the others.
-    void set_ship_lights(std::vector<fx::Lamp> lamps)
+    // ... and the lanterns of the ships at sea with their ships (render::SetEffectsShipLights).
+    struct ShipLight
     {
-        ship_lights_ = std::move(lamps);
+        fx::Lamp lamp;     // absolute world
+        uint64_t ship = 0;
+        fx::Vec3 local{};  // in the ship's space
+    };
+    void set_ship_lights(std::vector<render::EffectsShip> ships, std::vector<ShipLight> lights)
+    {
+        ships_ = std::move(ships);
+        ship_lights_ = std::move(lights);
         ship_lights_this_frame_ = true;
     }
+    // render::EffectsShipGeometryWanted / SetEffectsShipGeometry.
+    bool ship_geometry_wanted(uint64_t ship, uint64_t signature) const;
+    void set_ship_geometry(uint64_t ship, uint64_t signature, const render::EffectsShipGeometry &geometry);
+    // The draws that follow are the still geometry of this ship (0: of none).
+    void set_drawn_ship(uint64_t ship) { drawn_ship_ = ship; }
     // The still geometry of the location (render::EffectsLocationGeometry); an empty one: none (the sea).
     void set_geometry(const render::EffectsLocationGeometry &geometry);
     // The first receiver of a frame: gives the lamps around the camera at `eye` their slots, renders static faces
@@ -102,7 +119,10 @@ class LampShadows
         fx::Lamp at{};          // the lamp its faces were drawn for (range = its radius)
         float holder = 0.0f;    // metres around it in which the still geometry casts nothing
         bool ready = false;     // its static faces are drawn
-        bool redraw = false;    // a moving light has moved: its still faces are drawn again this frame
+        bool redraw = false;    // a moving light has moved, a ship's geometry came: its still faces are drawn again
+        uint64_t ship = 0;      // a ship's lantern: the ship (its faces are in the ship's space)
+        fx::Vec3 local{};       // ... the lantern in that space
+        std::array<float, 16> to_local{}; // ... absolute world -> that space (row vectors), this frame
         bool leaving = false;   // fading out: the slot goes to another lamp
         float weight = 0.0f;    // 0..1, the fade
         bgfx::IndexBufferHandle triangles = BGFX_INVALID_HANDLE; // the solid still geometry within its radius
@@ -130,7 +150,20 @@ class LampShadows
     int debug_ = 0;
     int moving_slots_ = 0;         // the last slots of the atlas
     std::vector<fx::Lamp> moving_; // the lights that move, as reported this frame
-    std::vector<fx::Lamp> ship_lights_;
+    std::vector<ShipLight> ship_lights_;
+    std::vector<render::EffectsShip> ships_;
+    // The still geometry of the ships whose lanterns hold a slot, in each ship's space.
+    struct ShipGeometry
+    {
+        uint64_t ship = 0, signature = 0;
+        bgfx::VertexBufferHandle vertices = BGFX_INVALID_HANDLE;
+        bgfx::IndexBufferHandle solid = BGFX_INVALID_HANDLE;
+        std::vector<std::pair<shim::BaseTexture *, bgfx::IndexBufferHandle>> cut; // per texture that cuts holes
+        size_t triangles = 0;
+    };
+    std::vector<ShipGeometry> ship_geometry_;
+    void free_ship_geometry(ShipGeometry &geometry);
+    uint64_t drawn_ship_ = 0;
     bool moving_this_frame_ = false, ship_lights_this_frame_ = false; // reported since the last Present (else: none)
     std::vector<fx::Lamp> raw_;   // as reported this frame
     std::vector<int> raw_lamp_;   // per raw lamp: its merged lamp (index into lamps_), -1: none (no light)
@@ -174,10 +207,10 @@ class LampShadows
     bgfx::UniformHandle u_view_ = BGFX_INVALID_HANDLE, u_lamps_ = BGFX_INVALID_HANDLE, u_grid_ = BGFX_INVALID_HANDLE,
                         u_caster_ = BGFX_INVALID_HANDLE;
     std::array<std::array<float, 4>, 2 + 3 * fx::kMaxShadowLamps> uniforms_{};
-    std::array<std::array<float, 4>, 5> grid_uniforms_{};
+    std::array<std::array<float, 4>, 11> grid_uniforms_{};
     std::array<float, 16> bound_view_{}, view_to_world_{};
     bool reported_ = false;
-    bool transient_reported_ = false;
+    bool transient_reported_ = false, ship_reported_ = false;
 };
 
 } // namespace storm::effects

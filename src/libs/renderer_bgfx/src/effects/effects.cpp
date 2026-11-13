@@ -766,13 +766,34 @@ void SetEffectsDynamicLights(std::span<const EffectsPointLight> lights)
     effects::Host::instance().lighting().lamp_shadows().set_moving(std::move(moving));
 }
 
-void SetEffectsShipLights(std::span<const EffectsPointLight> lights)
+void SetEffectsShipLights(std::span<const EffectsShip> ships, std::span<const EffectsShipLight> lights)
 {
-    std::vector<fx::Lamp> moving;
-    moving.reserve(lights.size());
-    for (const EffectsPointLight &l : lights)
-        moving.push_back({l.position, l.color, l.range, l.att0, l.att1, l.att2});
-    effects::Host::instance().lighting().lamp_shadows().set_ship_lights(std::move(moving));
+    std::vector<effects::LampShadows::ShipLight> converted;
+    converted.reserve(lights.size());
+    for (const EffectsShipLight &l : lights)
+        converted.push_back({{l.light.position, l.light.color, l.light.range, l.light.att0, l.light.att1, l.light.att2},
+                             l.ship, l.local});
+    effects::Host::instance().lighting().lamp_shadows().set_ship_lights({ships.begin(), ships.end()}, std::move(converted));
+}
+
+bool EffectsShipGeometryWanted(uint64_t ship, uint64_t signature)
+{
+    return effects::Host::instance().lighting().lamp_shadows().ship_geometry_wanted(ship, signature);
+}
+
+void SetEffectsShipGeometry(uint64_t ship, uint64_t signature, const EffectsShipGeometry &geometry)
+{
+    effects::Host::instance().lighting().lamp_shadows().set_ship_geometry(ship, signature, geometry);
+}
+
+EffectsShipDraw::EffectsShipDraw(uint64_t ship)
+{
+    effects::Host::instance().lighting().lamp_shadows().set_drawn_ship(ship);
+}
+
+EffectsShipDraw::~EffectsShipDraw()
+{
+    effects::Host::instance().lighting().lamp_shadows().set_drawn_ship(0);
 }
 
 void SetEffectsTextureSource(storm::shim::BaseTexture *texture, const char *path, const std::filesystem::path &file)
