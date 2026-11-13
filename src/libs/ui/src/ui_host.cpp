@@ -1119,9 +1119,15 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
         const std::string problem = hud::CheckView(layout_, view);
         if (!problem.empty())
         {
-            Error(problem);
+            // The scene rebuilds the same view each frame: the error once, not a toast ×N.
+            if (problem != hud_problem_)
+                Error(problem);
+            hud_problem_ = problem;
             return false;
         }
+        if (!hud_problem_.empty())
+            Log("HUD view drawable again after: " + hud_problem_);
+        hud_problem_.clear();
         if (!hud_document_)
         {
             hud_document_ = hud_path_.empty() ? nullptr : context_->LoadDocument(hud_path_);
@@ -2106,6 +2112,7 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
         AwaitFrame
     };
     Opening opening_ = Opening::None;
+    std::string hud_problem_;       // the last undrawable HUD view's error, logged once
     bool game_interface_ = false; // a game interface model is shown (SetInterface until CloseInterface)
     std::string game_screen_;     // the screen of that game interface model
     // A screen switch, timed from the engine action before it to its first frames (ReportSwitch).

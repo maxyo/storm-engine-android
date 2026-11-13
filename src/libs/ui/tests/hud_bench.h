@@ -12,6 +12,7 @@
 #include <fstream>
 #include <iterator>
 #include <map>
+#include <set>
 
 using namespace storm::ui;
 using namespace storm::ui::hud;
@@ -49,6 +50,29 @@ inline Json State(const std::string &name)
     return Json::parse(Text(name), nullptr, false);
 }
 
+// The elements each layout scene may show (src/hud/layout-elements.json, the contract the pack
+// build checks the pack's hud-layout.json against): a scene showing anything else fails here,
+// not as the error toast of a device.
+inline const Layout &DeclaredLayout()
+{
+    static const Layout layout = [] {
+        Layout out;
+        std::ifstream file(states_directory + "/../../src/hud/layout-elements.json", std::ios::binary);
+        const Json declared = Json::parse(file, nullptr, false);
+        Expect(declared.is_object() && declared.contains("scenes"), "src/hud/layout-elements.json is read");
+        if (declared.is_object() && declared.contains("scenes"))
+            for (const auto &scene : declared["scenes"].items())
+                for (const Json &id : scene.value())
+                {
+                    LayoutElement element;
+                    element.id = id.get<std::string>();
+                    out[scene.key()].push_back(std::move(element));
+                }
+        return out;
+    }();
+    return layout;
+}
+
 // --- the scene alone --------------------------------------------------------------------
 
 struct FakeMount final : Mount
@@ -58,8 +82,13 @@ struct FakeMount final : Mount
     std::vector<std::string> commands, slots, logs, errors;
     double now = 0.0;
 
+    std::set<std::string> undeclared; // problems already reported (a scene rebuilds each frame)
+
     bool ShowHud(const View &view) override
     {
+        const std::string problem = CheckView(DeclaredLayout(), view);
+        if (!problem.empty() && undeclared.insert(problem).second)
+            Expect(false, problem + " (src/hud/layout-elements.json)");
         shown = view;
         visible = true;
         return true;

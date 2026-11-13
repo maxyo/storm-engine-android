@@ -179,6 +179,16 @@ static void CheckExplore()
     bench.Set("contextAction", Json(""));
     bench.Frame(1.0);
     Expect(!mount.Has("hint"), "nothing at hand: gone");
+    // The one named turns on the hero (the owner who saw him in a chest): the fight begins while
+    // the talk hint is up. The combat layout has no hint: it goes at once, it does not hold into
+    // land-combat (on #18c a toast «the layout has no element 'hint'» each frame of its hold).
+    bench.Set("combat", talk);
+    Expect(mount.Has("hint"), "the talk hint is up");
+    bench.Melee();
+    Expect(mount.shown.layout == "land-combat" && !mount.Has("hint"), "the fight starts: no hint in the combat layout");
+    bench.Frame(1.0);
+    bench.Explore();
+    Expect(!mount.Has("hint"), "nor a stale one after the fight");
 
     // event lines that lead somewhere (tagged by the game function that wrote them): a tap opens
     // that screen on its subject and dismisses the line; the others are only shown
