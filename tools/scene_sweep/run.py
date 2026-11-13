@@ -54,7 +54,8 @@ LOG_RULES = [
     (r'.', r"Invalid model|Can't load model|can't open file|Can't find model|No geometry", 'missing model'),
     (r'compile\.log', r'Main character <.*> error teleportation', 'teleport failed'),  # characters_login.c
     (r'.', r'\[(critical|error)\]', 'engine error'),
-    (r'stdout', r'(?i)\[storm-bgfx\].*(error|fail|trap|unsupported|missing|invalid)', 'renderer error'),
+    # The renderer's lines: in system.log once the engine set its log sink (storm/render/log.hpp), on stdout before.
+    (r'.', r'(?i)\[storm-bgfx\].*(error|fail|trap|unsupported|missing|invalid)', 'renderer error'),
 ]
 FATAL = re.compile(r'Engine stopped: (.*)')
 # Defects of the game's own data the engine reports and cannot fix (known_defects.json): reported as KNOWN.

@@ -261,10 +261,10 @@ GEOM::GEOM(const char *fname, const char *lightname, GEOM_SERVICE &_srv, int32_t
     for (int32_t t = 0; t < rhead.ntextures; t++)
     {
         tlookup[t] = srv.CreateTexture(&globname[tname[t]]);
-        if (storm::iEquals(&globname[tname[t]], "shadow.tga") && tlookup[t] >= 0)
+        if (storm::iEquals(&globname[tname[t]], "shadow.tga"))
         {
             lightmap_file_ = "resource\\textures\\" + srv.TextureFile(&globname[tname[t]]) + ".tx";
-            lightmap_id_ = tlookup[t];
+            lightmap_id_ = tlookup[t]; // -1 when it cannot be created: the location says so
         }
     }
     for (int32_t m = 0; m < rhead.nmaterials; m++)

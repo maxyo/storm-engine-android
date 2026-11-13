@@ -112,6 +112,7 @@ class TownLight
     float blend_ = 1.0f;                               // sun_from -> sun_to
     unsigned generation_ = 0;                          // sun bakes taken in at this place (log and debug)
     bool debug_ = false;
+    bool waiting_reported_ = false; // "no sun yet" said for this place
     std::array<uint32_t, 2> counts_{}, last_counts_{};
     float since_upload_ = 0.0f;
 };

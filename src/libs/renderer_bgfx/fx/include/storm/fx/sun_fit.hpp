@@ -26,8 +26,12 @@ namespace storm::fx
 {
 
 // Runs `work(first, last)` over [0, count) split on `threads` threads (at least 256 items each); returns when all are
-// done. The bakes over an Occluders (one Scratch per range).
+// done. The bakes over an Occluders (one Scratch per range). The threads it starts run at nice 10 (Linux, Android): the
+// game's main and render threads go first.
 void ParallelRanges(size_t count, unsigned threads, const std::function<void(size_t, size_t)> &work);
+// The threads of a background bake: all cores but the game's main and render threads (at least one), as the relief
+// generation takes them.
+unsigned BakeThreads();
 
 // Triangles on a uniform grid for any-hit rays (3D DDA).
 class Occluders

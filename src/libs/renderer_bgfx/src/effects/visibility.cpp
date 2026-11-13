@@ -87,7 +87,7 @@ void Visibility::start()
     texture::Service &service = texture::Service::instance();
     service.post([job, name = name_, positions = positions_, indices = indices_, params = params_,
                   directory = service.cache_directory()]() mutable {
-        params.threads = std::max(1u, std::thread::hardware_concurrency() / 2);
+        params.threads = fx::BakeThreads();
         const uint64_t key = fx::VisibilityKey(positions, indices, params);
         if (!directory.empty())
             if (std::optional<texture::Blob> cached = texture::read_derived_file(directory, key, kShape, kMaxCacheBytes))
@@ -113,7 +113,8 @@ void Visibility::start()
             return;
         }
         char how[120];
-        std::snprintf(how, sizeof(how), "not in the cache: baked in %.0f ms on %u threads", ms, params.threads);
+        std::snprintf(how, sizeof(how), "not in the cache: baked in %.0f ms on %u threads (all but 2 of %u cores)", ms,
+                      params.threads, std::thread::hardware_concurrency());
         job->how = how;
         if (directory.empty())
             job->how += " (no cache directory: baked again next time)";

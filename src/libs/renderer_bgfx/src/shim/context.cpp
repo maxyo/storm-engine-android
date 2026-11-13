@@ -5,16 +5,19 @@
 #include "profiler.hpp"
 #include "program_cache.hpp"
 #include "storm/render/d3d_interop.hpp"
+#include "storm/render/log.hpp"
 
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_syswm.h>
 #include <GLES2/gl2.h>
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <cstdarg>
 #include <cstdio>
+#include <cstring>
 #include <map>
 #include <mutex>
 #include <string>
@@ -42,6 +45,8 @@ namespace
 std::mutex trap_mutex;
 std::map<std::string, uint64_t> trap_counts;
 
+std::atomic<storm::render::LogSink> log_sink{nullptr};
+
 double now_seconds()
 {
     using namespace std::chrono;
@@ -56,6 +61,11 @@ void logf(const char *format, ...)
     va_start(args, format);
     vsnprintf(buffer, sizeof(buffer), format, args);
     va_end(args);
+    if (const storm::render::LogSink sink = log_sink.load())
+    {
+        sink(std::strncmp(buffer, "ERROR", 5) == 0, buffer);
+        return;
+    }
 #ifdef __ANDROID__
     __android_log_print(ANDROID_LOG_INFO, "storm-bgfx", "%s", buffer);
 #endif
@@ -1105,3 +1115,11 @@ bgfx::ShaderHandle create_embedded_shader(uint32_t id)
 }
 
 } // namespace storm::shim
+
+namespace storm::render
+{
+void SetLogSink(LogSink sink)
+{
+    storm::shim::log_sink.store(sink);
+}
+} // namespace storm::render

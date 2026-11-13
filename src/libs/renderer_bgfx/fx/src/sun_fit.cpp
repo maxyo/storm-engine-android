@@ -5,6 +5,12 @@
 #include <thread>
 #include <utility>
 
+#if defined(__linux__)
+#include <sys/resource.h>
+#include <sys/syscall.h>
+#include <unistd.h>
+#endif
+
 namespace storm::fx
 {
 
@@ -39,10 +45,21 @@ void ParallelRanges(size_t count, unsigned threads, const std::function<void(siz
     threads = std::max(1u, std::min<unsigned>(threads, static_cast<unsigned>(std::max<size_t>(1, count / 256))));
     std::vector<std::thread> pool;
     for (unsigned t = 1; t < threads; ++t)
-        pool.emplace_back([&, t] { work(count * t / threads, count * (t + 1) / threads); });
+        pool.emplace_back([&, t] {
+#if defined(__linux__)
+            setpriority(PRIO_PROCESS, static_cast<id_t>(syscall(SYS_gettid)), 10);
+#endif
+            work(count * t / threads, count * (t + 1) / threads);
+        });
     work(0, count / threads);
     for (std::thread &th : pool)
         th.join();
+}
+
+unsigned BakeThreads()
+{
+    const unsigned cores = std::thread::hardware_concurrency();
+    return cores > 2 ? cores - 2 : 1;
 }
 
 Occluders::Occluders(std::span<const Vec3> positions, std::span<const uint32_t> indices,

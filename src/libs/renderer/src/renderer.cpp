@@ -20,11 +20,13 @@
 #include "fs.h"
 #include "debug-trap.h"
 #include "string_compare.hpp"
+#include "logging.hpp"
 #include "storm/render/d3d_interop.hpp"
 #include "storm/render/frame_owner.hpp"
 #include "scene_hold.hpp"
 #include "storm/render/effects.hpp"
 #include "storm/render/frame_rate.hpp"
+#include "storm/render/log.hpp"
 #include "storm/render/perf_stats.hpp"
 #include "storm/render/program_cache.hpp"
 #include "storm/render/texture_cache.hpp"
@@ -667,6 +669,12 @@ static bool texLog = false;
 
 bool Renderer::Init()
 {
+    // The bgfx renderer's lines (effects, textures, relief) into the engine's logs: system.log (and logcat), their
+    // errors into error.log too, from whichever thread logs them (the sinks lock).
+    storm::render::SetLogSink([](bool error, const char *line) {
+        static const storm::logging::logger_ptr logger = storm::logging::getOrCreateLogger("system");
+        logger->log(error ? spdlog::level::err : spdlog::level::info, "[storm-bgfx] {}", line);
+    });
     if (auto *sentinelService = core.GetService("LostDeviceSentinel"); !sentinelService)
     {
         throw std::runtime_error("Cannot create LostDeviceSentinel! Abort");

@@ -69,7 +69,7 @@ float Angle(const std::array<float, 3> &a, const std::array<float, 3> &b)
 
 unsigned Threads()
 {
-    return std::max(1u, std::thread::hardware_concurrency() / 2);
+    return fx::BakeThreads();
 }
 
 // The level `src` (w x h, RGBA8) halved by a box filter.
@@ -101,14 +101,27 @@ void TownLight::set_lightmaps(std::string_view name, std::span<const std::array<
     place_job_.reset();
     sun_job_.reset();
     ready_ = false;
+    waiting_reported_ = false;
     name_ = std::string(name);
     positions_.assign(positions.begin(), positions.end());
     uvs_.assign(uvs.begin(), uvs.end());
     indices_.assign(indices.begin(), indices.end());
     triangle_lightmap_.assign(triangle_lightmap.begin(), triangle_lightmap.end());
     lightmaps_.assign(lightmaps.begin(), lightmaps.end());
-    if (!indices_.empty() && occluders_name_ == name_ && !occluder_indices_.empty())
+    if (indices_.empty())
+    {
+        if (!name_.empty())
+            shim::logf("effects: town light of %s: no lightmapped geometry reported: none here", name_.c_str());
+        return;
+    }
+    if (!enabled_)
+        shim::logf("effects: town light of %s: baked, but shown only with fx_town_light on (the preset or the option "
+                   "has it off)", name_.c_str());
+    if (occluders_name_ == name_ && !occluder_indices_.empty())
         start_place();
+    else
+        shim::logf("effects: town light of %s: waiting for the place's still geometry (%s reported)", name_.c_str(),
+                   occluders_name_.empty() ? "none" : occluders_name_.c_str());
 }
 
 void TownLight::set_occluders(std::string_view name, std::span<const std::array<float, 3>> positions,
@@ -271,8 +284,8 @@ void TownLight::start_place()
         }
         char how[300];
         std::snprintf(how, sizeof(how),
-                      "ready in %.0f ms on %u threads: sky %s, lightmap set %s (fit %.0f ms, its sun %.0f ms)",
-                      Since(started), threads, sky_cached ? "from the cache" : (std::string("not in the cache: baked in ") +
+                      "ready in %.0f ms on %u threads (all but 2 of %u cores): sky %s, lightmap set %s (fit %.0f ms, its sun %.0f ms)",
+                      Since(started), threads, std::thread::hardware_concurrency(), sky_cached ? "from the cache" : (std::string("not in the cache: baked in ") +
                                                                                  std::to_string(std::lround(sky_ms)) + " ms").c_str(),
                       set_cached ? "from the cache" : "not in the cache: fitted", fit_ms, sun_ms);
         job->how = how + job->how;
@@ -332,6 +345,16 @@ void TownLight::update(const std::array<float, 3> &sun, bool present, float seco
     }
     if (maps_.empty())
         return;
+    if (!present && !ready_)
+    {
+        // The place's weather has not given its sun yet (the first frames after the load), or it is night: the game's
+        // lightmap stays until there is a sun to bake for.
+        if (!waiting_reported_)
+            shim::logf("effects: town light of %s: no sun in the sky yet: the game's lightmap until there is",
+                       name_.c_str());
+        waiting_reported_ = true;
+        return;
+    }
     const std::array<float, 3> target = present ? sun : std::array<float, 3>{0.0f, -1.0f, 0.0f};
     if (sun_job_ && sun_job_->state.load() == 1)
     {
@@ -351,7 +374,8 @@ void TownLight::update(const std::array<float, 3> &sun, bool present, float seco
         }
         sun_baked_ = sun_job_->sun;
         ++generation_;
-        shim::logf("effects: town light of %s: sun bake %u for (%.3f, %.3f, %.3f), %.1f° up, in %.0f ms on %u threads",
+        shim::logf("effects: town light of %s: sun bake %u for (%.3f, %.3f, %.3f), %.1f° up, in %.0f ms on %u threads (all but 2 "
+                   "of the cores)",
                    name_.c_str(), generation_, sun_baked_[0], sun_baked_[1], sun_baked_[2],
                    std::asin(std::clamp(sun_baked_[1], -1.0f, 1.0f)) * 57.29578f, sun_job_->ms, Threads());
         sun_job_.reset();

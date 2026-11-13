@@ -237,7 +237,10 @@ void Location::ReportLightmaps()
     const char *id = AttributesPointer ? AttributesPointer->GetAttribute("id") : nullptr;
     const char *weather = AttributesPointer ? AttributesPointer->GetAttribute("lockWeather") : nullptr;
     if (weather && storm::iEquals(weather, "Inside"))
+    {
+        core.Trace("Location %s: inside (lockWeather): no town light", id ? id : "?");
         return; // no sun indoors
+    }
     std::vector<std::array<float, 3>> positions;
     std::vector<std::array<float, 2>> uvs;
     std::vector<uint32_t> indices, triangle_lightmap;
@@ -258,6 +261,12 @@ void Location::ReportLightmaps()
                 break;
             if (!node->geo || node->geo->LightmapFile().empty())
                 continue;
+            if (node->geo->LightmapTexture() < 0)
+            {
+                core.Trace("ERROR: Location %s: model %s has the lightmap %s but no texture of it: it keeps the game's",
+                           id ? id : "?", model.GetModelName(i), node->geo->LightmapFile().c_str());
+                continue;
+            }
             const std::string &file = node->geo->LightmapFile();
             auto known = std::find(files.begin(), files.end(), file);
             uint32_t lightmap = static_cast<uint32_t>(known - files.begin());
@@ -295,6 +304,8 @@ void Location::ReportLightmaps()
             triangle_lightmap.insert(triangle_lightmap.end(), local_indices.size() / 3, lightmap);
         }
     }
+    if (lightmaps.empty())
+        core.Trace("Location %s: no model carries a readable lightmap (shadow.tga): no town light", id ? id : "?");
     storm::render::SetEffectsLightmaps(id ? id : "", positions, uvs, indices, triangle_lightmap, lightmaps);
 }
 
