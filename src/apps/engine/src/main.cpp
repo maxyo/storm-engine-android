@@ -133,6 +133,25 @@ void RunFrame()
     lifecycleDiagnostics.notifyAfterRun();
 }
 
+// The running session's marker (log_rotation.hpp): there from the start while the game is in the foreground, so a
+// hang the player swipes away is told at the next start. Removed on the game thread when the game goes to the
+// background (the system may then end the process without notice) and on a clean exit.
+std::string sessionStarted;
+
+void MarkSessionRunning()
+{
+    if (const auto failure = storm::logging::markSessionRunning(fs::GetLogsPath(), sessionStarted,
+                                                                static_cast<long>(spdlog::details::os::pid()));
+        !failure.empty())
+        spdlog::error("Session marker: {}", failure);
+}
+
+void ClearSessionRunning()
+{
+    if (const auto failure = storm::logging::clearSessionRunning(fs::GetLogsPath()); !failure.empty())
+        spdlog::error("Session marker: {}", failure);
+}
+
 // Every dialog of the engine is logged first (an error one at error level: error.log too), so what the player saw
 // is in the logs.
 void ShowEngineDialog(Uint32 flags, const char *title, const char *text)
@@ -265,6 +284,9 @@ void SubscribeEngineToAppEvents()
             if (event.type == storm::AppEventType::WillEnterBackground ||
                 event.type == storm::AppEventType::Terminating)
             {
+                // A regular stop: an end in the background is not a hang (a hung game thread never gets here).
+                if (!sessionStarted.empty())
+                    ClearSessionRunning();
                 // A backgrounded process can be killed without notice: do not lose buffered log lines.
                 spdlog::apply_all([](const std::shared_ptr<spdlog::logger> &logger) { logger->flush(); });
             }
@@ -275,6 +297,8 @@ void SubscribeEngineToAppEvents()
         switch (event.type)
         {
         case storm::AppEventType::DidEnterForeground:
+            if (!sessionStarted.empty())
+                MarkSessionRunning();
             audioGate.foreground = true;
             audioGate.apply();
             if (ready)
@@ -358,15 +382,34 @@ int main(int argc, char *argv[])
     // First, so that every later failure (the game folder, damaged fixes) is in the logs. Before anything opens a
     // log (mimalloc's output, the loggers truncate their files): the previous process's logs are the evidence of
     // the hang or crash this start may follow.
+    // Every return from here on is a clean exit: the running marker goes (a crash or a kill leaves it).
+    struct RunningMarker
+    {
+        ~RunningMarker()
+        {
+            if (!sessionStarted.empty())
+                ClearSessionRunning();
+        }
+    } runningMarker;
     try
     {
-        const auto logRotationFailures = storm::logging::rotatePreviousSessionLogs(fs::GetLogsPath());
+        const auto logs = fs::GetLogsPath();
+        std::vector<std::string> logFailures;
+        const auto uncleanEnd = storm::logging::takeUncleanEnd(logs, logFailures);
+        for (const auto &failure : storm::logging::rotatePreviousSessionLogs(logs))
+            logFailures.push_back(failure);
         spdlog::set_default_logger(storm::logging::getOrCreateLogger(defaultLoggerName));
         // The diagnostics export labels each session's logs with this line's time and pid (app DiagnosticsReport).
         spdlog::info("Logging system initialized. Running on {}, pid {}", STORM_BUILD_WATERMARK_STRING,
                      spdlog::details::os::pid());
-        for (const auto &failure : logRotationFailures)
+        for (const auto &failure : logFailures)
             spdlog::error("Previous session logs: {}", failure);
+        // The export shows this line with the session it is about (app DiagnosticsReport).
+        if (!uncleanEnd.empty())
+            spdlog::error("Previous session ended without a clean exit (a hang, a crash or a kill in the foreground): {}",
+                          uncleanEnd);
+        sessionStarted = storm::logging::logTime(std::time(nullptr));
+        MarkSessionRunning();
     }
     catch (const std::exception &error)
     {

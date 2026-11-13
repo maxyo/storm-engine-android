@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Host check of the previous-session log rotation (src/libs/diagnostics/include/log_rotation.hpp)."""
+"""Host check of the session logs: rotation and the running marker (src/libs/diagnostics/include/log_rotation.hpp)."""
 import os
 from pathlib import Path
 import subprocess
