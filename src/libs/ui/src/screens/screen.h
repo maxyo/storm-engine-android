@@ -197,6 +197,11 @@ class StateConsumer
     virtual ~StateConsumer() = default;
     virtual const char *Channel() const = 0;
     virtual void OnState(const Json &state, Router &router) = 0;
+    // A game interface that covered this channel's screen closed: the screen comes back when
+    // the channel's state still asks for it.
+    virtual void Resume(Router &router)
+    {
+    }
 };
 std::vector<std::unique_ptr<StateConsumer>> CreateStateConsumers();
 
@@ -234,6 +239,9 @@ class Router
 
     void SetInterface(const InterfaceModel &model);
     void CloseInterface();
+    // The game closed its interface `screen`: it goes, unless a state channel's screen replaced
+    // it (a dialogue the closing interface's script started); a channel screen it covered comes back.
+    void CloseGameInterface(const std::string &screen);
     void SetState(const std::string &channel, const Json &state);
     // False when no screen is mounted or the event belongs to nothing bound.
     bool OnEvent(const Event &event);

@@ -372,6 +372,7 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
     bool LoadDocument(const std::string &path) override
     {
         game_interface_ = false;
+        game_screen_.clear();
         router_->CloseInterface();
         const bool opened = OpenDocument(path);
         PublishTouchMap();
@@ -962,6 +963,7 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
             switch_.modelled = started;
         }
         game_interface_ = true;
+        game_screen_ = model.screen;
         router_->SetInterface(model);
         counters_.apply_ms += Milliseconds(started, std::chrono::steady_clock::now());
         if (opening_ == Opening::AwaitModel)
@@ -973,7 +975,8 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
     {
         switch_.open = false;
         game_interface_ = false;
-        router_->CloseInterface();
+        router_->CloseGameInterface(game_screen_);
+        game_screen_.clear();
         if (opening_ != Opening::None)
         {
             opening_ = Opening::None;
@@ -2104,6 +2107,7 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
     };
     Opening opening_ = Opening::None;
     bool game_interface_ = false; // a game interface model is shown (SetInterface until CloseInterface)
+    std::string game_screen_;     // the screen of that game interface model
     // A screen switch, timed from the engine action before it to its first frames (ReportSwitch).
     using Clock = std::chrono::steady_clock;
     struct Switch

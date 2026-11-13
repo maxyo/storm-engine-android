@@ -1387,6 +1387,41 @@ static void Dialogue(const std::string &models)
     Expect(surface.props["replies"].size() == 2 && surface.errors.size() == 2, "a choice without an index is reported, not shown");
 }
 
+// Caught stealing (TEHO itemsbox.c, LAi_owner.c): the chest's interface does not pause the game
+// and the owner who saw the hero in it starts his dialogue the moment it closes. The game's
+// close of the chest reaches the UI after a grace (engine_ui.cpp), when the dialogue panel may
+// already be up: the close must not take it, or the game waits in a dialogue nobody sees.
+static void DialogueOverClosingInterface(const std::string &models)
+{
+    FakeSurface surface;
+    Router router(surface);
+    router.SetInterface(Load(models, "itemsbox.json"));
+    ExpectEqual(router.Model().screen, "itemsbox", "the chest is open");
+    router.SetState("dialogue", LoadJson(models, "dialogue.json"));
+    ExpectEqual(surface.tag, "s-dialogue", "the owner's dialogue comes while the chest is still closing");
+    router.CloseGameInterface("itemsbox");
+    Expect(surface.tag == "s-dialogue" && router.Model().screen == "dialogue", "the chest's late close leaves the dialogue up");
+    Expect(!surface.logs.empty() && surface.logs.back().find("interface itemsbox closed under the dialogue screen") != std::string::npos,
+           "and says so in the log");
+    router.OnEvent({"reply-0", "click", ""});
+    ExpectEqual(surface.Last(), "dialogue:4:0", "its reply still answers the dialogue");
+
+    // A game interface the dialogue's script opens over it: when it closes, the dialogue the
+    // engine still holds comes back (the engine sends a node once).
+    router.SetInterface(Load(models, "itemsbox.json"));
+    Expect(surface.tag != "s-dialogue", "an interface opened from the dialogue covers it");
+    router.CloseGameInterface("itemsbox");
+    Expect(surface.tag == "s-dialogue" && router.Model().opening == 4, "its close brings the same dialogue back");
+
+    // A dialogue that ended under the interface does not come back.
+    router.SetInterface(Load(models, "itemsbox.json"));
+    router.SetState("dialogue", Json{{"active", false}});
+    ExpectEqual(router.Model().screen, "itemsbox", "the end of a covered dialogue leaves the interface");
+    router.CloseGameInterface("itemsbox");
+    Expect(surface.tag.empty() && !router.Active(), "and nothing is left when the interface closes");
+    Expect(surface.errors.empty(), "no errors on the way");
+}
+
 static void DialogueText(const std::string &models)
 {
     FakeSurface surface;
@@ -2597,6 +2632,7 @@ int main(int argc, char **argv)
     GoodsOrder(models);
     SailEmblem(models);
     DialogueText(models);
+    DialogueOverClosingInterface(models);
     DialogueNumber(models);
     Nations(models);
     Hero(models);
