@@ -125,33 +125,27 @@ struct AudioGate
     }
 } audioGate;
 
+// The running session's marker (log_rotation.hpp SessionMarker): from the start to a clean exit. The game thread
+// beats it every frame. On Android the activity marks the background and the foreground from its UI thread
+// (GameActivity.onPause/onResume -> nativeLifecycle): SDL raises SDL_APP_WILLENTERBACKGROUND only inside
+// Android_PumpEvents on the game thread, which a stuck game never reaches, so a regular stop behind a busy game
+// thread would count as a hang. The next start tells a hang the player swiped away. Created once, never freed: the
+// UI thread may call it until the process ends.
+std::atomic<storm::logging::SessionMarker *> sessionMarker{nullptr};
+
+void SessionMarkerResult(const std::string &failure)
+{
+    if (!failure.empty())
+        spdlog::error("Session marker: {}", failure);
+}
+
 void RunFrame()
 {
     if (!core_private->Run())
     {
         isRunning = false;
     }
-
-    lifecycleDiagnostics.notifyAfterRun();
-}
-
-// The running session's marker (log_rotation.hpp): there from the start while the game is in the foreground, so a
-// hang the player swipes away is told at the next start. Removed on the game thread when the game goes to the
-// background (the system may then end the process without notice) and on a clean exit.
-std::string sessionStarted;
-
-void MarkSessionRunning()
-{
-    if (const auto failure = storm::logging::markSessionRunning(fs::GetLogsPath(), sessionStarted,
-                                                                static_cast<long>(spdlog::details::os::pid()));
-        !failure.empty())
-        spdlog::error("Session marker: {}", failure);
-}
-
-void ClearSessionRunning()
-{
-    if (const auto failure = storm::logging::clearSessionRunning(fs::GetLogsPath()); !failure.empty())
-        spdlog::error("Session marker: {}", failure);
+    SessionMarkerResult(sessionMarker.load()->Beat(std::time(nullptr)));
 }
 
 // Every dialog of the engine is logged first (an error one at error level: error.log too), so what the player saw
@@ -256,6 +250,19 @@ void mimalloc_fun(const char *msg, void *arg)
 
 } // namespace
 
+#ifdef __ANDROID__
+// GameActivity.onPause (true) / onResume (false), on the UI thread: the session marker's background state.
+extern "C" JNIEXPORT void JNICALL Java_org_stormengine_port_GameActivity_nativeLifecycle(JNIEnv *, jclass, jboolean background)
+{
+    auto *marker = sessionMarker.load();
+    if (!marker)
+        return; // before the engine started its logs: nothing to mark
+    const auto failure = background ? marker->Background(std::time(nullptr)) : marker->Foreground(std::time(nullptr));
+    if (!failure.empty())
+        spdlog::error("Session marker: {}", failure);
+}
+#endif
+
 // Engine-side reactions to application events. Other subsystems subscribe to
 // storm::AppEvents themselves; see src/libs/window/README.md.
 void SubscribeEngineToAppEvents()
@@ -286,9 +293,6 @@ void SubscribeEngineToAppEvents()
             if (event.type == storm::AppEventType::WillEnterBackground ||
                 event.type == storm::AppEventType::Terminating)
             {
-                // A regular stop: an end in the background is not a hang (a hung game thread never gets here).
-                if (!sessionStarted.empty())
-                    ClearSessionRunning();
                 // A backgrounded process can be killed without notice: do not lose buffered log lines.
                 spdlog::apply_all([](const std::shared_ptr<spdlog::logger> &logger) { logger->flush(); });
             }
@@ -299,8 +303,6 @@ void SubscribeEngineToAppEvents()
         switch (event.type)
         {
         case storm::AppEventType::DidEnterForeground:
-            if (!sessionStarted.empty())
-                MarkSessionRunning();
             audioGate.foreground = true;
             audioGate.apply();
             if (ready)
@@ -389,8 +391,8 @@ int main(int argc, char *argv[])
     {
         ~RunningMarker()
         {
-            if (!sessionStarted.empty())
-                ClearSessionRunning();
+            if (auto *marker = sessionMarker.load())
+                SessionMarkerResult(marker->Clear());
         }
     } runningMarker;
     try
@@ -401,6 +403,7 @@ int main(int argc, char *argv[])
         for (const auto &failure : storm::logging::rotatePreviousSessionLogs(logs))
             logFailures.push_back(failure);
         spdlog::set_default_logger(storm::logging::getOrCreateLogger(defaultLoggerName));
+        storm::logging::startPeriodicFlush();
         // The diagnostics export labels each session's logs with this line's time and pid (app DiagnosticsReport).
         spdlog::info("Logging system initialized. Running on {}, pid {}", STORM_BUILD_WATERMARK_STRING,
                      spdlog::details::os::pid());
@@ -408,10 +411,11 @@ int main(int argc, char *argv[])
             spdlog::error("Previous session logs: {}", failure);
         // The export shows this line with the session it is about (app DiagnosticsReport).
         if (!uncleanEnd.empty())
-            spdlog::error("Previous session ended without a clean exit (a hang, a crash or a kill in the foreground): {}",
-                          uncleanEnd);
-        sessionStarted = storm::logging::logTime(std::time(nullptr));
-        MarkSessionRunning();
+            spdlog::error("Previous session ended without a clean exit: {}", uncleanEnd);
+        auto *marker = new storm::logging::SessionMarker(logs, storm::logging::logTime(std::time(nullptr)),
+                                                         static_cast<long>(spdlog::details::os::pid()));
+        SessionMarkerResult(marker->Start(std::time(nullptr)));
+        sessionMarker = marker;
     }
     catch (const std::exception &error)
     {

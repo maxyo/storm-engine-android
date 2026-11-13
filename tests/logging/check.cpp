@@ -1,11 +1,14 @@
 // Host check of the engine's loggers (src/libs/diagnostics/src/logging.cpp): every logger's errors also land in
-// error.log, with the logger that wrote them; lines below error stay in their own log.
+// error.log, with the logger that wrote them; lines below error stay in their own log; and the periodic flush puts
+// the lines of a producer that stops (a hung game thread) on disk within kFlushPeriod.
 #include "logging.hpp"
 
 #include <SDL2/SDL.h>
 #include <spdlog/spdlog.h>
 
+#include <chrono>
 #include <cstdio>
+#include <thread>
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
@@ -78,6 +81,21 @@ int main(int argc, char **argv)
     check(count(errorLog, "script error line") == 1, "error.log keeps its own lines once");
     check(errorLog.find("info line") == std::string::npos && errorLog.find("warning line") == std::string::npos,
           "lines below error stay in their own log");
-    std::puts("PASS: every logger's errors are in error.log, once, with their logger");
+
+    // A producer that writes a line below warn and then hangs: nobody flushes but spdlog's own thread.
+    auto hung = getOrCreateLogger("hung");
+    hung->info("the last line before the hang");
+    check(count(read(logs + "hung.log"), "the last line before the hang") == 0, "unflushed, the line is only in the buffer");
+    storm::logging::startPeriodicFlush();
+    const auto written = std::chrono::steady_clock::now();
+    bool onDisk = false;
+    while (!onDisk && std::chrono::steady_clock::now() - written < storm::logging::kFlushPeriod + std::chrono::milliseconds(500))
+    {
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        onDisk = count(read(logs + "hung.log"), "the last line before the hang") == 1;
+    }
+    check(onDisk, "a hung producer's last line is on disk within the flush period");
+    spdlog::shutdown();
+    std::puts("PASS: every logger's errors are in error.log, once, with their logger; lines flushed within the period");
     return 0;
 }

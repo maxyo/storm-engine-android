@@ -92,21 +92,46 @@ int main(int argc, char **argv)
     check(failures.size() == 1 && failures[0].find("script_stack.log") != std::string::npos, "a failed rotation is reported");
     check(read(logs / "script_stack.log") == "stack\n", "a log that could not be rotated is untouched");
 
-    // The running marker: a clean exit removes it; one found at the start is the previous session's unclean end.
+    // The running marker's decision table (uncleanEnd): which ends are unclean.
+    const std::string started = "started 2026-11-13 18:30:01, pid 4242\n";
+    const auto beat = [](long long at) { return "heartbeat " + std::to_string(at) + "\n"; };
+    const auto background = [](long long at) { return "background " + std::to_string(at) + "\n"; };
+    check(uncleanEnd("").empty(), "no marker: a clean exit");
+    check(uncleanEnd(started + beat(1000)).find("ended in the foreground") != std::string::npos,
+          "killed in the foreground (a hang swiped away, a crash): unclean");
+    check(uncleanEnd(started + beat(1000) + background(1000 + kStuckSeconds)).empty(),
+          "in the background with a live game thread (the system or the player ended it there): clean");
+    check(uncleanEnd(started + beat(1000) + background(1001 + kStuckSeconds)).find("stuck") != std::string::npos,
+          "in the background, but the game thread had stopped beating before: unclean");
+    check(uncleanEnd(started + background(1000)).find("never alive") != std::string::npos, "never beat: unclean");
+    check(uncleanEnd(started + beat(1000)).rfind("started 2026-11-13 18:30:01, pid 4242;", 0) == 0, "the record names the session");
+    check(uncleanEnd("garbage\n").find("unreadable") != std::string::npos, "an unreadable marker is unclean, and said");
+
+    // The marker as the engine writes it: start, beats, background from another thread, foreground, clean exit.
+    SessionMarker marker(logs, "2026-11-13 18:30:01", 4242);
     std::vector<std::string> problems;
-    check(takeUncleanEnd(logs, problems).empty() && problems.empty(), "no marker: a clean exit");
-    check(markSessionRunning(logs, "2026-11-13 18:30:01", 4242).empty(), "the marker is written");
-    check(read(logs / kRunningMarker) == "started 2026-11-13 18:30:01, pid 4242\n", "the marker names the session");
-    check(clearSessionRunning(logs).empty() && !fs::exists(logs / kRunningMarker), "a clean exit removes it");
-    check(clearSessionRunning(logs).empty(), "removing it twice is fine (background, then exit)");
-    check(markSessionRunning(logs, "2026-11-13 18:30:01", 4242).empty(), "marked again");
+    check(marker.Beat(1000).empty() && !fs::exists(logs / kRunningMarker), "no marker before the start");
+    check(marker.Start(1000).empty(), "start");
+    check(read(logs / kRunningMarker) == started + beat(1000), "the marker names the session and its heartbeat");
+    check(marker.Beat(1001).empty() && read(logs / kRunningMarker) == started + beat(1000), "beats are written every kHeartbeatSeconds");
+    check(marker.Beat(1000 + kHeartbeatSeconds).empty() && read(logs / kRunningMarker) == started + beat(1000 + kHeartbeatSeconds), "a beat");
+    check(marker.Background(1003).empty() && read(logs / kRunningMarker) == started + beat(1002) + background(1003), "background");
+    check(marker.Foreground(1100).empty() && read(logs / kRunningMarker) == started + beat(1100), "foreground again: unclean if killed");
+    check(marker.Clear().empty() && !fs::exists(logs / kRunningMarker), "a clean exit removes it");
+    check(marker.Background(1200).empty() && !fs::exists(logs / kRunningMarker), "nothing is marked after a clean exit");
+
+    // At the next start: a clean background end is not reported, an unclean one is, with the last log line; both consumed.
+    write(logs / kRunningMarker, started + beat(1000) + background(1003));
+    check(takeUncleanEnd(logs, problems).empty() && !fs::exists(logs / kRunningMarker) && problems.empty(), "a clean background end");
+    write(logs / kRunningMarker, started + beat(1000));
     write(logs / "system.log", "[18:30:01] start\n[18:41:07] [system] [info] last words\n\n");
     const auto unclean = takeUncleanEnd(logs, problems);
-    check(unclean == "started 2026-11-13 18:30:01, pid 4242; its last log line: [18:41:07] [system] [info] last words",
-          "the unclean end names the session and its last log line");
+    check(unclean.rfind("started 2026-11-13 18:30:01, pid 4242; ended in the foreground", 0) == 0 &&
+              unclean.find("; its last log line: [18:41:07] [system] [info] last words") != std::string::npos,
+          "an unclean end is told with the session and its last log line");
     check(problems.empty() && !fs::exists(logs / kRunningMarker), "the marker is consumed");
     check(read(logs / "system.log").find("last words") != std::string::npos, "the log is read before the rotation");
 
-    std::puts("PASS: three sessions kept, files move with their session, failures reported, unclean ends told");
+    std::puts("PASS: three sessions kept, files move with their session, failures reported; the marker's decision table");
     return 0;
 }

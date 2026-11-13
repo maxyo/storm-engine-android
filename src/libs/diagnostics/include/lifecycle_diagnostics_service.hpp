@@ -1,5 +1,4 @@
 #pragma once
-#include <chrono>
 #include <filesystem>
 #include <functional>
 #include <memory>
@@ -11,12 +10,6 @@
 
 namespace storm::diag
 {
-
-constexpr auto getLoggingFlushPeriod()
-{
-    using namespace std::chrono_literals;
-    return 5s; // configurable
-}
 
 class LoggingService;
 
@@ -51,7 +44,6 @@ class LifecycleDiagnosticsService final
 
     [[maybe_unused, nodiscard("This guard shall exist until stack unwind")]] Guard initialize(bool enableCrashReports);
     void terminate() const;
-    void notifyAfterRun() const;
     void setCrashInfoCollector(crash_info_collector f);
 
   private:

@@ -1,5 +1,6 @@
 ﻿#include "lifecycle_diagnostics_service.hpp"
 
+#include <chrono>
 #include <condition_variable>
 #include <cstdio>
 #include <mutex>
@@ -109,15 +110,6 @@ class LoggingService final
         }
     }
 
-    void flushAsync()
-    {
-        {
-            std::lock_guard lock(mtx_);
-            flushRequested_ = true;
-        }
-        cv_.notify_one();
-    }
-
   private:
     std::mutex mtx_;
     std::condition_variable cv_;
@@ -209,18 +201,6 @@ void LifecycleDiagnosticsService::terminate() const
         sentry_close();
     }
 #endif
-}
-
-void LifecycleDiagnosticsService::notifyAfterRun() const
-{
-    static auto latestFlushTimePoint = std::chrono::steady_clock::now();
-
-    if (const auto now = std::chrono::steady_clock::now();
-        std::chrono::duration_cast<std::chrono::seconds>(now - latestFlushTimePoint) >= getLoggingFlushPeriod())
-    {
-        loggingService_->flushAsync();
-        latestFlushTimePoint = now;
-    }
 }
 
 void LifecycleDiagnosticsService::setCrashInfoCollector(crash_info_collector f)
