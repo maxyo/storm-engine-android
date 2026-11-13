@@ -135,6 +135,7 @@ void checkWhitelist()
     // program/interface/ is shared with the UI overlay: applyLayer refuses an overlaid target
     // (checkOverlaidTarget).
     CHECK(isPatchTargetPath("PROGRAM/interface/ship.c"));
+    CHECK(isPatchTargetPath("PROGRAM/characters/RPGUtilite.c"));
     for (const char *path : {"program/controls/init.c", "program/dialogs/x.c",
                              "program/seadogs.c", "program/battle_interface/bi.txt", "program/quests/q.txt", "../program/dialog.c",
                              "/program/dialog.c", "program/quests/../seadogs.c", "resource/ini/x.ini"})

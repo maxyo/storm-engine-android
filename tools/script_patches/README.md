@@ -38,7 +38,8 @@ Allowed targets (`isPatchTargetPath`): `program/dialog.c`,
 `program/dialogs/<language>/**` (each language file is its own target),
 `program/quests/`, `program/sea_ai/`, `program/loc_ai/`, `program/weather/`,
 `program/battle_interface/` (the town flag of locations without a town),
-`program/locations/` and `program/interface/` (the tab-switch countdown of the hero screens),
+`program/locations/`, `program/interface/` (the tab-switch countdown of the hero screens) and
+`program/characters/` (the carried weight, `GetItemsWeight`),
 `.c`/`.h` only; the list grows only when a real fix needs another directory.
 `program/interface/` is also the UI overlay's directory: a file is never both replaced
 and patched, so a target the overlay replaces is a damaged layer (`applyLayer` throws).

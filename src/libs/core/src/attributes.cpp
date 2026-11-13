@@ -12,8 +12,8 @@ namespace storm
 namespace
 {
 std::atomic<uint64_t> scriptStateGeneration{0};
-std::unordered_set<const ATTRIBUTES *> watchedTrees; // ScriptStateReads; empty with watchAll
-bool watchAll = true;
+std::unordered_set<const ATTRIBUTES *> watchedTrees; // ScriptStateReads since the last ScriptStateForget
+bool watching = false; // an adapter ran since the last ScriptStateForget: changes of watchedTrees count
 std::unordered_set<const ATTRIBUTES *> *readTrees = nullptr; // an open ScriptStateReads
 
 const ATTRIBUTES *TreeOf(const ATTRIBUTES *attribute)
@@ -26,9 +26,9 @@ const ATTRIBUTES *TreeOf(const ATTRIBUTES *attribute)
 // An attribute of `attribute`'s tree changed.
 void TreeChanged(const ATTRIBUTES *attribute)
 {
-    if (readTrees)
-        return; // an adapter's own output
-    if (watchAll || watchedTrees.count(TreeOf(attribute)))
+    if (!watching || readTrees)
+        return; // no cached facts to keep, or an adapter's own output
+    if (watchedTrees.count(TreeOf(attribute)))
         ScriptStateChanged();
 }
 
@@ -58,7 +58,7 @@ ScriptStateReads::ScriptStateReads()
 ScriptStateReads::~ScriptStateReads()
 {
     watchedTrees.insert(readTrees->begin(), readTrees->end());
-    watchAll = false;
+    watching = true;
     delete readTrees;
     readTrees = nullptr;
 }
@@ -66,6 +66,7 @@ ScriptStateReads::~ScriptStateReads()
 void ScriptStateForget()
 {
     watchedTrees.clear();
+    watching = false;
 }
 } // namespace storm
 
@@ -107,7 +108,7 @@ ATTRIBUTES & ATTRIBUTES::operator=(ATTRIBUTES &&other) noexcept
 ATTRIBUTES::~ATTRIBUTES()
 {
     // A watched tree going away is a change; its address may be reused by a tree nobody read.
-    if (!parent_)
+    if (!parent_ && (storm::watching || storm::readTrees))
     {
         if (storm::readTrees)
             storm::readTrees->erase(this); // a script's local object: gone when the adapter ends
