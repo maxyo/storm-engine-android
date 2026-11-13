@@ -214,6 +214,10 @@ class SettingsScreen final : public Screen
                                  {"пресет", "0%", "20%", "50%", "100%"});
                     DebugSegment(bindings, debug, "fx_lamp_debug", "Лампы: отладка", {-1, 0, 1, 2}, {"пресет", "выкл", "цвета", "маска"});
                 }
+                // Sunlight through the sails (fe7b54e5): its strength.
+                if (Known("fx_sail_light"))
+                    DebugSegment(bindings, debug, "fx_sail_light", "Свет сквозь паруса", {-1, 0, 100, 200, 300},
+                                 {"пресет", "выкл", "100%", "200%", "300%"});
                 sections.push_back({"", {debug}});
             }
         }
