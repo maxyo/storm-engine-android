@@ -187,6 +187,19 @@ uint32_t ProgramCache::cacheReadSize(uint64_t id)
     pending_id_ = 0;
     if (device_dir_.empty() || !entries_.contains(id))
         return 0;
+    std::error_code missing;
+    if (!fs::exists(file_of(id), missing))
+    {
+        // The app cache is emptied by the system (low storage, «Очистить кэш») while the game runs: not a defect.
+        logf("program cache: binary %016" PRIx64 " is gone (the system cleared the cache): the program is linked "
+             "again",
+             id);
+        total_bytes_ -= entries_[id].bytes;
+        entries_.erase(id);
+        stats_.entries = static_cast<uint32_t>(entries_.size());
+        stats_.bytes = total_bytes_;
+        return 0;
+    }
     std::ifstream in(file_of(id), std::ios::binary);
     Header header{};
     if (!in.read(reinterpret_cast<char *>(&header), sizeof(header)))
@@ -255,6 +268,9 @@ void ProgramCache::cacheWrite(uint64_t id, const void *data, uint32_t size)
         logf("program cache: binary %016" PRIx64 " was rejected by the driver: replaced by the new link", id);
         ++stats_.replaced;
     }
+    std::error_code made;
+    if (fs::create_directories(device_dir_, made))
+        logf("program cache: %s was gone (the system cleared the cache): made again", device_dir_.string().c_str());
     Header header{};
     std::memcpy(header.magic, kMagic, sizeof(kMagic));
     header.version = kVersion;

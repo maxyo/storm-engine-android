@@ -26,7 +26,7 @@ std::optional<TextureCompression> ParseTextureCompression(std::string_view value
 struct TextureCacheConfig
 {
     TextureCompression mode = TextureCompression::Auto;
-    std::filesystem::path cache_directory; // per-user storage, never the game resources
+    std::filesystem::path cache_directory; // fs::GetCachePath() / "TextureCache", never the game resources
     uint64_t max_bytes = 3ull << 30;       // LRU eviction above this total
 };
 

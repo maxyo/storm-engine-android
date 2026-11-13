@@ -13,7 +13,7 @@ namespace storm::render
 
 struct ProgramCacheConfig
 {
-    // Per-user cache storage (Android: Context.getCacheDir(); desktop: next to the texture cache). The binaries
+    // fs::GetCachePath() / "ProgramCache" (Android: the app cache, emptied by the system at any time). The binaries
     // of one GPU + driver + bgfx version live in a subdirectory named by them; the others are removed.
     std::filesystem::path directory;
     uint64_t max_bytes = 64ull << 20; // the oldest entries go above this total (ANGLE: ~0.4 MB per program)

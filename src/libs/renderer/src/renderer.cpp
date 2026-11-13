@@ -602,17 +602,12 @@ bool Renderer::Init()
             std::clamp(storm::android::graphicsSetting("texture_compression", static_cast<int>(textureCache.mode)), 0, 3));
 #endif
         textureCache.max_bytes = static_cast<uint64_t>(std::max(ini->GetInt(nullptr, "texture_cache_mb", 3072), 64)) << 20;
-        textureCache.cache_directory = fs::GetStashPath() / "TextureCache";
+        textureCache.cache_directory = fs::GetCachePath() / "TextureCache";
         storm::render::ConfigureTextureCache(textureCache);
 
-        // Linked GPU programs between runs (storm/render/program_cache.hpp): the app's cache directory on
-        // Android, next to the texture cache elsewhere.
+        // Linked GPU programs between runs (storm/render/program_cache.hpp).
         storm::render::ProgramCacheConfig programCache;
-#ifdef __ANDROID__
-        programCache.directory = storm::android::cacheDirectory() / "ProgramCache";
-#else
-        programCache.directory = fs::GetStashPath() / "ProgramCache";
-#endif
+        programCache.directory = fs::GetCachePath() / "ProgramCache";
         storm::render::ConfigureProgramCache(programCache);
 
         // Relief maps (fx/relief_store.hpp): made by DeepBump in the game process from the game's own files, never

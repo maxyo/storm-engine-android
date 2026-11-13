@@ -6,8 +6,11 @@
 //   2. warm cache: every program loaded, none linked, the same picture;
 //   3. one entry corrupt, one truncated: both logged and removed, those two linked and stored again;
 //   4. one entry whose binary the driver rejects (valid file, bogus binary format): linked, replaced;
-//   5. a small size limit: the oldest entries go, the total stays under it.
+//   5. a small size limit: the oldest entries go, the total stays under it;
+//   6. the whole cache deleted while the renderer runs (Android: «Очистить кэш», low storage): nothing counted as
+//      invalid, every program linked and stored into the directory made again; the next run loads them.
 #include "device.hpp"
+#include <functional>
 #include <SDL2/SDL.h>
 #include "storm/render/effects.hpp"
 #include "storm/render/program_cache.hpp"
@@ -118,8 +121,8 @@ struct Run
     int switch_frames = 0;           // frames until «Высокая» was active
 };
 
-// One renderer lifetime: «Высокая» prepared and drawn.
-Run run(SDL_Window *window)
+// One renderer lifetime: «Высокая» prepared and drawn; `running` is called once the device has read the cache.
+Run run(SDL_Window *window, const std::function<void()> &running = {})
 {
     const render::ProgramCacheStats before = render::CurrentProgramCacheStats();
     if (!shim::Context::instance().init(window, kWidth, kHeight, false))
@@ -137,6 +140,8 @@ Run run(SDL_Window *window)
         check(device->CreateOffscreenPlainSurface(kWidth, kHeight, D3DFMT_A8R8G8B8, D3DPOOL_SYSTEMMEM, &readback, nullptr),
               "CreateOffscreenPlainSurface");
         check(device->GetRenderTarget(0, &back), "GetRenderTarget");
+        if (running)
+            running();
         render::ConfigureEffects(2, {});
         for (; result.switch_frames < 120 && render::CurrentEffects().pending; ++result.switch_frames)
             frame(*device, back, readback);
@@ -272,6 +277,18 @@ int main()
     const Run small = run(window);
     ok &= expect(small.stats.bytes <= limit && small.stats.entries < warm.stats.entries,
                  "a small limit: the oldest entries go, the total stays under it");
+
+    render::ConfigureProgramCache({root, 32ull << 20});
+    const Run filled = run(window);
+    const Run cleared = run(window, [&] { fs::remove_all(root); });
+    ok &= expect(cleared.stats.invalid == 0 && cleared.stats.loaded == 0 &&
+                     cleared.stats.stored + 1 >= filled.stats.entries,
+                 "cache deleted while running: nothing invalid, every program linked and stored again");
+    ok &= expect(!entries(root).empty(), "cache deleted while running: the directory is made again");
+    ok &= expect(max_difference(cleared.picture, cold.picture) <= 2, "cache deleted while running: the same picture");
+    const Run refilled = run(window);
+    ok &= expect(refilled.stats.stored == 0 && refilled.stats.loaded + 1 >= filled.stats.entries,
+                 "after the deletion: the next run loads every program");
 
     fs::remove_all(root);
     SDL_DestroyWindow(window);

@@ -32,6 +32,19 @@ inline path GetStashPath()
     return path;
 }
 
+// Everything derived and rebuildable (texture, program and script caches, baked maps, relief maps): Android's app
+// cache (storm::android::cacheDirectory), which the system may empty at any time; the stash elsewhere. Saves,
+// options and logs never go here.
+inline path GetCachePath()
+{
+#if defined(__ANDROID__)
+    static const path path = storm::android::cacheDirectory();
+    return path;
+#else
+    return GetStashPath();
+#endif
+}
+
 inline path GetLogsPath()
 {
     return GetStashPath() / "Logs";

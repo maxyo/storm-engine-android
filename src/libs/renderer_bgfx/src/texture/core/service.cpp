@@ -43,6 +43,7 @@ void Service::configure(const Config &config, LogFn log)
     log_ = log;
     stopping_ = false;
     evict_requested_ = true;
+    empty_logged_ = false;
 }
 
 void Service::shutdown()
@@ -155,6 +156,13 @@ void Service::worker(unsigned index)
             const uint64_t max_bytes = config_.max_bytes;
             lock.unlock();
             uint64_t total = scan_cache(directory);
+            // The Android app cache is emptied by the system at any time (low storage, «Очистить кэш»): whatever is
+            // missing is made again on use; said once each time it is found empty.
+            if (total == 0 && !empty_logged_ && log_)
+                log_("texture cache: %s is empty (first start, or the system cleared the cache): textures and baked "
+                     "maps are made again",
+                     directory.string().c_str());
+            empty_logged_ = total == 0;
             if (total > max_bytes)
                 total = evict_cache(directory, max_bytes / 10 * 9);
             cache_bytes_ = total;
