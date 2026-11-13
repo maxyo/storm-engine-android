@@ -187,9 +187,22 @@ GEOM::GEOM(const char *fname, const char *lightname, GEOM_SERVICE &_srv, int32_t
     srv.free(rvb);
     // The game has no baked lighting of this model for this light set (weather): the model's own vertex colours are
     // drawn, as in the original engine. Reported for models with vertices (locator models have none).
-    if (colMissing && nvertices > 0 && firstReport(lightname))
-        spdlog::warn("geometry: no vertex colour file {} for {}: the model's own vertex colours are used", lightname,
-                     fname);
+    if (colMissing && nvertices > 0)
+    {
+        // Baked for noon (every baked model of the game is) but not for this light set: the bake has a hole here.
+        std::string noon = lightname;
+        if (const size_t set = noon.rfind('_'); set != std::string::npos)
+        {
+            noon.replace(set, std::string::npos, "_day12.col");
+            auto probe = srv.OpenFile(noon.c_str());
+            lostBakedLight_ = probe.is_open();
+            srv.CloseFile(probe);
+        }
+        if (firstReport(lightname))
+            spdlog::warn("geometry: no vertex colour file {} for {}: {}", lightname, fname,
+                         lostBakedLight_ ? "the game baked this model for other light sets, not for this one"
+                                         : "the model's own vertex colours are used");
+    }
     // A vertex colour file baked for another version of the model (another vertex count) cannot be matched to these
     // vertices: as in the original engine it is not applied, and the model keeps its own colours. Reported.
     if (!colData.empty() && colData.size() != nvertices && firstReport(std::string(lightname)))

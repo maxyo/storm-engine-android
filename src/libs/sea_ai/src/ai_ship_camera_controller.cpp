@@ -1,5 +1,6 @@
 #include "ai_fort.h"
 #include "ai_ship.h"
+#include "storm/cosmetic_time.hpp"
 
 AIShipCameraController::AIShipCameraController(AIShip *_pAIShip)
 {
@@ -120,8 +121,7 @@ void AIShipCameraController::Execute(float fDeltaTime)
 
             if (dwTarget != RELATION_UNKNOWN)
             {
-                const auto fRealDeltaTime =
-                    (core.GetDeltaTime() == 0) ? 0.0f : static_cast<float>(core.GetRDeltaTime()) * 0.001f;
+                const auto fRealDeltaTime = storm::CosmeticDeltaSeconds(core.GetDeltaTime(), core.GetRDeltaTime());
                 fDelta += fRealDeltaTime * 5.0f;
                 while (fDelta > 2.0f)
                 {

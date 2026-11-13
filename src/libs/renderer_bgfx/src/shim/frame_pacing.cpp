@@ -3,6 +3,8 @@
 
 #include "shim.hpp"
 
+#include <utility>
+
 #ifdef __ANDROID__
 #include "platform/host_hooks.hpp"
 #include "profiler.hpp"
@@ -59,11 +61,12 @@ FramePacing &FramePacing::instance()
 
 #ifdef __ANDROID__
 
-void FramePacing::start()
+void FramePacing::start(bool render_thread)
 {
     if (started_)
         return;
     started_ = true;
+    render_thread_ = render_thread;
     auto *env = static_cast<JNIEnv *>(SDL_AndroidGetJNIEnv());
     auto activity = env ? static_cast<jobject>(SDL_AndroidGetActivity()) : nullptr;
     const bool initialised = activity && SwappyGL_init(env, activity);
@@ -95,6 +98,7 @@ void FramePacing::start()
                                          : "refresh unknown to SDL",
                  to_ms(target_));
         log_error(message);
+        preferred_ = target_;
         storm::platform::frameWorkTarget(target_);
     }
     // Both ways the present goes through present_frame: the same frame times and present wait.
@@ -131,14 +135,18 @@ void FramePacing::choose_interval()
     const uint64_t slowest = SlowestSwapInterval(choice, static_cast<uint64_t>(kSlowestFrame.count()));
     SwappyGL_setSwapIntervalNS(interval);
     SwappyGL_setMaxAutoSwapIntervalNS(slowest);
-    swap_interval_ = std::chrono::nanoseconds(SwappyGL_getSwapIntervalNS());
-    refresh_period_ = std::chrono::nanoseconds(current);
+    {
+        std::lock_guard lock(mutex_);
+        swap_interval_ = std::chrono::nanoseconds(SwappyGL_getSwapIntervalNS());
+        refresh_period_ = std::chrono::nanoseconds(current);
+    }
     logf("frame pacing: Swappy GL %d.%d.%d (%s); frame rate %.0f fps (setting); display modes %s; current refresh "
          "%.2f ms (%.0f Hz); swap interval %.2f ms (%.1f fps, %llu refreshes of the %.0f Hz mode), slower down to %.2f "
          "ms when frames do not fit; CPU affinity off (ADPF)",
          SWAPPY_MAJOR_VERSION, SWAPPY_MINOR_VERSION, SWAPPY_BUGFIX_VERSION, STORM_SWAPPY_PACKAGE, 1e9 / target_.count(),
          rates.c_str(), current / 1e6, current ? 1e9 / current : 0.0, interval / 1e6, 1e9 / interval,
          static_cast<unsigned long long>(choice.refreshes), 1e9 / choice.period, slowest / 1e6);
+    preferred_ = std::chrono::nanoseconds(interval);
     // ADPF aims at the preferred rate (FramePacing in frame_pacing.hpp: not at a lowered one).
     storm::platform::frameWorkTarget(std::chrono::nanoseconds(interval));
 }
@@ -164,6 +172,7 @@ void FramePacing::set_frame_rate(uint32_t fps)
         choose_interval(); // logs the new interval, sets the ADPF target
         return;
     }
+    preferred_ = target_;
     logf("frame pacing: frame rate %u fps (setting); without Swappy the present stays unpaced, ADPF aims at %.2f ms", fps,
          to_ms(target_));
     storm::platform::frameWorkTarget(target_);
@@ -174,7 +183,28 @@ void FramePacing::set_window(void *native_window)
     if (swappy_)
         SwappyGL_setWindow(static_cast<ANativeWindow *>(native_window));
     // No interval spans the time without a window.
+    std::lock_guard lock(mutex_);
     last_present_ = {};
+}
+
+void FramePacing::game_thread_waited(std::chrono::nanoseconds wait)
+{
+    storm::platform::presentWaited(wait);
+}
+
+void FramePacing::render_thread_started(int tid)
+{
+    storm::platform::frameWorkThread(tid);
+}
+
+std::chrono::nanoseconds FramePacing::preferred_interval() const
+{
+    return preferred_;
+}
+
+std::chrono::nanoseconds FramePacing::take_present_wait()
+{
+    return std::exchange(present_wait_, std::chrono::nanoseconds::zero());
 }
 
 void FramePacing::shutdown()
@@ -216,7 +246,10 @@ bool FramePacing::present_frame(void *display, void *surface)
                  eglGetError(), failures);
     }
     const auto wait = std::chrono::duration_cast<std::chrono::nanoseconds>(after - before);
-    storm::platform::presentWaited(wait);
+    present_wait_ += wait;
+    if (!render_thread_)
+        storm::platform::presentWaited(wait); // the game thread waited here (host_hooks.hpp: game thread only)
+    std::lock_guard lock(mutex_);
     STORM_PROFILE_PLOT("present wait ms", to_ms(wait));
     STORM_PROFILE_PLOT("Swappy swap interval ms", to_ms(swap_interval_));
     if (last_present_ != Clock::time_point{})
@@ -282,8 +315,26 @@ void FramePacing::reset_stats()
 
 #else // desktop: bgfx swaps with eglSwapBuffers and the vsync flag of the device
 
-void FramePacing::start()
+void FramePacing::start(bool)
 {
+}
+
+void FramePacing::game_thread_waited(std::chrono::nanoseconds)
+{
+}
+
+void FramePacing::render_thread_started(int)
+{
+}
+
+std::chrono::nanoseconds FramePacing::preferred_interval() const
+{
+    return std::chrono::nanoseconds::zero();
+}
+
+std::chrono::nanoseconds FramePacing::take_present_wait()
+{
+    return std::chrono::nanoseconds::zero();
 }
 
 void FramePacing::set_window(void *)

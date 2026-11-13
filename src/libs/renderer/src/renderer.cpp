@@ -587,6 +587,19 @@ bool Renderer::Init()
         ConfigureGraphicsEffects([&ini](const char *name, int fallback) {
             return effectsIniValues[name] = ini->GetInt(nullptr, name, fallback);
         });
+        // Developer key render_thread = 0: bgfx renders on the game thread (measurements against the render
+        // thread, which is the default). The Android graphics setting of the same name wins. Logged by the shim.
+        int renderThread = ini->GetInt(nullptr, "render_thread", 1);
+#ifdef __ANDROID__
+        renderThread = storm::android::graphicsSetting("render_thread", renderThread);
+#endif
+        storm::render::SetRenderThread(renderThread != 0);
+        // Developer key render_overlap (frame_owner.hpp SetFrameOverlap): -1 chosen per frame, 0 never, 1 always.
+        int renderOverlap = ini->GetInt(nullptr, "render_overlap", -1);
+#ifdef __ANDROID__
+        renderOverlap = storm::android::graphicsSetting("render_overlap", renderOverlap);
+#endif
+        storm::render::SetFrameOverlap(renderOverlap);
 #ifdef __ANDROID__
         ConfigureFrameRate();
 #endif
@@ -602,34 +615,26 @@ bool Renderer::Init()
             std::clamp(storm::android::graphicsSetting("texture_compression", static_cast<int>(textureCache.mode)), 0, 3));
 #endif
         textureCache.max_bytes = static_cast<uint64_t>(std::max(ini->GetInt(nullptr, "texture_cache_mb", 3072), 64)) << 20;
-        textureCache.cache_directory = fs::GetStashPath() / "TextureCache";
+        textureCache.cache_directory = fs::GetCachePath() / "TextureCache";
         storm::render::ConfigureTextureCache(textureCache);
 
-        // Linked GPU programs between runs (storm/render/program_cache.hpp): the app's cache directory on
-        // Android, next to the texture cache elsewhere.
+        // Linked GPU programs between runs (storm/render/program_cache.hpp).
         storm::render::ProgramCacheConfig programCache;
-#ifdef __ANDROID__
-        programCache.directory = storm::android::cacheDirectory() / "ProgramCache";
-#else
-        programCache.directory = fs::GetStashPath() / "ProgramCache";
-#endif
+        programCache.directory = fs::GetCachePath() / "ProgramCache";
         storm::render::ConfigureProgramCache(programCache);
 
         // Relief maps (fx/relief_store.hpp): made by DeepBump in the game process from the game's own files, never
-        // shipped; kept in the app's external files directory (or the internal one) + "relief" on Android, the stash
-        // elsewhere. engine.ini relief_dir overrides (host checks with prepared maps). The model: the APK asset on
-        // Android, engine.ini relief_model on the host (none: no maps are made, logged).
+        // shipped; derived data, so in the engine's cache root (fs::GetCachePath: on Android the app's cache) + "relief":
+        // «Очистить кэш» or the system's eviction removes them and the game makes them again.
+        // engine.ini relief_dir overrides (host checks with prepared maps). The model: the APK asset on Android,
+        // engine.ini relief_model on the host (none: no maps are made, logged).
         storm::render::ReliefConfig relief;
         ini->ReadString(nullptr, "relief_dir", str, sizeof(str), "");
         relief.directory = std::filesystem::u8path(str);
         relief.textures = std::filesystem::u8path(fio->ConvertPathResource("resource\\textures"));
-#ifdef __ANDROID__
         if (relief.directory.empty())
-        {
-            const char *external = SDL_AndroidGetExternalStoragePath();
-            relief.directory =
-                std::filesystem::path(external && *external ? external : SDL_AndroidGetInternalStoragePath()) / "relief";
-        }
+            relief.directory = fs::GetCachePath() / "relief";
+#ifdef __ANDROID__
         relief.model = [] {
             std::vector<uint8_t> model;
             if (SDL_RWops *asset = SDL_RWFromFile("deepbump256-int8.onnx", "rb"))
@@ -643,8 +648,6 @@ bool Renderer::Init()
             return model;
         };
 #else
-        if (relief.directory.empty())
-            relief.directory = fs::GetStashPath() / "relief";
         ini->ReadString(nullptr, "relief_model", str, sizeof(str), "");
         if (*str)
             relief.model = [path = std::filesystem::u8path(str)] {
@@ -653,6 +656,19 @@ bool Renderer::Init()
             };
 #endif
         storm::render::ConfigureRelief(relief);
+#ifdef __ANDROID__
+        {
+            // The relief maps of earlier builds in the files directories (kept across «Очистить кэш»). The old
+            // locations in the app's caches (getCacheDir()/relief, /NormalMaps) are the app's to remove (GameCache).
+            const char *external = SDL_AndroidGetExternalStoragePath();
+            storm::render::RemoveOldReliefStores(
+                {std::filesystem::path(SDL_AndroidGetInternalStoragePath()) / "relief",
+                 std::filesystem::path(external && *external ? external : SDL_AndroidGetInternalStoragePath()) / "relief"},
+                relief.directory);
+        }
+#else
+        storm::render::RemoveOldReliefStores({fs::GetStashPath() / "NormalMaps"}, relief.directory);
+#endif
 
         FovMultiplier = ini->GetFloat(nullptr, "fov_multiplier", 1.0f);
 

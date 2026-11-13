@@ -1,5 +1,6 @@
 #pragma once
 #include "shim.hpp"
+#include <bx/math.h>
 #include <algorithm>
 #include <cmath>
 namespace storm::shim
@@ -26,12 +27,11 @@ inline DWORD as_dword(float value)
     return d;
 }
 
+// out = a * b in D3D's row-vector convention (bx's too); `out` may alias `a` or `b`.
 inline void multiply(const D3DMATRIX &a, const D3DMATRIX &b, D3DMATRIX &out)
 {
     D3DMATRIX r;
-    for (int i = 0; i < 4; ++i)
-        for (int j = 0; j < 4; ++j)
-            r.m[i][j] = a.m[i][0] * b.m[0][j] + a.m[i][1] * b.m[1][j] + a.m[i][2] * b.m[2][j] + a.m[i][3] * b.m[3][j];
+    bx::mtxMul(&r.m[0][0], &a.m[0][0], &b.m[0][0]);
     out = r;
 }
 

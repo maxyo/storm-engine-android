@@ -1,0 +1,65 @@
+Render thread (BGFX_CONFIG_MULTITHREADED): the engine has to know when the render thread has finished the frames
+handed to it, because that thread renders and presents after bgfx::frame() has returned: Android's surface may be
+destroyed only when no frame is in flight, the game thread paces itself on presented frames, and GL facts
+(glGetString) can be read only on that thread. bgfx::setRenderFrameDone sets a function the render thread calls
+after each frame, rendered and presented, with the frame's number. Upstream bgfx has no such call; keep the patch
+until it does.
+
+--- a/src/bgfx.cpp
++++ b/src/bgfx.cpp
+@@ -3376,6 +3376,16 @@
+ 		m_frameTimeLast = now;
+ 	}
+ 
++	/// Storm Engine patch (renderer_bgfx/patches/bgfx-render-thread-hooks.patch). Called on the render thread each
++	/// time it has finished a frame handed over by bgfx::frame(): rendered and, unless it was a BGFX_FRAME_FLUSH
++	/// frame, presented (the engine always sets BGFX_RESET_FLIP_AFTER_RENDER). `_frame` is the number bgfx::frame()
++	/// returned for it. The frames bgfx::init and bgfx::shutdown run themselves are reported too. The GL context
++	/// is current. The engine declares the same two names where it sets the function (shim/context.cpp).
++	typedef void (*RenderFrameDoneFn)(uint32_t _frame);
++
++	/// Set before bgfx::init, cleared after bgfx::shutdown. NULL (the default): nothing is called.
++	void setRenderFrameDone(RenderFrameDoneFn _done);
++
+ 	///
+ 	RendererContextI* rendererCreate(const Init& _init);
+ 
+@@ -3442,6 +3452,14 @@
+ 	};
+ #endif // BX_PLATFORM_OSX || BX_PLATFORM_IOS || BX_PLATFORM_VISIONOS
+ 
++	// Storm Engine patch (renderer_bgfx/patches/bgfx-render-thread-hooks.patch): see setRenderFrameDone above.
++	static RenderFrameDoneFn s_renderFrameDone = NULL;
++
++	void setRenderFrameDone(RenderFrameDoneFn _done)
++	{
++		s_renderFrameDone = _done;
++	}
++
+ 	RenderFrame::Enum Context::renderFrame(int32_t _msecs)
+ 	{
+ 		BGFX_PROFILER_SCOPE("bgfx::renderFrame", kColorSubmit);
+@@ -3505,6 +3523,10 @@
+ 			m_flipAfterRender = 0 != (m_render->m_reset & BGFX_RESET_FLIP_AFTER_RENDER);
+ 			m_flushPrevFrame  = m_render->m_flush;
+ 
++			// Storm Engine patch: read before renderSemPost() releases the API thread, whose next frame() swaps
++			// m_render and m_submit at once.
++			const uint32_t doneFrameNum = m_render->m_frameNum;
++
+ 			renderSemPost();
+ 
+ 			if (m_flipAfterRender)
+@@ -3515,6 +3537,12 @@
+ 					flip();
+ 				}
+ 			}
++
++			// Storm Engine patch: the frame is rendered and, with BGFX_RESET_FLIP_AFTER_RENDER, presented.
++			if (NULL != s_renderFrameDone)
++			{
++				s_renderFrameDone(doneFrameNum);
++			}
+ 		}
+ 		else
+ 		{

@@ -20,14 +20,19 @@
 #include <string>
 #include <vector>
 #include <thread>
-#ifdef STORM_TRACY
 #include <unistd.h>
-#endif
 
 #ifdef __ANDROID__
 #include <android/log.h>
 #include <jni.h>
 #endif
+
+// patches/bgfx-render-thread-hooks.patch (src/bgfx.cpp) defines these two.
+namespace bgfx
+{
+typedef void (*RenderFrameDoneFn)(uint32_t _frame);
+void setRenderFrameDone(RenderFrameDoneFn _done);
+} // namespace bgfx
 
 namespace storm::shim
 {
@@ -172,6 +177,16 @@ PictureRect GamePictureRect()
     return shim::Context::instance().picture_rect();
 }
 
+void SetRenderThread(bool enabled)
+{
+    shim::Context::instance().set_render_thread(enabled);
+}
+
+void SetFrameOverlap(int mode)
+{
+    shim::Context::instance().set_frame_overlap(mode);
+}
+
 void HoldGamePicture(bool hold)
 {
     shim::Context::instance().hold_picture(hold);
@@ -210,6 +225,121 @@ bool native_handles(SDL_Window *window, void **nwh, void **ndt)
 }
 } // namespace
 
+bool GlInfo::has_extension(const char *name) const
+{
+    const size_t length = strlen(name);
+    for (size_t at = extensions.find(name); at != std::string::npos; at = extensions.find(name, at + length))
+        if ((at == 0 || extensions[at - 1] == ' ') && (at + length == extensions.size() || extensions[at + length] == ' '))
+            return true;
+    return false;
+}
+
+void Context::set_render_thread(bool enabled)
+{
+    if (initialised_ && enabled != render_thread_)
+        logf("ERROR: render_thread=%d is set while the device exists; it applies to the next device", enabled);
+    render_thread_ = enabled;
+}
+
+void Context::set_frame_overlap(int mode)
+{
+    overlap_mode_ = std::clamp(mode, -1, 1);
+    overlap_logged_ = false;
+}
+
+std::chrono::nanoseconds Context::frame_gate(uint32_t number, std::chrono::nanoseconds game, std::chrono::nanoseconds blocked)
+{
+    using Ms = std::chrono::duration<double, std::milli>;
+    std::unique_lock lock(release_mutex_);
+    const std::chrono::nanoseconds render = render_work_;
+    const std::chrono::nanoseconds interval = FramePacing::instance().preferred_interval();
+    bool changed = !overlap_logged_;
+    if (overlap_mode_ < 0)
+        changed |= overlap_.update(Ms(game).count(), Ms(render).count(), Ms(interval).count());
+    const bool overlapped = overlap_mode_ < 0 ? overlap_.overlapped() : overlap_mode_ == 1;
+    if (changed)
+    {
+        overlap_logged_ = true;
+        char why[160];
+        if (overlap_mode_ >= 0)
+            snprintf(why, sizeof(why), "render_overlap=%d", overlap_mode_);
+        else if (interval.count() <= 0)
+            snprintf(why, sizeof(why), "no frame rate to fit");
+        else
+            snprintf(why, sizeof(why), "game %.1f ms + render %.1f ms, %.0f%% of the %.2f ms frame smoothed", Ms(game).count(),
+                     Ms(render).count(), 100.0 * overlap_.load(), Ms(interval).count());
+        logf(overlapped ? "render thread: frames overlap (%s): the next frame is simulated while this one is rendered, one "
+                          "frame more from input to picture"
+                        : "render thread: frames take turns (%s): a frame is simulated after the previous one is presented, "
+                          "no added latency",
+             why);
+    }
+    const uint32_t awaited = number - (overlapped ? 1 : 0);
+    const auto started = std::chrono::steady_clock::now();
+    {
+        STORM_PROFILE_ZONE("frame gate: the render thread presents");
+        // Bounded: pacing only. A frame that takes longer is still waited for by the next bgfx::frame().
+        release_done_.wait_for(lock, std::chrono::milliseconds(500),
+                               [&] { return static_cast<int32_t>(done_frame_ - awaited) >= 0; });
+    }
+    const std::chrono::nanoseconds waited = blocked + (std::chrono::steady_clock::now() - started);
+    // What the frame needs from the two threads together: both works in turn, or the longer one when they overlap.
+    const std::chrono::nanoseconds also_work = overlapped ? std::max(render - game, std::chrono::nanoseconds::zero()) : render;
+    return std::max(waited - also_work, std::chrono::nanoseconds::zero());
+}
+
+void Context::render_frame_done(uint32_t frame)
+{
+    Context &context = instance();
+    const auto now = std::chrono::steady_clock::now();
+    const std::chrono::nanoseconds present_wait = FramePacing::instance().take_present_wait();
+    GlInfo info;
+    bool read = false;
+    // The first frame bgfx::init runs creates the GL context; start() waits for what is read here.
+    if (context.gl_backend_ && !context.gl_info_read_ && glGetString(GL_VERSION))
+    {
+        const auto text = [](GLenum name) {
+            const auto *value = reinterpret_cast<const char *>(glGetString(name));
+            return std::string(value ? value : "?");
+        };
+        info.vendor = text(GL_VENDOR);
+        info.renderer = text(GL_RENDERER);
+        info.version = text(GL_VERSION);
+        info.extensions = text(GL_EXTENSIONS);
+        if (info.has_extension("GL_EXT_texture_filter_anisotropic"))
+        {
+            constexpr GLenum kMaxAnisotropy = 0x84FF; // GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT
+            glGetFloatv(kMaxAnisotropy, &info.max_anisotropy);
+        }
+        read = true;
+    }
+    {
+        std::lock_guard lock(context.release_mutex_);
+        if (read)
+        {
+            context.gl_info_ = std::move(info);
+            context.gl_info_read_ = true;
+            context.render_tid_ = static_cast<int>(gettid());
+        }
+        // The frame's work began when it was handed over, or when the frame before it was finished.
+        const auto began = std::max(context.done_time_, context.hand_time_[frame & 3]);
+        context.render_work_ = std::max<std::chrono::nanoseconds>(now - began - present_wait, std::chrono::nanoseconds::zero());
+        context.done_time_ = now;
+        context.done_frame_ = frame;
+    }
+    context.release_done_.notify_all();
+}
+
+bool Context::wait_render_idle(std::unique_lock<std::mutex> &lock, const char *what)
+{
+    // One frame can take a second on slow GPUs (the emulator), and its present waits for a vsync.
+    if (release_done_.wait_for(lock, std::chrono::seconds(3), [this] { return render_idle(); }))
+        return true;
+    logf("ERROR: the render thread has not finished frame %u (last finished: %u) after 3 s: %s", handed_frame_, done_frame_,
+         what);
+    return false;
+}
+
 bool Context::init(SDL_Window *window, uint32_t width, uint32_t height, bool vsync)
 {
     if (!window)
@@ -234,13 +364,20 @@ bool Context::start(SDL_Window *window, uint32_t width, uint32_t height, bool vs
     }
     window_ = window;
     vsync_ = vsync;
+    gl_backend_ = window != nullptr;
+    gl_info_ = {};
+    {
+        std::lock_guard lock(release_mutex_);
+        frames_handed_ = false;
+        gl_info_read_ = false;
+    }
     bgfx::Init init;
     if (window)
     {
         init.type = bgfx::RendererType::OpenGLES;
         if (!native_handles(window, &init.swapChain.nwh, &init.swapChain.ndt))
             return false;
-        FramePacing::instance().start(); // bgfx presents through it from the first frame
+        FramePacing::instance().start(render_thread_); // bgfx presents through it from the first frame
     }
     else
     {
@@ -250,7 +387,10 @@ bool Context::start(SDL_Window *window, uint32_t width, uint32_t height, bool vs
     }
     init.swapChain.width = width;
     init.swapChain.height = height;
-    init.swapChain.formatDepthStencil = bgfx::TextureFormat::D24S8; // the UI views use stencil clip masks
+    // No depth/stencil on the window surface: nothing draws into the back buffer with depth or stencil (the game and the
+    // UI have their own targets; the composite and the UI's final pass write colour only). Spares a tile GPU the
+    // surface's depth/stencil memory and traffic.
+    init.swapChain.formatDepthStencil = bgfx::TextureFormat::Count;
     init.reset = reset_flags();
     // Transient buffers sized to the largest frames measured (scene sweeps, perf counters tvb_max_kb/tib_max_kb: 10.2 MB
     // of vertices, 4.9 MB of indices) with a margin; each new peak is logged ("transient buffers:", perf.cpp) and a
@@ -260,33 +400,60 @@ bool Context::start(SDL_Window *window, uint32_t width, uint32_t height, bool vs
     init.limits.maxTransientIbSize = 8u << 20;
     init.fallback = false; // never continue on the Noop renderer
     init.callback = &ProgramCache::instance(); // program binaries between runs; bgfx fatals and traces into the log
+    bgfx::setRenderFrameDone(&Context::render_frame_done);
+    // bgfx's own switch: a renderFrame() call before init makes the calling thread the render thread, and no
+    // thread is created (the backend then runs inside bgfx::frame()).
+    if (!render_thread_)
+        bgfx::renderFrame();
     if (!bgfx::init(init))
     {
         logf("bgfx::init failed");
+        bgfx::setRenderFrameDone(nullptr);
         FramePacing::instance().shutdown();
         return false;
     }
+    caps_ = bgfx::getCaps();
+    render_thread_active_ = (caps_->supported & BGFX_CAPS_RENDERER_MULTITHREADED) != 0;
+    if (render_thread_active_ != render_thread_)
+        logf("ERROR: render thread: asked for %s, bgfx runs %s", render_thread_ ? "on" : "off",
+             render_thread_active_ ? "multithreaded" : "single-threaded");
+    else if (render_thread_active_)
+        logf("render thread: on (bgfx multithreaded: the GL backend, the driver and the present run on bgfx's render "
+             "thread)");
+    else
+        logf("render thread: OFF (render_thread=0): bgfx renders and presents inside bgfx::frame() on the game thread");
+    if (window)
+    {
+        // The render thread reads the driver's strings after the first frame of bgfx::init, which may still be
+        // on its way.
+        std::unique_lock lock(release_mutex_);
+        if (!release_done_.wait_for(lock, std::chrono::seconds(5), [this] { return gl_info_read_; }))
+        {
+            lock.unlock();
+            logf("ERROR: the render thread reported no GL context within 5 s of bgfx::init: no device");
+            bgfx::shutdown();
+            bgfx::setRenderFrameDone(nullptr);
+            FramePacing::instance().shutdown();
+            return false;
+        }
+    }
     if (window)
         FramePacing::instance().set_window(init.swapChain.nwh);
-    caps_ = bgfx::getCaps();
+    if (window && render_thread_active_)
+        FramePacing::instance().render_thread_started(render_tid_);
     flip_y_ = caps_->originBottomLeft;
     if (window)
     {
         // The program binaries are valid for this GPU, driver and bgfx version only.
-        const auto text = [](GLenum name) {
-            const auto *value = reinterpret_cast<const char *>(glGetString(name));
-            return std::string(value ? value : "?");
-        };
-        ProgramCache::instance().attach_device(text(GL_VENDOR) + " | " + text(GL_RENDERER) + " | " + text(GL_VERSION) +
+        ProgramCache::instance().attach_device(gl_info_.vendor + " | " + gl_info_.renderer + " | " + gl_info_.version +
                                                " | bgfx API " + std::to_string(BGFX_API_VERSION));
         // The extensions bgfx itself requires before it uses GL_CLAMP_TO_BORDER (renderer_gl.cpp).
-        const std::string extensions = text(GL_EXTENSIONS);
-        border_clamp_ = extensions.find("GL_EXT_texture_border_clamp") != std::string::npos ||
-                        extensions.find("GL_OES_texture_border_clamp") != std::string::npos ||
-                        extensions.find("GL_NV_texture_border_clamp") != std::string::npos;
+        border_clamp_ = gl_info_.has_extension("GL_EXT_texture_border_clamp") ||
+                        gl_info_.has_extension("GL_OES_texture_border_clamp") ||
+                        gl_info_.has_extension("GL_NV_texture_border_clamp");
         // GPU timers (effects profile gpu_*_ms, Tracy): GLES offers them only through this extension
         // (patches/bgfx-gles-timer-queries.patch imports its entry points).
-        timer_queries_ = extensions.find("GL_EXT_disjoint_timer_query") != std::string::npos ? "EXT_disjoint_timer_query" : "none";
+        timer_queries_ = gl_info_.has_extension("GL_EXT_disjoint_timer_query") ? "EXT_disjoint_timer_query" : "none";
     }
     initialised_ = true;
     surface_.width_px = width;
@@ -346,7 +513,17 @@ void Context::shutdown()
     dump_traps();
     effects::Host::instance().shutdown();
     bone_palettes_.shutdown();
-    bgfx::shutdown();
+    bgfx::shutdown(); // joins the render thread
+    bgfx::setRenderFrameDone(nullptr);
+    {
+        // The frames bgfx::shutdown ran itself were never handed over by run_frame.
+        std::lock_guard lock(release_mutex_);
+        frames_handed_ = false;
+    }
+    render_thread_active_ = false;
+    overlap_ = {};
+    overlap_logged_ = false;
+    gate_end_ = {};
     FramePacing::instance().shutdown();
     ProgramCache::instance().detach_device();
     initialised_ = false;
@@ -368,8 +545,9 @@ void Context::resize(uint32_t width, uint32_t height)
     native_handles(window_, &chain.nwh, &chain.ndt);
     chain.width = width;
     chain.height = height;
-    chain.formatDepthStencil = bgfx::TextureFormat::D24S8; // the UI views use stencil clip masks
+    chain.formatDepthStencil = bgfx::TextureFormat::Count; // as in start()
     bgfx::reset(reset_flags(), &chain);
+    picture_held_ = false; // see surface_lost
     // A display change (fold, split screen, wm size/density) usually changes the density as well.
     read_density();
     logf("surface resized to %ux%u, density %.2f", width, height, surface_.density);
@@ -385,8 +563,9 @@ void Context::refresh_reset_flags()
     native_handles(window_, &chain.nwh, &chain.ndt);
     chain.width = surface_.width_px;
     chain.height = surface_.height_px;
-    chain.formatDepthStencil = bgfx::TextureFormat::D24S8; // the UI views use stencil clip masks
+    chain.formatDepthStencil = bgfx::TextureFormat::Count; // as in start()
     bgfx::reset(reset_flags(), &chain);
+    picture_held_ = false; // see surface_lost
 }
 
 bool Context::read_density()
@@ -431,14 +610,17 @@ void Context::surface_lost()
         surface_.valid = false;
         ++surface_.generation;
         frame_aborted_ = frame_open_;
+        picture_held_ = false; // the kept pause picture may not survive the surface: drawn again and kept anew
         logf("surface lost: presentation suspended");
     }
-    FramePacing::instance().set_window(nullptr); // Swappy lets go of the window Android destroys
     {
-        std::lock_guard lock(release_mutex_);
+        std::unique_lock lock(release_mutex_);
+        // The render thread may still be presenting the last frame to the window.
+        wait_render_idle(lock, "Swappy's window is taken away and the surface given up while a frame is presented");
         surface_in_use_ = false;
         release_requested_ = false;
     }
+    FramePacing::instance().set_window(nullptr); // Swappy lets go of the window Android destroys
     release_done_.notify_all();
 }
 
@@ -448,31 +630,37 @@ void Context::request_surface_release()
     if (!surface_in_use_)
         return;
     release_requested_ = true;
-    // Only bgfx::frame() touches the EGL surface. One frame can take a second on slow GPUs (the
-    // emulator), so the wait covers a whole frame; outside a frame this returns at once.
-    if (!release_done_.wait_for(lock, std::chrono::seconds(3), [this] { return !in_frame_; }))
-        logf("ERROR: a bgfx frame still runs 3 s after Android asked for the surface; it is destroyed while in use");
+    // The EGL surface is touched by the frames handed to the render thread, until each is presented; no new
+    // presenting frame starts once release_requested_ is set. With nothing in flight this returns at once.
+    wait_render_idle(lock, "Android asked for the surface; it is destroyed while in use");
 }
 
 bool Context::run_frame(uint32_t flags, uint32_t *frame_number)
 {
-    {
-        std::lock_guard lock(release_mutex_);
-        // Never on a surface that is gone or going (background, surfaceDestroyed, read-backs in between).
-        in_frame_ = surface_in_use_ && !release_requested_;
-    }
     // The frame's bone palettes go up in one update, before the draws that read them are rendered.
     bone_palettes_.flush();
-    if (!in_frame_)
+    bool refused = false;
+    {
+        std::lock_guard lock(release_mutex_);
+        // Nothing is presented to a surface that is gone or going (background, surfaceDestroyed).
+        refused = !(flags & BGFX_FRAME_FLUSH) && !(surface_in_use_ && !release_requested_);
+        in_frame_ = !refused;
+    }
+    if (refused)
     {
         surface_lost();
         return false;
     }
+    const auto before = std::chrono::steady_clock::now();
     const uint32_t number = bgfx::frame(flags);
+    frame_blocked_ = std::chrono::steady_clock::now() - before;
     ++submitted_frames_;
     {
         std::lock_guard lock(release_mutex_);
         in_frame_ = false;
+        handed_frame_ = number;
+        frames_handed_ = true;
+        hand_time_[number & 3] = before;
     }
     release_done_.notify_all();
     if (frame_number)
@@ -482,9 +670,13 @@ bool Context::run_frame(uint32_t flags, uint32_t *frame_number)
 
 void Context::poll_surface()
 {
-    if (release_requested_.load(std::memory_order_relaxed))
+    // A restore request is taken before the release request is looked at: the release that preceded it on
+    // Android's thread is then seen too, whenever the two arrive (the other order dropped the restore when both
+    // came between the two checks).
+    const bool restore = restore_requested_.exchange(false);
+    if (release_requested_.load())
         surface_lost();
-    if (restore_requested_.exchange(false) && initialised_ && !surface_.valid)
+    if (restore && initialised_ && !surface_.valid)
         restore_pending_ = true;
     if (restore_pending_)
         try_restore();
@@ -532,7 +724,7 @@ void Context::try_restore()
     read_density();
     chain.width = surface_.width_px;
     chain.height = surface_.height_px;
-    chain.formatDepthStencil = bgfx::TextureFormat::D24S8; // the UI views use stencil clip masks
+    chain.formatDepthStencil = bgfx::TextureFormat::Count; // as in start()
     // A new ANativeWindow can reuse the old address; alternating this otherwise harmless flag makes
     // bgfx re-create the EGL surface on every restore.
     surface_epoch_flag_ = !surface_epoch_flag_;
@@ -552,6 +744,7 @@ void Context::try_restore()
     }
     surface_.valid = true;
     ++surface_.generation;
+    picture_held_ = false; // render targets drawn before the restore are not trusted: see surface_lost
     logf("surface restored %ux%u", surface_.width_px, surface_.height_px);
     for (auto &entry : clients_)
         entry.client->OnSurfaceChanged(surface_);
@@ -660,16 +853,26 @@ void Context::present(bgfx::TextureHandle game_color, uint32_t game_width, uint3
             for (auto &entry : clients_)
                 entry.client->OnUiRender(frame_);
         }
-        const auto started = std::chrono::steady_clock::now();
+        const auto frame_call = std::chrono::steady_clock::now();
         bool presented = false;
         {
-            STORM_PROFILE_ZONE("bgfx::frame: GL submit and swap");
+            // With the render thread: the wait for it to finish rendering the previous frame, then the hand-over.
+            // Without (render_thread=0): the GL backend, the driver and the present.
+            STORM_PROFILE_ZONE("bgfx::frame");
             presented = run_frame(BGFX_FRAME_NONE, &last_frame_);
         }
         if (presented)
         {
-            perf_frame_presented(
-                std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count());
+            double wait_ms = 0.0;
+            if (render_thread_active_)
+            {
+                const auto game = gate_end_ == std::chrono::steady_clock::time_point{} ? std::chrono::nanoseconds::zero()
+                                                                                       : frame_call - gate_end_;
+                FramePacing::instance().game_thread_waited(frame_gate(last_frame_, game, frame_blocked_));
+                gate_end_ = std::chrono::steady_clock::now();
+                wait_ms = std::chrono::duration<double, std::milli>(gate_end_ - frame_call).count();
+            }
+            perf_frame_presented(wait_ms);
             STORM_PROFILE_FRAME();
 #ifdef STORM_TRACY
             plot_frame_stats();

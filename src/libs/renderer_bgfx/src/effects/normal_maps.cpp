@@ -92,12 +92,12 @@ void NormalMaps::on_texture_loaded(shim::TexStore &store, const char *path, cons
     const uint32_t pw = probe >= 0 ? store.level_width(static_cast<uint32_t>(probe)) : 0,
                    ph = probe >= 0 ? store.level_height(static_cast<uint32_t>(probe)) : 0;
     const std::vector<uint8_t> *probe_data = probe >= 0 ? &store.sub(0, static_cast<uint32_t>(probe)).data : nullptr;
-    const size_t probe_bytes = readable && probe >= 0 ? texture::tx_level_bytes(format, pw, ph) : 0;
+    const size_t probe_bytes = readable && probe >= 0 ? texture::d3d_level_bytes(format, pw, ph) : 0;
     std::vector<uint8_t> small;
     if (fx::NameSuggestsHeightMap(name) && probe_bytes && probe_data->size() >= probe_bytes)
     {
         small.resize(size_t(pw) * ph * 4);
-        texture::decode_tx_level(format, probe_data->data(), pw, ph, small.data());
+        texture::decode_rgba8(format, probe_data->data(), pw, ph, small.data());
     }
     const fx::ReliefVerdict verdict = classifier_.Classify(path, small);
     if (verdict.relief == fx::ReliefClass::None)
@@ -126,9 +126,7 @@ void NormalMaps::on_texture_loaded(shim::TexStore &store, const char *path, cons
     entry->relief = verdict.relief;
     entry->file = file;
     entry->key = fx::ReliefKey(name, {probe_data->data(), probe_bytes}, static_cast<int>(pw), static_cast<int>(ph),
-                               verdict.relief == fx::ReliefClass::HeightMap ? fx::kReliefHeightMethod
-                                                                            : fx::kReliefMethodVersion,
-                               fx::kReliefMapSize);
+                               fx::ReliefMethod(verdict.relief), fx::kReliefMapSize);
     store.normal_map = entry;
     entries_.push_back(entry);
     if (enabled_)
@@ -139,14 +137,19 @@ void NormalMaps::look_up(const std::shared_ptr<NormalMapEntry> &entry)
 {
     entry->state = NormalMapEntry::Pending;
     texture::Service::instance().post([entry, relief_dir = directory(), counters = counters_] {
+        // Which map the texture takes, for the diagnostics: its key and the method it was (or will be) made with.
+        const unsigned long long key = entry->key, method = fx::ReliefMethod(entry->relief);
         if (fx::HasReliefMap(relief_dir, entry->key))
         {
+            shim::logf("effects: relief %s (%s): map %016llx of method %016llx", entry->name.c_str(),
+                       fx::ReliefClassName(entry->relief), key, method);
             entry->state = NormalMapEntry::Stored;
             return;
         }
         if (entry->relief != fx::ReliefClass::HeightMap)
         {
-            shim::logd("effects: relief: %s has no map yet: requested", entry->name.c_str());
+            shim::logf("effects: relief %s (%s): no map %016llx of method %016llx yet: requested", entry->name.c_str(),
+                       fx::ReliefClassName(entry->relief), key, method);
             entry->state = NormalMapEntry::Waiting; // counted in the "effects relief:" line
             ReliefGenerator::instance().request(entry, entry->file);
             return;
@@ -163,11 +166,13 @@ void NormalMaps::look_up(const std::shared_ptr<NormalMapEntry> &entry)
             entry->state = NormalMapEntry::Failed;
             return;
         }
+        shim::logf("effects: relief %s (height map): no map %016llx of method %016llx yet: derived", entry->name.c_str(),
+                   key, method);
         fx::NormalMapOptions options = fx::ReliefOptions(fx::ReliefClass::HeightMap);
         options.max_size = fx::kReliefMapSize;
         const fx::NormalMap rg8 = fx::DeriveNormalMap(rgba, width, height, options);
         fx::NormalMap map{rg8.width, rg8.height, rg8.mip_count, fx::NormalMapFormat::EacRg11,
-                          texture::encode_eac_rg11_chain(rg8.rg.data(), rg8.width, rg8.height, rg8.mip_count)};
+                          texture::encode_eac_chain(texture::EacFormat::Rg11, rg8.rg.data(), rg8.width, rg8.height, rg8.mip_count)};
         counters->derive_us += static_cast<uint64_t>(
             std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - start).count());
         ++counters->derived;
@@ -194,9 +199,14 @@ void NormalMaps::read_stored(const std::shared_ptr<NormalMapEntry> &entry)
         std::optional<fx::NormalMap> map = fx::ReadReliefMap(relief_dir, entry->key, &error);
         if (!map)
         {
+            // Gone from the cache while the texture stayed loaded (the system evicted it, «Очистить кэш») or damaged
+            // (deleted by the read): made again like a map that never was (the next draw looks it up).
             if (!error.empty())
-                shim::logf("ERROR: effects: %s", error.c_str());
-            entry->state = NormalMapEntry::Failed; // removed or damaged while the texture stayed loaded
+                shim::logf("ERROR: effects: %s: made again", error.c_str());
+            else
+                shim::logf("effects: relief %s: its map %016llx left the cache: made again", entry->name.c_str(),
+                           static_cast<unsigned long long>(entry->key));
+            entry->state = NormalMapEntry::Unqueued;
             return;
         }
         entry->map = std::move(*map);
@@ -213,6 +223,9 @@ NormalMaps::Relief NormalMaps::handle(shim::TexStore &store, fx::Lighting &light
     entry->drawn = frame_;
     switch (entry->state.load())
     {
+    case NormalMapEntry::Unqueued: // its map left the cache since it was looked up (read_stored)
+        look_up(entry);
+        return {};
     case NormalMapEntry::Stored:
         read_stored(entry);
         return {};

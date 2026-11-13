@@ -102,6 +102,25 @@ int main()
         other.SetAttribute("a", "1");
         *chr = std::move(other);
     });
+    // The moved-in children belong to the target: a write under them after the source is gone walks up
+    // through their parent, which must be the target, not the destroyed source (a crash on device, ASan here).
+    Expect(true, "write under children moved in from a destroyed tree", [&] {
+        {
+            ATTRIBUTES source(codec);
+            source.CreateSubAClass(&source, "deck.lantern");
+            *chr = std::move(source);
+        }
+        chr->FindAClass(chr, "deck.lantern")->SetAttribute("on", "1");
+    });
+    if (chr->FindAClass(chr, "deck")->GetParent() != chr)
+        ++failures, std::fputs("FAIL a moved-in child does not name its new parent\n", stderr);
+    {
+        ATTRIBUTES built(codec);
+        built.CreateSubAClass(&built, "x.y");
+        ATTRIBUTES moved(std::move(built));
+        if (moved.FindAClass(&moved, "x")->GetParent() != &moved)
+            ++failures, std::fputs("FAIL a move-constructed tree's child names the old tree\n", stderr);
+    }
 
     // Only the trees read under ScriptStateReads count from then on.
     ATTRIBUTES weather(codec);

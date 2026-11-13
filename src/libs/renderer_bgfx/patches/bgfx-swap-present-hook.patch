@@ -4,7 +4,7 @@ The EGL backend presents the window surface of the context it created through a 
 to the display's vsync and picks the display mode. Without a function set, bgfx swaps with eglSwapBuffers.
 
 diff --git a/src/glcontext_egl.cpp b/src/glcontext_egl.cpp
-index e5ebddc..c498c74 100644
+index 35a8afc6..4b4e1bb1 100644
 --- a/src/glcontext_egl.cpp
 +++ b/src/glcontext_egl.cpp
 @@ -27,12 +27,28 @@
@@ -36,7 +36,7 @@ index e5ebddc..c498c74 100644
  #if BGFX_USE_GL_DYNAMIC_LIB
  
  #define EGL_IMPORT                                                            \
-@@ -1099,7 +1115,15 @@ WL_EGL_IMPORT
+@@ -1160,7 +1176,15 @@ WL_EGL_IMPORT
  			&&  NULL != m_display
  			&&  EGL_NO_SURFACE != m_surface)
  			{
@@ -53,7 +53,7 @@ index e5ebddc..c498c74 100644
  			}
  		}
  		else
-@@ -1200,7 +1224,14 @@ WL_EGL_IMPORT
+@@ -1273,7 +1297,14 @@ WL_EGL_IMPORT
  		return imported;
  	}
  

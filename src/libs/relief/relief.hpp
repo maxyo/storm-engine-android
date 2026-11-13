@@ -56,13 +56,14 @@ class Session
     std::unique_ptr<Impl> impl_;
 };
 
-// After a complete pass: removes the maps of textures this game no longer has (another game, an older method; the
-// game's own height maps too, it derives them again). Returns how many.
+// Removes the maps of textures this game no longer has and every map of another method (another game, an older build,
+// model or options; fx::ReliefMethod); the game's own height maps stay while they are current. Returns how many.
 int Prune(const std::filesystem::path &textures, const std::filesystem::path &output, int map_size);
 // The mark of a complete pass (Prune done): the method, the map size and how many relief textures the game had. Cheap
 // to check (names only): the game skips its background pass while the mark matches.
 void MarkComplete(const std::filesystem::path &textures, const std::filesystem::path &output, int map_size);
-bool Complete(const std::filesystem::path &textures, const std::filesystem::path &output, int map_size);
+// Also false when maps of that pass are missing since (the system evicted part of its cache): `missing` says how many.
+bool Complete(const std::filesystem::path &textures, const std::filesystem::path &output, int map_size, int *missing = nullptr);
 
 // The whole job at once (host tool and checks): List, every texture, Prune.
 struct Job

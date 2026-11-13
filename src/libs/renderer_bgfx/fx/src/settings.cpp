@@ -50,10 +50,12 @@ Settings Settings::FromPreset(QualityPreset preset)
         s.bloom_levels = 3;
         s.sea_band_limit = true;
         s.anisotropy = 4;
-        s.lighting_flags = kLightingPerPixel | kLightingPoint | kLightingNormalMap | kLightingRim | kLightingAerial;
+        s.lighting_flags = kLightingPerPixel | kLightingTranslucent | kLightingPoint | kLightingNormalMap | kLightingRim |
+                           kLightingAerial;
         s.point_lights = 4;
         s.normal_map_size = 256; // the prepared 512 maps from their second mip: a quarter of High's memory
         s.shadows = ShadowQuality::Low;
+        s.town_light = true;
         s.ao_volume = 2;
         s.lamp_shadows = 8;
         s.lamp_moving = 1;
@@ -73,7 +75,8 @@ Settings Settings::FromPreset(QualityPreset preset)
                        kLightingRim | kLightingAerial;
     s.point_lights = 8;
     s.shadows = ShadowQuality::Soft;
-    s.ao_volume = 3;
+    s.town_light = true;
+    s.ao_volume = 2; // the owner: the strong look left the rooms too dark
     s.lamp_shadows = 16;
     s.lamp_moving = 2;
     s.lamp_soft = true;
@@ -107,7 +110,7 @@ std::string Support::Describe() const
     text += ", EAC RG11 normal maps: ";
     text += word(normal_map);
     text += ", MSAA targets: ";
-    text += word(msaa);
+    text += msaa_samples > 1 ? std::to_string(msaa_samples) + "x" : std::string("NO");
     text += ", R8/RG8 textures (SMAA): ";
     text += word(smaa);
     text += ", sampleable depth with MSAA: ";
@@ -142,16 +145,18 @@ constexpr Rule kRules[] = {
      "the scene's internal height must be 360..4320 pixels (or 0, native): clamped"},
     {[](const Settings &s, const Support &) { return s.msaa != 1 && s.msaa != 2 && s.msaa != 4; }, [](Settings &s) { s.msaa = s.msaa > 2 ? 4 : 1; },
      "MSAA sample count must be 1, 2 or 4: rounded"},
+    {[](const Settings &s, const Support &c) { return s.msaa == 4 && c.msaa_samples == 2; }, [](Settings &s) { s.msaa = 2; },
+     "MSAA 4x is not available for the scene target (RGBA8 + D24S8): 2x instead"},
     // A requested MSAA (Средняя / Высокая) that the device cannot give (no multisampled targets: caps, a GPU-family
     // profile, or the self-test found the multisampled scene broken) is replaced by SMAA, so these phones keep an
     // anti-aliasing. SMAA is a post effect: without the post chain (3D textures) or its tables (R8/RG8) there is none.
-    {[](const Settings &s, const Support &c) { return s.msaa > 1 && !c.msaa && c.lut_3d && c.smaa; },
+    {[](const Settings &s, const Support &c) { return s.msaa > 1 && c.msaa_samples < 2 && c.lut_3d && c.smaa; },
      [](Settings &s) {
          s.msaa = 1;
          s.smaa = true;
      },
      "MSAA unavailable: SMAA instead"},
-    {[](const Settings &s, const Support &c) { return s.msaa > 1 && !c.msaa && !(c.lut_3d && c.smaa); }, [](Settings &s) { s.msaa = 1; },
+    {[](const Settings &s, const Support &c) { return s.msaa > 1 && c.msaa_samples < 2 && !(c.lut_3d && c.smaa); }, [](Settings &s) { s.msaa = 1; },
      "MSAA unavailable and SMAA needs the post-processing chain (3D textures) and R8/RG8 textures: no anti-aliasing"},
     {[](const Settings &s, const Support &c) { return s.smaa && !c.smaa; }, [](Settings &s) { s.smaa = false; },
      "SMAA needs R8 and RG8 textures: switched off"},
@@ -191,6 +196,8 @@ constexpr Rule kRules[] = {
      "hemisphere ambient, specular and translucency need per-pixel lighting: switched off"},
     {[](const Settings &s, const Support &) { return s.shadows != ShadowQuality::Off && !(s.lighting_flags & kLightingPerPixel); },
      [](Settings &s) { s.shadows = ShadowQuality::Off; }, "sun shadows need per-pixel lighting: switched off"},
+    {[](const Settings &s, const Support &) { return s.town_light && !(s.lighting_flags & kLightingPerPixel); },
+     [](Settings &s) { s.town_light = false; }, "our own town light needs per-pixel lighting: switched off"},
     {[](const Settings &s, const Support &c) { return s.shadows != ShadowQuality::Off && !c.shadow_map; },
      [](Settings &s) { s.shadows = ShadowQuality::Off; }, "sun shadows need a D16 depth render target: switched off"},
     {[](const Settings &s, const Support &c) { return (s.lighting_flags & kLightingNormalMap) && !c.normal_map; },
@@ -294,14 +301,16 @@ Support RestrictSupport(const Support &device, CapsProfile profile)
     switch (profile)
     {
     case CapsProfile::Gles30Minimal: // R8/RG8 textures are core GLES 3.0: SMAA stays
-        s.msaa = s.msaa_depth = s.anisotropy = false;
+        s.msaa_samples = 1;
+        s.msaa_depth = s.anisotropy = false;
         break;
     case CapsProfile::MaliG5x:
     case CapsProfile::Adreno6xx:
         s.msaa_depth = false;
         break;
     case CapsProfile::PowerVR:
-        s.msaa = s.msaa_depth = s.anisotropy = false;
+        s.msaa_samples = 1;
+        s.msaa_depth = s.anisotropy = false;
         break;
     case CapsProfile::Device:
     case CapsProfile::MaliG7x:

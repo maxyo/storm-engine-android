@@ -214,9 +214,11 @@ any other value is logged and also turns it off.
   every interface or location script the game loads; that only helps while
   editing scripts during a session, which does not happen on Android (game
   files are imported, the overlay is inside the APK).
-- The cache lives in the application's private storage (`files/storm/Cache`,
-  next to saves and logs; about 13 MB for the test game), never in the game
-  folder.
+- The cache lives in the engine cache root (`fs::GetCachePath()/Cache`; on
+  Android `(getExternalCacheDir() ?: getCacheDir())/engine/Cache`, about 13 MB
+  for the test game), never next to saves or in the game folder. Android's
+  «Очистить кэш» or low storage may delete it at any time: missing entries are
+  compiled again (`Script cache: none ...`, `Script segment '...' compiled`).
 - It is discarded and rebuilt when anything it depends on changes. The key
   covers every file of the resolved program directory and of the APK's
   interface overlay (relative path, size and modification time), the engine

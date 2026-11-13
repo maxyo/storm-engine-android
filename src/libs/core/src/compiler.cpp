@@ -48,7 +48,7 @@ enum CacheMode : int
 
 auto GetCacheFolder()
 {
-    static std::filesystem::path cache_folder = fs::GetStashPath() / "Cache";
+    static std::filesystem::path cache_folder = fs::GetCachePath() / "Cache";
     return cache_folder;
 }
 

@@ -38,11 +38,4 @@ const ShaderPort *find_port(std::string_view key, bool vertex)
             return &port;
     return nullptr;
 }
-uint32_t port_vsc_count(uint32_t shader_id)
-{
-    for (const ShaderPort &port : ports)
-        if (port.vertex && port.shader_id() == shader_id)
-            return port.vsc_count;
-    return 0;
-}
 } // namespace storm::shim

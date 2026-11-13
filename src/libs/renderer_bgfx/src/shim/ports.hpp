@@ -20,6 +20,4 @@ struct ShaderPort
 // Reference blob: kShaderRefMagic, the key bytes zero-padded to whole DWORDs, 0x0000FFFF.
 inline constexpr uint32_t kShaderRefMagic = 0x4D525453; // "STRM"
 const ShaderPort *find_port(std::string_view key, bool vertex);
-// The vsc_count of the vertex port with this embedded shader id, 0 for any other shader.
-uint32_t port_vsc_count(uint32_t shader_id);
 } // namespace storm::shim

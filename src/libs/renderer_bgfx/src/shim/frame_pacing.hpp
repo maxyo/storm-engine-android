@@ -21,8 +21,10 @@
 // statistics stay off: they query the frame timestamps of every frame.
 #pragma once
 
+#include <atomic>
 #include <chrono>
 #include <cstdint>
+#include <mutex>
 #include <vector>
 
 namespace storm::shim
@@ -36,8 +38,20 @@ class FramePacing
 
     static FramePacing &instance();
 
-    // Before bgfx::init of the game window, on the thread that renders (Android: Swappy with SDL's activity).
-    void start();
+    // Game thread, before bgfx::init of the game window (Android: Swappy with SDL's activity). `render_thread`:
+    // bgfx presents on its render thread (the present function then runs there; everything else of this class is
+    // called on the game thread).
+    void start(bool render_thread);
+    // Game thread: it was blocked this long handing a frame to the render thread, which is not work (ADPF). Without
+    // a render thread the present itself, on the game thread, reports its wait.
+    void game_thread_waited(std::chrono::nanoseconds wait);
+    // Game thread: bgfx's render thread (Linux tid) shares the frame's work; ADPF's hint session takes it in.
+    void render_thread_started(int tid);
+    // Game thread: the swap interval the frame rate setting asks for (not one Swappy lowered the rate to); zero
+    // when no frame rate is paced (desktop).
+    std::chrono::nanoseconds preferred_interval() const;
+    // Presenting thread: how long the presents since the last call waited (zero without pacing).
+    std::chrono::nanoseconds take_present_wait();
     // The window the game presents to (Swappy reports the frame rate for it); nullptr while there is none.
     void set_window(void *native_window);
     // The frame rate to pace at, frames per second; applies at once (logged), before start() at its start.
@@ -53,8 +67,13 @@ class FramePacing
     void reset_stats();
 
     bool started_ = false;
+    bool render_thread_ = false; // present_frame runs on bgfx's render thread
+    std::chrono::nanoseconds preferred_{0}; // game thread: the interval of the setting
+    std::chrono::nanoseconds present_wait_{0}; // presenting thread
     std::chrono::nanoseconds target_ = kDefaultFrame;
-    bool swappy_ = false; // false: started without Swappy, presents with eglSwapBuffers
+    std::atomic<bool> swappy_{false}; // false: started without Swappy, presents with eglSwapBuffers
+    // What follows is written by the present (render thread) and by the game thread's interval choice.
+    std::mutex mutex_;
     std::chrono::nanoseconds swap_interval_{0}; // what Swappy paces at now
     std::chrono::nanoseconds refresh_period_{0};
     std::chrono::steady_clock::time_point last_present_{};

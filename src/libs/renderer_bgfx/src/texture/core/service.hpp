@@ -82,6 +82,8 @@ class Service
     const std::filesystem::path &cache_directory() const { return config_.directory; }
     // Bytes of temporary (pre-ETC2) textures alive on the GPU.
     void add_fallback_bytes(int64_t delta) { fallback_bytes_ += delta; }
+    // Worker threads the service runs (a quarter of the cores, one or two).
+    static unsigned worker_count();
 
   private:
     void start_workers();
@@ -99,6 +101,7 @@ class Service
     std::vector<std::thread> workers_;
     bool stopping_ = false;
     bool evict_requested_ = true;
+    bool empty_logged_ = false; // the cache directory was found empty or gone (worker 0 only)
 
     std::atomic<uint64_t> hits_{0}, misses_{0}, transcoded_{0};
     std::atomic<uint64_t> encoded_pixels_{0}, encode_nanoseconds_{0};

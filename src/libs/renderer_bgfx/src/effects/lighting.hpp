@@ -37,6 +37,7 @@
 #include "effects/lamp_shadows.hpp"
 #include "effects/normal_maps.hpp"
 #include "effects/shadows.hpp"
+#include "effects/town_light.hpp"
 #include "storm/fx/lighting.hpp"
 #include "storm/fx/settings.hpp"
 #include "storm/fx/sky_model.hpp"
@@ -122,7 +123,6 @@ struct FfDraw
     bool lamp_caster = false;      // caster: the lamp faces its sphere reaches (characters)
     CasterMaterial caster_material{}; // caster: how its material casts (effects/casters.hpp)
     DrawSphere sphere{};
-    float ground_sun = 1.0f;       // receiver: the sun the location's lightmaps show under it (SunShadows::ground_sun)
 };
 
 class Lighting
@@ -168,6 +168,7 @@ class Lighting
     void set_ao_volume(const AoVolumes::Bound *volume) { ao_volume_ = volume; }
     NormalMaps &normal_maps() { return normal_maps_; }
     SunShadows &shadows() { return shadows_; }
+    TownLight &town_light() { return town_light_; }
     // After the draw was submitted with its buffers kept (BGFX_DISCARD_NONE for buffers): the depth-only copy.
     // The lamp faces first (buffers kept), then the sun view, which ends the draw (all bindings discarded).
     void submit_caster(shim::Device &device, const D3DMATRIX &world, bool skinned);
@@ -215,6 +216,7 @@ class Lighting
     uint32_t fs_baked_[2][2] = {};  // [normal map][linear]
     NormalMaps normal_maps_;
     SunShadows shadows_;
+    TownLight town_light_;
     LampShadows lamps_;
     Casters casters_; // the caster programs and material rule of the sun cascade and the lamp atlases
     FfDraw caster_{}; // the last submitted draw's caster flags (submit -> submit_caster)

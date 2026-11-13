@@ -305,13 +305,23 @@ void ReliefGenerator::prepare_rest()
     {
         rest_listed_ = true;
         const Clock::time_point start = Clock::now();
-        if (relief::Complete(setup_.textures, setup_.directory, fx::kReliefMapSize))
+        int missing = 0;
+        if (relief::Complete(setup_.textures, setup_.directory, fx::kReliefMapSize, &missing))
         {
             std::lock_guard lock(mutex_);
             rest_done_ = true;
             stats_.rest = 0;
             return;
         }
+        if (missing > 0)
+            shim::logf("effects: relief generation: %d maps of the complete pass are missing (the cache was cleared or "
+                       "evicted by the system): made again",
+                       missing);
+        // Maps of another method (an older build, another model or options) are removed first: they never match a key
+        // again, and their room is the new maps'.
+        const int stale = relief::Prune(setup_.textures, setup_.directory, fx::kReliefMapSize);
+        if (stale > 0)
+            shim::logf("effects: relief generation: %d maps of another method or game removed", stale);
         rest_ = relief::List(setup_.textures);
         rest_at_ = 0;
         shim::logf("effects: relief generation: %zu relief textures of the game to make in the background (listed in "

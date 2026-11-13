@@ -40,7 +40,7 @@ jobs:
             build/host-ci/sources
             build/host-ci/glm
           key: host-sources-${{ hashFiles('tools/android/engine_sources.py', 'tools/android/ci_dependencies.sh', 'cmake/glm.cmake') }}
-      # Fetched bgfx/etcpak/glm sources and the host shaderc of the bgfx pin (both built once per pin
+      # Fetched bgfx/glm sources and the host shaderc of the bgfx pin (both built once per pin
       # into ~/.cache/storm-deps) and the Storm ccache (tools/ccache/README.md).
       - name: Cache shared dependencies and compiler output
         uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4

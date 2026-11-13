@@ -294,11 +294,17 @@ class GEOS
                                  SurfaceData *surface = nullptr) const = 0;
     // True when the file carries collision data (the BSP the location walks and traces on).
     virtual bool HasCollision() const = 0;
+    // True when the game baked this model's lighting for other light sets (hours, weather) but not for the one it was
+    // loaded with: it carries no light of the place it stands in (its own vertex colours are drawn). The furniture
+    // models of houses have no bake from 21:00 on, though the scripts show them until 23:00.
+    virtual bool LostBakedLight() const = 0;
     // The model's lightmap (its texture shadow.tga, from the location's lighting folder of the time of day): its file
     // ("resource\textures\lighting\...\shadow.tga.tx"), empty when the model has none. AppendLightmapTriangles
     // appends, like AppendTriangles, the visible objects that the lightmap covers with their lightmap texture
     // coordinates; false, with nothing appended, when a buffer cannot be read or the model has no lightmap.
     virtual const std::string &LightmapFile() const = 0;
+    // The renderer's id of that lightmap's texture (-1: none).
+    virtual int32_t LightmapTexture() const = 0;
     virtual bool AppendLightmapTriangles(std::vector<glm::vec3> &positions, std::vector<glm::vec2> &uvs,
                                          std::vector<uint32_t> &indices) const = 0;
 

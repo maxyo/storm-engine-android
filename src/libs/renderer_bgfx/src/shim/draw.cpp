@@ -240,43 +240,38 @@ void Device::set_uniform(UniformId id, const float *data, uint16_t count)
     uniforms_changed = true;
 }
 
-// Buffers drawn in a later frame than they were written in. Written once so far: an immutable static buffer. Written
-// again: a dedicated dynamic buffer (own GL buffer, so the layouts the game draws it with keep their offsets; bgfx
-// pools other dynamic buffers at offsets of the creation stride), and every later rewrite updates the written range in
-// place. Re-creating a static buffer for each rewrite made a new bgfx handle, a GL buffer and its allocation each time.
-namespace
+// Buffers drawn in a later frame than they were written in: a range of bgfx's shared dynamic buffers, so creating one
+// makes no GL buffer (one GL buffer each made opening a scene or a screen create hundreds in a frame; bgfx frees a
+// shared buffer once its last range is gone). A vertex buffer's range is created in the layout it is drawn with, so it
+// starts at a whole vertex of that stride; drawn with another stride, it is created again. Rewrites update the written
+// range in place.
+void Device::upload_buffer(VertexBuffer &vb, const bgfx::VertexLayout &layout)
 {
-// A dedicated GL buffer: bgfx gives buffers with a compute flag their own (bgfx_p.h allocVertexBuffer); the GL
-// backend creates such a buffer exactly like any other.
-constexpr uint16_t kDedicated = BGFX_BUFFER_COMPUTE_READ;
-} // namespace
-
-void Device::upload_buffer(VertexBuffer &vb)
-{
-    const bool fresh = !bgfx::isValid(vb.handle) && !bgfx::isValid(vb.dynamic);
-    if (!fresh && vb.dirty_begin >= vb.dirty_end)
-        return;
     const uint32_t size = static_cast<uint32_t>(vb.shadow.size());
-    if (fresh)
-    {
-        vb.handle = bgfx::createVertexBuffer(bgfx::copy(vb.shadow.data(), size), byte_layout);
-        ++perf().buffer_creates;
-        perf().buffer_upload_bytes += size;
-    }
-    else if (bgfx::isValid(vb.handle))
+    const uint32_t stride = layout.getStride();
+    const uint32_t vertices = size / stride; // a trailing partial vertex is never drawn
+    if (bgfx::isValid(vb.handle) && vb.stride != stride)
     {
         bgfx::destroy(vb.handle);
         vb.handle = BGFX_INVALID_HANDLE;
-        vb.dynamic = bgfx::createDynamicVertexBuffer(bgfx::copy(vb.shadow.data(), size), byte_layout, kDedicated);
+    }
+    if (!bgfx::isValid(vb.handle))
+    {
+        vb.handle = bgfx::createDynamicVertexBuffer(bgfx::copy(vb.shadow.data(), vertices * stride), layout);
+        vb.stride = stride;
         ++perf().buffer_creates;
-        perf().buffer_upload_bytes += size;
+        perf().buffer_upload_bytes += vertices * stride;
+    }
+    else if (vb.dirty_begin < vb.dirty_end)
+    {
+        const uint32_t first = vb.dirty_begin / stride;
+        const uint32_t end = std::min((std::min(vb.dirty_end, size) + stride - 1) / stride, vertices);
+        if (end > first)
+            bgfx::update(vb.handle, first, bgfx::copy(vb.shadow.data() + first * stride, (end - first) * stride));
+        perf().buffer_upload_bytes += (end - first) * stride;
     }
     else
-    {
-        const uint32_t begin = vb.dirty_begin, end = std::min(vb.dirty_end, size);
-        bgfx::update(vb.dynamic, begin, bgfx::copy(vb.shadow.data() + begin, end - begin)); // byte layout: vertex = byte
-        perf().buffer_upload_bytes += end - begin;
-    }
+        return;
     ++perf().buffer_uploads;
     perf_resize(&render::PerfCounters::buffer_gpu_bytes, vb.gpu_bytes, size);
     vb.gpu_bytes = size;
@@ -286,33 +281,26 @@ void Device::upload_buffer(VertexBuffer &vb)
 
 void Device::upload_buffer(IndexBuffer &ib, bool index32)
 {
-    const bool fresh = !bgfx::isValid(ib.handle) && !bgfx::isValid(ib.dynamic);
-    if (!fresh && ib.dirty_begin >= ib.dirty_end)
-        return;
     const uint32_t size = static_cast<uint32_t>(ib.shadow.size());
-    const uint16_t format = index32 ? BGFX_BUFFER_INDEX32 : BGFX_BUFFER_NONE;
-    if (fresh)
+    const uint32_t index_size = index32 ? 4 : 2;
+    const uint32_t indices = size / index_size; // a trailing partial index is never drawn
+    if (!bgfx::isValid(ib.handle))
     {
-        ib.handle = bgfx::createIndexBuffer(bgfx::copy(ib.shadow.data(), size), format);
+        ib.handle = bgfx::createDynamicIndexBuffer(bgfx::copy(ib.shadow.data(), indices * index_size),
+                                                   index32 ? BGFX_BUFFER_INDEX32 : BGFX_BUFFER_NONE);
         ++perf().buffer_creates;
-        perf().buffer_upload_bytes += size;
+        perf().buffer_upload_bytes += indices * index_size;
     }
-    else if (bgfx::isValid(ib.handle))
+    else if (ib.dirty_begin < ib.dirty_end)
     {
-        bgfx::destroy(ib.handle);
-        ib.handle = BGFX_INVALID_HANDLE;
-        ib.dynamic = bgfx::createDynamicIndexBuffer(bgfx::copy(ib.shadow.data(), size), format | kDedicated);
-        ++perf().buffer_creates;
-        perf().buffer_upload_bytes += size;
+        const uint32_t first = ib.dirty_begin / index_size;
+        const uint32_t end = std::min((std::min(ib.dirty_end, size) + index_size - 1) / index_size, indices);
+        if (end > first)
+            bgfx::update(ib.handle, first, bgfx::copy(ib.shadow.data() + first * index_size, (end - first) * index_size));
+        perf().buffer_upload_bytes += (end - first) * index_size;
     }
     else
-    {
-        const uint32_t index_size = index32 ? 4 : 2;
-        const uint32_t begin = ib.dirty_begin / index_size * index_size;
-        const uint32_t end = std::min((ib.dirty_end + index_size - 1) / index_size * index_size, size);
-        bgfx::update(ib.dynamic, begin / index_size, bgfx::copy(ib.shadow.data() + begin, end - begin));
-        perf().buffer_upload_bytes += end - begin;
-    }
+        return;
     ++perf().buffer_uploads;
     perf_resize(&render::PerfCounters::buffer_gpu_bytes, ib.gpu_bytes, size);
     ib.gpu_bytes = size;
@@ -892,28 +880,6 @@ bgfx::ProgramHandle Device::program(uint32_t vs_id, uint32_t fs_id)
             if (!bgfx::isValid(shaders[id]))
                 shaders[id] = create_embedded_shader(id);
         handle = bgfx::createProgram(shaders[vs_id], shaders[fs_id], false);
-        if (bgfx::isValid(handle))
-        {
-            uint32_t bytes = 0;
-            for (const uint32_t id : {vs_id, fs_id})
-            {
-                bgfx::UniformHandle list[64];
-                const uint16_t count = bgfx::getShaderUniforms(shaders[id], list, 64);
-                for (uint16_t i = 0; i < std::min<uint16_t>(count, 64); ++i)
-                {
-                    bgfx::UniformInfo info;
-                    bgfx::getUniformInfo(list[i], info);
-                    const uint32_t size = info.type == bgfx::UniformType::Vec4   ? 16
-                                          : info.type == bgfx::UniformType::Mat3 ? 48
-                                          : info.type == bgfx::UniformType::Mat4 ? 64
-                                                                                 : 0; // samplers
-                    // u_vsc is created for 96 registers; a port program declares (and uploads) fewer.
-                    const uint32_t vsc = list[i].idx == uniforms[U_VSC].handle.idx ? port_vsc_count(id) : 0;
-                    bytes += size * (vsc ? vsc : info.num);
-                }
-            }
-            program_uniform_bytes[handle.idx] = bytes;
-        }
     }
     if (!bgfx::isValid(handle))
         logf("program creation failed (vs=%u fs=%u)", vs_id, fs_id);
@@ -1378,13 +1344,10 @@ HRESULT Device::draw(const DrawCall &call)
         for (uint32_t i = 0; i < layout->stream_count; ++i)
         {
             VertexBuffer *vb = s.stream[i];
-            upload_buffer(*vb);
+            upload_buffer(*vb, layout->layout[i]);
             const uint32_t start = s.stream_offset[i] / layout->stride[i] + first_vertex;
             const uint32_t count = call.indexed ? UINT32_MAX : vertex_count;
-            if (bgfx::isValid(vb->handle))
-                bgfx::setVertexBuffer(static_cast<uint8_t>(i), vb->handle, start, count, layout->handle[i]);
-            else
-                bgfx::setVertexBuffer(static_cast<uint8_t>(i), vb->dynamic, start, count, layout->handle[i]);
+            bgfx::setVertexBuffer(static_cast<uint8_t>(i), vb->handle, start, count, layout->handle[i]);
         }
     }
 
@@ -1419,6 +1382,8 @@ HRESULT Device::draw(const DrawCall &call)
                 put(i * 3 + 2, source(i + 2));
             }
         }
+        else if (call.indexed && index_bias == 0 && out32 == index32)
+            memcpy(tib.data, index_source, static_cast<size_t>(out_count) * (out32 ? 4 : 2)); // indices written this frame
         else
             for (uint32_t i = 0; i < out_count; ++i)
                 put(i, source(i));
@@ -1429,10 +1394,7 @@ HRESULT Device::draw(const DrawCall &call)
     else if (call.indexed)
     {
         upload_buffer(*ib, index32);
-        if (bgfx::isValid(ib->handle))
-            bgfx::setIndexBuffer(ib->handle, call.start_index, element_count);
-        else
-            bgfx::setIndexBuffer(ib->dynamic, call.start_index, element_count);
+        bgfx::setIndexBuffer(ib->handle, call.start_index, element_count);
     }
 
     // ---- textures ----
@@ -1465,12 +1427,16 @@ HRESULT Device::draw(const DrawCall &call)
                 continue;
         }
         const uint32_t flags = sampler_flags(stage, *store);
-        bgfx::setTexture(static_cast<uint8_t>(unit), Context::instance().sampler(unit), store->handle, flags);
+        bgfx::TextureHandle handle = store->handle;
+        if (store->lightmap) // a town's lightmap: ours for the hour's sun in its place (effects/town_light.hpp)
+            if (const bgfx::TextureHandle ours = fx_lighting.town_light().replacement(store); bgfx::isValid(ours))
+                handle = ours;
+        bgfx::setTexture(static_cast<uint8_t>(unit), Context::instance().sampler(unit), handle, flags);
         ++perf().texture_binds;
-        if (last_draw.texture[unit] != store->handle.idx || last_draw.sampler[unit] != flags)
+        if (last_draw.texture[unit] != handle.idx || last_draw.sampler[unit] != flags)
         {
             ++perf().texture_changes;
-            last_draw.texture[unit] = store->handle.idx;
+            last_draw.texture[unit] = handle.idx;
             last_draw.sampler[unit] = flags;
         }
     }
@@ -1480,18 +1446,18 @@ HRESULT Device::draw(const DrawCall &call)
         // The frame's palettes share one texture (bone_palettes.hpp): this palette's rows at an offset.
         TexStore *palette = store_of(s.vertex_texture);
         BonePalettes &palettes = Context::instance().bone_palettes();
-        const uint32_t row = palettes.place(*palette);
+        const BonePalettes::Slot slot = palettes.place(*palette);
         bgfx::TextureHandle texture = palettes.texture();
-        if (row == UINT32_MAX)
+        if (!slot.valid())
         {
             // The frame's atlas is full (logged once): the palette's own texture, uploaded as before.
             palette->any_dirty = palette->sub(0, 0).dirty = true;
             palette->sync();
             texture = palette->handle;
         }
-        // The first row as instance data of one instance (ff_skin.sh i_data0): a uniform here re-committed the
-        // program's whole uniform block for every skinned draw (bgfx GL commits all of a program's uniforms on a
-        // change). Kept for the casters submitted after this draw (BGFX_DISCARD_NONE).
+        // The first row and the column as instance data of one instance (ff_skin.sh i_data0): a uniform here
+        // re-committed the program's whole uniform block for every skinned draw (bgfx GL commits all of a program's
+        // uniforms on a change). Kept for the casters submitted after this draw (BGFX_DISCARD_NONE).
         if (bgfx::getAvailInstanceDataBuffer(1, 16) < 1)
         {
             skip_draw("transient budget exhausted for a skinned draw's palette row");
@@ -1499,7 +1465,9 @@ HRESULT Device::draw(const DrawCall &call)
         }
         bgfx::InstanceDataBuffer instance;
         bgfx::allocInstanceDataBuffer(&instance, 1, 16);
-        const float base[4] = {row == UINT32_MAX ? 0.0f : static_cast<float>(row), 0.0f, 0.0f, 0.0f};
+        const float base[4] = {slot.valid() ? static_cast<float>(slot.row) : 0.0f,
+                               slot.valid() ? static_cast<float>(slot.column * BonePalettes::kTexelsPerBone) : 0.0f, 0.0f,
+                               0.0f};
         memcpy(instance.data, base, sizeof(base));
         bgfx::setInstanceDataBuffer(&instance);
         bgfx::setTexture(static_cast<uint8_t>(kBonePaletteUnit), Context::instance().sampler(kBonePaletteUnit), texture,
@@ -1547,8 +1515,6 @@ HRESULT Device::draw(const DrawCall &call)
     const bool program_changed = last_draw.program != handle.idx;
     if (program_changed)
         ++counters.program_changes, last_draw.program = handle.idx;
-    if (uniforms_changed || program_changed)
-        counters.uniform_commit_bytes += program_uniform_bytes[handle.idx];
     const uint32_t stencil_bits = stencil ? fstencil : 0;
     if (last_draw.state != bits || last_draw.stencil != stencil_bits || last_draw.factor != factor)
     {

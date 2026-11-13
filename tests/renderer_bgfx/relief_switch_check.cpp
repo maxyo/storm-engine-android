@@ -9,13 +9,16 @@
 #include "effects/normal_maps.hpp"
 #include "effects/relief_generator.hpp"
 #include "shim.hpp"
+#include "storm/fx/lighting.hpp"
 #include "storm/fx/relief_store.hpp"
+#include "storm/render/effects.hpp"
 
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <iterator>
 #include <fstream>
 #include <thread>
 #include <vector>
@@ -106,6 +109,13 @@ int main()
     WriteTx(textures / "bump_wall.tga.tx", height);
     WriteTx(textures / "brick_arch.tga.tx", colour);
     effects::ConfigureRelief({relief, textures, nullptr}); // no model: requested maps become "missing"
+    // A map an older build made for the stone texture (its key without the model and the options: method 3 alone),
+    // as the owner's phone kept them: never taken for the current one.
+    const std::vector<uint8_t> probe_level = colour[1];
+    const uint64_t old_key = fx::ReliefKey("stone_wall", probe_level, 64, 64, 3, fx::kReliefMapSize);
+    const fx::NormalMap old_map{8, 8, 4, fx::NormalMapFormat::EacRg11,
+                                std::vector<uint8_t>(fx::NormalMapBytes(8, 8, fx::NormalMapFormat::EacRg11), 9)};
+    fx::WriteReliefMap(relief, old_key, old_map);
 
     effects::NormalMaps maps;
     maps.configure(false, 512); // «Низкая»: relief off
@@ -124,6 +134,8 @@ int main()
                 on.derived);
     expect(on.unqueued == 0, "switching relief on looks up every texture loaded while it was off");
     expect(on.waiting + on.missing == 1, "the colour texture is requested from the generator");
+    expect(stone->normal_map->key != old_key && fx::HasReliefMap(relief, old_key),
+           "the older build's map of the stone texture is not taken: its map is requested");
     expect(on.derived == 1 && fx::HasReliefMap(relief, bump->normal_map->key),
            "the height texture's map is derived from its game file into the relief directory");
 
@@ -137,6 +149,40 @@ int main()
     maps.configure(true, 512);
     const effects::NormalMaps::Stats again = Settle(maps, {stone.get(), bump.get(), brick.get()});
     expect(again.unqueued == 0 && again.derived == 1, "off and on again derives nothing twice");
+
+    // A map evicted from the cache while its texture stays loaded (the system frees storage, «Очистить кэш»): the next
+    // draw finds it gone and makes it again, instead of failing.
+    {
+        fx::Lighting lighting;
+        const uint32_t derived_before = maps.stats().derived;
+        std::filesystem::remove(fx::ReliefFile(relief, bump->normal_map->key));
+        maps.handle(*bump, lighting); // Stored: reads it, finds none
+        Settle(maps, {bump.get()});
+        maps.handle(*bump, lighting); // looked up again: derived
+        const effects::NormalMaps::Stats evicted = Settle(maps, {bump.get()});
+        expect(evicted.derived == derived_before + 1 && fx::HasReliefMap(relief, bump->normal_map->key) &&
+                   bump->normal_map->state != effects::NormalMapEntry::Failed,
+               "a map evicted while its texture is loaded is made again");
+    }
+    // The stores of earlier builds go at start (the files directory's relief, the old "NormalMaps" cache).
+    const std::filesystem::path files = root / "files", cache = root / "cache";
+    std::filesystem::create_directories(cache / "NormalMaps" / "ab");
+    std::ofstream(cache / "NormalMaps" / "ab" / "0123.bin") << "old";
+    std::filesystem::create_directories(files / "relief");
+    std::ofstream(files / "relief" / "0123456789abcdef.relief") << "old";
+    render::RemoveOldReliefStores({files / "relief", cache / "NormalMaps", root / "absent"}, relief);
+    expect(!std::filesystem::exists(cache / "NormalMaps") && !std::filesystem::exists(files / "relief") &&
+               std::filesystem::exists(cache) && std::filesystem::exists(files),
+           "the relief stores of earlier builds are removed");
+    // The store in use is never one of them: not itself (also spelt with a link or dots), nothing that holds it,
+    // nothing inside it.
+    const size_t maps_before = static_cast<size_t>(std::distance(std::filesystem::directory_iterator(relief), {}));
+    std::filesystem::create_directories(relief / "inner");
+    std::filesystem::create_symlink(relief, root / "relief-link");
+    render::RemoveOldReliefStores({relief, root / "relief-link", relief / ".." / "relief", root, relief / "inner"}, relief);
+    expect(std::filesystem::exists(relief / "inner") && std::filesystem::exists(root / "relief-link") &&
+               static_cast<size_t>(std::distance(std::filesystem::directory_iterator(relief), {})) == maps_before + 1,
+           "the relief directory in use, what holds it and what it holds are never removed as old stores");
 
     effects::ReliefGenerator::instance().shutdown();
     std::filesystem::remove_all(root);

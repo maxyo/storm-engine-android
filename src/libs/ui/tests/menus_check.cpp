@@ -388,7 +388,7 @@ static void Settings(const std::string &models)
                                 "fx_sea_soft_edges", "fx_sea_specular", "fx_light_per_pixel", "fx_light_point", "fx_light_specular",
                                 "fx_light_normal_map", "fx_alpha_to_coverage", "fx_anisotropy", "fx_ao_volume", "fx_smaa", "fx_sharpen",
                                 "fx_render_height", "fx_gpu_profile", "fx_lamp_shadows", "fx_lamp_soft", "fx_lamp_model_lift",
-                                "fx_lamp_debug"}) // GraphicsSettings.DEBUG_KEYS, -1 = the preset's
+                                "fx_lamp_debug", "fx_sail_light", "fx_town_light", "fx_town_light_debug"}) // GraphicsSettings.DEBUG_KEYS, -1 = the preset's
             reported[key] = -1;
         debug.SetState("appSettings", reported);
         debug.SetInterface(Load(models, "settings.json"));
@@ -410,6 +410,10 @@ static void Settings(const std::string &models)
         Expect(row("app-fx_lamp_shadows")["options"] == Json::array({"пресет", "выкл", "8", "16"}) && row("app-fx_lamp_soft").is_object() &&
                    row("app-fx_lamp_model_lift").is_object() && row("app-fx_lamp_debug").is_object(),
                "effects debug: lamp shadows 0/8/16, their filter, the characters' lift, the lamp views: " + rows.dump());
+        Expect(row("app-fx_sail_light")["options"] == Json::array({"пресет", "выкл", "100%", "200%", "300%"}),
+               "effects debug: sunlight through the sails: " + rows.dump());
+        Expect(row("app-fx_town_light")["options"] == Json::array({"пресет", "игра", "наш"}) && row("app-fx_town_light_debug").is_object(),
+               "effects debug: the town light, game's or ours, and its view: " + rows.dump());
         debug.OnEvent({"app-fx_render_height", "change", "2"});
         debug.OnEvent({"app-fx_gpu_profile", "change", "1"});
         debug.OnEvent({"done", "click", ""});

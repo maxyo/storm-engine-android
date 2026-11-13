@@ -24,6 +24,13 @@ file(SHA256 "${STORM_DEEPBUMP_MODEL}" model_digest)
 if(NOT model_digest STREQUAL "24b0975701c94500a7ecbc1e0927fc0d07803c19310437ddc4b4ca86fe239603")
     message(FATAL_ERROR "model/deepbump256-int8.onnx does not match its recorded sha256 (${model_digest})")
 endif()
+# The maps' method includes the model's digest (fx::kDeepBumpModelDigest, fx/deepbump.hpp): a new model must change it.
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/../renderer_bgfx/fx/include/storm/fx/deepbump.hpp" deepbump_header)
+string(REGEX MATCH "kDeepBumpModelDigest = 0x([0-9a-f]+)ull" digest_line "${deepbump_header}")
+string(SUBSTRING "${model_digest}" 0 16 model_digest_prefix)
+if(NOT CMAKE_MATCH_1 STREQUAL model_digest_prefix)
+    message(FATAL_ERROR "fx::kDeepBumpModelDigest (${CMAKE_MATCH_1}) is not the model's sha256 prefix (${model_digest_prefix})")
+endif()
 
 add_library(storm_onnxruntime SHARED IMPORTED GLOBAL)
 if(ANDROID)

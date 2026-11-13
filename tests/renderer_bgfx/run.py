@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """Build the bgfx renderer library (shim + embedded shaders), run its texture transcode tests and
 the draw/state counter check of a fixed synthetic frame (perf_check.cpp, bgfx Noop backend) and the
-GPU skinning parity check against the CPU kernel (skinning_check.cpp, OpenGL ES in an SDL window: needs an X display, e.g. xvfb-run).
+GPU skinning parity check against the CPU kernel (skinning_check.cpp), the texture formats on the GPU
+(texture_format_check.cpp, OpenGL ES in an SDL window: needs an X display, e.g. xvfb-run).
 
-Uses the pinned bgfx (src/libs/renderer_bgfx/cmake/bgfx_pin.cmake) and etcpak, the shared host shaderc
+Uses the pinned bgfx (src/libs/renderer_bgfx/cmake/bgfx_pin.cmake), the shared host shaderc
 of that pin (STORM_SHADERC overrides it) and the Storm ccache launcher (tools/ccache/README.md); the kept
-build directory makes repeated runs incremental. Offline: set FETCHCONTENT_SOURCE_DIR_STORM_BGFX_UPSTREAM /
-FETCHCONTENT_SOURCE_DIR_STORM_ETCPAK in the environment.
+build directory makes repeated runs incremental. Offline: set FETCHCONTENT_SOURCE_DIR_STORM_{BGFX,BX,BIMG,BGFX_CMAKE} in the
+environment.
 """
 import argparse
 import os
@@ -26,7 +27,8 @@ if not (sdl / 'SDL2').exists():
     (sdl / 'SDL2').symlink_to(a.sdl_source.resolve() / 'include', target_is_directory=True)
 configure = ['cmake', '-S', str(here), '-B', str(build), '-G', 'Ninja', '-DCMAKE_BUILD_TYPE=Release',
              f'-DSTORM_SDL_INCLUDE={sdl}']
-for name in ('STORM_SHADERC', 'FETCHCONTENT_SOURCE_DIR_STORM_BGFX_UPSTREAM', 'FETCHCONTENT_SOURCE_DIR_STORM_ETCPAK'):
+for name in ('STORM_SHADERC', 'FETCHCONTENT_SOURCE_DIR_STORM_BGFX', 'FETCHCONTENT_SOURCE_DIR_STORM_BX', 'FETCHCONTENT_SOURCE_DIR_STORM_BIMG',
+             'FETCHCONTENT_SOURCE_DIR_STORM_BGFX_CMAKE'):
     if os.environ.get(name):
         configure.append(f'-D{name}={os.environ[name]}')
 # Each vertex port declares the constant registers it reads (PORT_VSC_COUNT); the shim uploads the count
@@ -44,21 +46,29 @@ for source in sorted((shim / 'shaders/ports').glob('vs_port_*.sc')):
 subprocess.run(configure, check=True, stdout=subprocess.DEVNULL)
 warmth = here.parents[1] / 'tools/ccache/warmth'
 subprocess.run([str(warmth), 'begin', str(build)], check=True)
-subprocess.run(['cmake', '--build', str(build), '--target', 'storm_bgfx', 'storm_texture_tests', 'perf_check', 'skinning_check',
-                'preset_switch_check', 'sea_edge_check', 'program_cache_check', 'storm_fx_core_check', 'ao_volume_check',
-                'storm_relief_check', 'cutout_caster_check', 'relief_switch_check'], check=True)
+subprocess.run(['cmake', '--build', str(build), '--target', 'storm_bgfx', 'storm_texture_tests', 'perf_check', 'skinning_check', 'uniform_commit_check',
+                'preset_switch_check', 'sea_edge_check', 'program_cache_check', 'render_thread_check',
+                'storm_fx_core_check', 'ao_volume_check',
+                'storm_relief_check', 'cutout_caster_check', 'relief_switch_check', 'texture_format_check',
+                'buffer_pool_check'], check=True)
 subprocess.run([str(warmth), 'end', str(build)], check=True)
 subprocess.run([str(build / 'renderer_bgfx' / 'storm_texture_tests')], check=True)
 subprocess.run([str(build / 'perf_check')], check=True)
 subprocess.run([str(build / 'skinning_check')], check=True)
+subprocess.run([str(build / 'uniform_commit_check')], check=True)
 subprocess.run([str(build / 'preset_switch_check')], check=True)
 subprocess.run([str(build / 'sea_edge_check')], check=True)
 subprocess.run([str(build / 'program_cache_check')], check=True)
+subprocess.run([str(build / 'render_thread_check')], check=True)
 subprocess.run([str(build / 'renderer_bgfx' / 'fx' / 'storm_fx_core_check')], check=True)
 subprocess.run([str(build / 'ao_volume_check')], check=True)
 subprocess.run([str(build / 'cutout_caster_check')], check=True)
 subprocess.run([str(build / 'relief_switch_check')], check=True)
+subprocess.run([str(build / 'texture_format_check')], check=True)
+subprocess.run([str(build / 'buffer_pool_check')], check=True)
 subprocess.run([str(build / 'relief' / 'storm_relief_check'), (build / 'deepbump_model_path.txt').read_text()], check=True)
-print('PASS: storm_bgfx builds; storm_texture_tests; perf_check; skinning_check; preset_switch_check; sea_edge_check; program_cache_check; '
-      'fx core_check; ao_volume_check; cutout_caster_check; relief_switch_check; relief_check',
+print('PASS: storm_bgfx builds; storm_texture_tests; perf_check; skinning_check; uniform_commit_check; preset_switch_check; sea_edge_check; program_cache_check; '
+      'render_thread_check; '
+      'fx core_check; ao_volume_check; cutout_caster_check; relief_switch_check; texture_format_check; buffer_pool_check; '
+      'relief_check',
       flush=True)

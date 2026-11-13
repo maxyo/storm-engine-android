@@ -69,8 +69,8 @@ Location::~Location()
 {
     if (geometryReported_)
         storm::render::SetEffectsLocationGeometry({}); // the next location reports its own
-    if (groundLightReported_)
-        storm::render::SetEffectsGroundLight({}, {}, {}, {}, {}, {});
+    if (lightmapsReported_)
+        storm::render::SetEffectsLightmaps({}, {}, {}, {}, {}, {});
     if (!AttributesPointer)
         return;
     auto *const atr = AttributesPointer->FindAClass(AttributesPointer, "locators");
@@ -188,7 +188,7 @@ std::optional<storm::render::EffectsLightmap> ReadLightmap(const std::string &fi
                      (head.format[3] == '1' || head.format[3] == '3' || head.format[3] == '5');
     if (!dxt || head.flags != 0 || head.width <= 0 || head.height <= 0 || head.nmips <= 0)
     {
-        core.Trace("ERROR: lightmap %s: format %.4s, flags %d: only plain DXT1/3/5 lightmaps light the characters", file.c_str(),
+        core.Trace("ERROR: lightmap %s: format %.4s, flags %d: only plain DXT1/3/5 lightmaps get our own", file.c_str(),
                    head.format, head.flags);
         return std::nullopt;
     }
@@ -218,9 +218,9 @@ std::optional<storm::render::EffectsLightmap> ReadLightmap(const std::string &fi
 
 } // namespace
 
-void Location::ReportGroundLight()
+void Location::ReportLightmaps()
 {
-    groundLightReported_ = true;
+    lightmapsReported_ = true;
     const char *id = AttributesPointer ? AttributesPointer->GetAttribute("id") : nullptr;
     const char *weather = AttributesPointer ? AttributesPointer->GetAttribute("lockWeather") : nullptr;
     if (weather && storm::iEquals(weather, "Inside"))
@@ -253,10 +253,11 @@ void Location::ReportGroundLight()
                 auto map = ReadLightmap(file);
                 if (!map)
                 {
-                    core.Trace("ERROR: Location %s: lightmap %s of model %s cannot be read: characters on it keep the "
-                               "full sun", id ? id : "?", file.c_str(), model.GetModelName(i));
+                    core.Trace("ERROR: Location %s: lightmap %s of model %s cannot be read: it keeps the game's "
+                               "lightmap", id ? id : "?", file.c_str(), model.GetModelName(i));
                     continue;
                 }
+                map->texture = rs->GetTextureFromID(node->geo->LightmapTexture());
                 files.push_back(file);
                 lightmaps.push_back(std::move(*map));
             }
@@ -265,7 +266,7 @@ void Location::ReportGroundLight()
             local_indices.clear();
             if (!node->geo->AppendLightmapTriangles(local, local_uvs, local_indices))
             {
-                core.Trace("ERROR: Location %s: the buffers of model %s cannot be read: characters on it keep the full sun",
+                core.Trace("ERROR: Location %s: the buffers of model %s cannot be read: it keeps the game's lightmap",
                            id ? id : "?", model.GetModelName(i));
                 continue;
             }
@@ -281,7 +282,7 @@ void Location::ReportGroundLight()
             triangle_lightmap.insert(triangle_lightmap.end(), local_indices.size() / 3, lightmap);
         }
     }
-    storm::render::SetEffectsGroundLight(id ? id : "", positions, uvs, indices, triangle_lightmap, lightmaps);
+    storm::render::SetEffectsLightmaps(id ? id : "", positions, uvs, indices, triangle_lightmap, lightmaps);
 }
 
 // Initialization
@@ -354,8 +355,8 @@ void Location::Realize(uint32_t delta_time)
     // The first frame: every model of the location (always, day/night, back) is loaded by now.
     if (!geometryReported_)
         ReportGeometry();
-    if (!groundLightReported_)
-        ReportGroundLight();
+    if (!lightmapsReported_)
+        ReportLightmaps();
     const auto fDeltaTime = static_cast<float>(delta_time) * 0.001f;
 
     fCausticFrame += fDeltaTime * fCausticSpeed;
@@ -710,6 +711,22 @@ int32_t Location::LoadStaticModel(const char *modelName, const char *tech, int32
         model.DeleteModel(im);
         return -1;
     }
+    // A model the game baked for other hours but not for this one (the furniture of houses in the late evening)
+    // would be drawn with its own colours, full bright in a dark room: it is lit by the lights around it instead, as
+    // the models the scripts mark for dynamic light, so it stands in the light of the place.
+    if (!useDynamicLights)
+        for (int32_t n = 0;; ++n)
+        {
+            NODE *part = mdl->GetNode(n);
+            if (!part)
+                break;
+            if (part->geo && part->geo->LostBakedLight())
+            {
+                core.Trace("Location: model %s has no baked colours for this hour: lit by the lights around it", modelName);
+                core.Send_Message(model.RealizerID(im), "lip", 1, mdl->GetId(), GetLights());
+                break;
+            }
+        }
     // Add the model to special layers
     core.AddToLayer(SHADOW, mdl->GetId(), 10);
     core.AddToLayer(SUN_TRACE, mdl->GetId(), 10);

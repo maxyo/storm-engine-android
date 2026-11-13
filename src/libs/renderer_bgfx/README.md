@@ -3,14 +3,14 @@
 The engine's only GPU backend: [bgfx](https://github.com/bkaradzic/bgfx) on OpenGL ES 3.0,
 on Android and on the Linux development host alike.
 
-- `cmake/bgfx_pin.cmake` — the single pin of bgfx.cmake (bgfx/bx/bimg as its submodules).
+- `cmake/bgfx_pin.cmake` — the single pin of bgfx, bx, bimg and of bgfx.cmake (its CMake scripts only).
   `cmake/bgfx_upstream.cmake` adds those targets (patched, see `patches/`). Everything that uses
   bgfx, bx or bimg links `storm_bgfx_runtime` (or `storm_bgfx`), never those targets, and never
   fetches bgfx itself. On Android `storm_bgfx_runtime` is `libbgfx.so`: bgfx, bx and bimg whole in
   one shared library next to `libengine.so`, which `libengine.so` and the UI runtime
   (`libstorm_ui.so`, src/libs/ui) both link, so a process has exactly one bgfx
   (`tools/android/verify_engine.py` refuses a `libengine.so` with its own). Elsewhere it is the
-  static libraries. Offline builds pass `-DFETCHCONTENT_SOURCE_DIR_STORM_BGFX_UPSTREAM=<pinned checkout>`.
+  static libraries. Offline builds pass `-DFETCHCONTENT_SOURCE_DIR_STORM_{BGFX,BX,BIMG,BGFX_CMAKE}=<pinned checkout>` (bgfx patched).
   Licences: `third_party/licenses/{bgfx,bx,bimg}-BSD-2-Clause.txt`.
 - `src/shim/` — the D3D9-shaped device. Consumer libraries reach the renderer through `VRenderer`
   (src/libs/renderer/include/renderer.h) with renderer ids (textures, render targets, depth surfaces,
@@ -31,23 +31,55 @@ on Android and on the Linux development host alike.
   view order, client views for the UI). The header is the documentation.
 - `host-tools/` — builds only the host `shaderc` from the same pin (`cmake/storm_shaderc.cmake` builds it
   once per machine and pin for every host and cross build).
-- `src/texture/` — DXT → ETC2 transcode (etcpak, pinned in this CMakeLists) with an on-device cache for
+- `src/texture/` — DXT → ETC2 transcode (bimg: its BC decoder and its ETC2 encoder, bimg_encode) with an on-device cache for
   GPUs without S3TC. The tier (bc / etc2 / rgba8) is fixed per GPU at startup and logged once;
   `texture_compression` and `texture_cache_mb` in engine.ini override it. Tests and the benchmark build with
   `-DSTORM_BGFX_BUILD_TESTS=ON` (`storm_texture_tests`, `storm_texture_bench`).
-- `patches/` — fixes applied to the pinned bgfx in each build directory's patched view of its shared source copy (`bgfx_pin.cmake`, `storm_patched_view`) (currently: re-attach to a new
-  Android native window after the activity returns from background). The same fix is upstream as bgfx
-  99b7977f ("Android: restore main-window EGL surface recreation", the commit right after the pinned
-  fd541f05). It is not taken yet because every bgfx.cmake revision that carries it (5730f7a and later)
-  replaces the bgfx/bx/bimg submodules with FetchContent, which changes how this pin, host-tools/ and
-  the offline Android sources work. Drop the patch with that pin bump.
+- `patches/` — fixes applied to the pinned bgfx in each build directory's patched view of its shared source copy
+  (`bgfx_pin.cmake`, `storm_patched_view`); the configure fails when a patch does not apply or changes nothing.
   `bgfx-anisotropy-level.patch`: the GL backend applies one anisotropy level to every sampler, the device
   maximum; the patch caps it with `bgfx::gl::g_stormMaxAnisotropy` so the presets get 4x / 8x (set by
   `src/effects`). Upstream bgfx has no per-level API; keep it until it does.
+  `bgfx-gl-uniform-commit.patch`: the GL backend re-uploaded every uniform of a program whenever one uniform of a
+  draw or the program changed; each GL program now keeps a copy of the values it holds and gets only the ones that
+  differ (render thread only). Its counters `bgfx::gl::g_stormUniformUploadCalls/Bytes` are the `gl_uniforms` /
+  `gl_uniform_kb` of the render metrics; checked by `tests/renderer_bgfx/uniform_commit_check`. Upstream's
+  `BGFX_GL_CONFIG_UNIFORM_CACHE` (Emscripten only) is a hash map per register keyed by the reusable GL program id.
   `bgfx-swap-present-hook.patch`: `bgfx::setEglPresent` replaces `eglSwapBuffers` for the window surface of
   the context bgfx created, so the shim presents with Android Frame Pacing (`src/shim/frame_pacing.hpp`,
   Swappy GL from `cmake/swappy.cmake`; tools/android/README.md, "Frame pacing"). Upstream bgfx has no
   present hook; keep it until it does.
+  `bgfx-render-thread-hooks.patch`: `bgfx::setRenderFrameDone` reports each frame the render thread has
+  finished (rendered and presented), which bgfx has no API for; see "Threads" below.
+
+## Threads
+
+bgfx runs multithreaded (`BGFX_CONFIG_MULTITHREADED`). The game thread records a frame; `bgfx::frame()`
+(only in `Context::run_frame`) hands it to bgfx's render thread, which owns the EGL context, executes the GL
+backend and presents (Swappy), after `bgfx::frame()` has returned. Rules that follow:
+
+- No GL or EGL call outside bgfx. What the driver says about itself is read once on the render thread:
+  `shim::Context::gl_info()`.
+- `bgfx::makeRef` without a release function only for data that lives as long as the program; otherwise
+  `bgfx::copy` or a release callback (it runs on the render thread). A pointer given to `bgfx::read` stays
+  valid until `bgfx::frame()` has returned the frame number `bgfx::read` gave.
+- bgfx's callbacks (program cache, traces, profiler scopes) and the present function run on the render thread.
+- The surface is given back to Android (`request_surface_release`, `surface_lost`) only when the render
+  thread has finished every frame handed over. `BGFX_FRAME_FLUSH` frames (read-backs) present nothing and
+  are never refused.
+- Pacing (`src/shim/frame_overlap.hpp`): after handing a frame over the game thread waits for that frame's
+  present, so input reaches the picture as fast as without a render thread; only while game work + render
+  work do not fit the frame it waits for the previous frame's present instead and simulates one frame ahead
+  (one frame more of latency, each thread a whole frame of time). Logged at each change:
+  `render thread: frames take turns` / `frames overlap`.
+- `RenderMetrics`: `submit_ms` is the backend's time per frame on the render thread, `wait_ms` the game
+  thread's wait for it; the game thread's own work is the frame time minus `wait_ms`.
+- Developer keys in engine.ini, read when the renderer starts (debuggable Android builds: graphics settings
+  of the same names): `render_thread = 0` keeps bgfx on the game thread (`bgfx::renderFrame()` before
+  `bgfx::init`, bgfx's own switch; the launcher's screens under a `GLSurfaceView` always run that way),
+  `render_overlap = 0 / 1` forces the pacing choice. For measurements; the start log says which is active
+  (`render thread: on` / `OFF`).
+- Checked by `tests/renderer_bgfx/render_thread_check` and `tests/frame_pacing`.
 - `fx/` — optional effects package (see its README), driven by `src/effects/` (presets, post chain,
   lighting and alpha to coverage of the fixed-function emulator).
   A preset change on a live device (and the device's start, which begins on «Низкая») is staged by

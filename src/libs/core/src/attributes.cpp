@@ -78,6 +78,16 @@ ATTRIBUTES::ATTRIBUTES(ATTRIBUTES &&other) noexcept
     : stringCodec_(other.stringCodec_), nameCode_(other.stringCodec_.Convert("root")), value_(std::move(other.value_)),
       attributes_(std::move(other.attributes_)), break_(other.break_)
 {
+    AdoptChildren();
+}
+
+// Children moved in from another object still named it as their parent; it may be a temporary (Copy()) that is
+// destroyed right after the move, and every later walk up from a child (GetParent, the script state's tree of a
+// write) would read freed memory.
+void ATTRIBUTES::AdoptChildren() noexcept
+{
+    for (const auto &attribute : attributes_)
+        attribute->parent_ = this;
 }
 
 ATTRIBUTES & ATTRIBUTES::operator=(ATTRIBUTES &&other) noexcept
@@ -87,6 +97,7 @@ ATTRIBUTES & ATTRIBUTES::operator=(ATTRIBUTES &&other) noexcept
     // nameCode_ = other.nameCode_;
     value_ = std::move(other.value_);
     attributes_ = std::move(other.attributes_);
+    AdoptChildren();
     // Do not update parent
     // parent_ = other.parent_;
     break_ = other.break_;

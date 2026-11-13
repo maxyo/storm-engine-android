@@ -6,7 +6,7 @@
 //   FX_LIGHT_PER_PIXEL    sun diffuse evaluated per pixel
 //   FX_LIGHT_HEMISPHERE   sky / ground ambient instead of the flat global ambient
 //   FX_LIGHT_SPECULAR     Blinn-Phong highlights
-//   FX_LIGHT_TRANSLUCENT  light passing through thin two-sided surfaces (sails, flags)
+//   FX_LIGHT_TRANSLUCENT  sunlight passing through thin two-sided surfaces (sails, flags): fxSunTransmission
 //   FX_LIGHT_POINT        the enabled D3D point / spot lights evaluated per pixel;
 //                         FX_LIGHT_POINT_MAX = 4 or 8 lights per draw call
 //   FX_LIGHT_SHADOW       sun shadow map; FX_LIGHT_SHADOW_SOFT = four taps instead of one
@@ -28,6 +28,8 @@
 // and after them:
 //   color.rgb = fxAddSpecular(color.rgb, matSpecular * (fxSunSpecular(N, V) * fxSunShadow(P, N)
 //                                                       + fxPointSpecular(N, P, V)) + fxRim(N, V))
+// and with FX_LIGHT_TRANSLUCENT, for two-sided surfaces (the sun's visibility taken on the surface's sunlit side):
+//   color.rgb = fxAddSpecular(color.rgb, fxSunTransmission(N, V, luminance of the colour texture) * fxSunShadow(P, -N))
 // Without FX_LIGHT_LINEAR everything is in the gamma space of the legacy pipeline and uses the D3D9
 // formulas, so a surface keeps its fixed-function brightness; only the interpolation changes (per pixel
 // instead of per vertex). With FX_LIGHT_LINEAR light colours (and point-light falloff, which the game tuned
@@ -97,13 +99,26 @@ vec3 fxSunDiffuse(vec3 N, vec3 V)
     float ndl = dot(N, u_fxLight[0].xyz);
     float wrap = u_fxLight[3].w;
     float lit = clamp((ndl + wrap) / (1.0 + wrap), 0.0, 1.0);
-#ifdef FX_LIGHT_TRANSLUCENT
-    // Light entering the far side glows through, strongest when looking towards the sun.
-    float through = clamp(-ndl, 0.0, 1.0) * (0.55 + 0.45 * clamp(-dot(V, u_fxLight[0].xyz), 0.0, 1.0));
-    lit += through * u_fxLight[2].w;
-#endif
     return fxLightColor(u_fxLight[1].rgb) * lit;
 }
+
+#ifdef FX_LIGHT_TRANSLUCENT
+// Sunlight passing through a thin two-sided surface (sails, flags) seen from its shadowed side: N faces the viewer,
+// so the sun stands behind the surface where N.L < 0. Canvas scatters it mostly forwards (strongest when looking
+// towards the sun) and lets the warm part through. weave: the luminance of the surface's own colour texture (its
+// threads, seams and patches show); added after the texture stages, so it is not tinted twice by the texture.
+// Strength u_fxLight[2].w (LightingMaterial::translucency; 0 for every other material).
+vec3 fxSunTransmission(vec3 N, vec3 V, float weave)
+{
+    // back: the sun's light on the far side, saturating (a curved sail under a high sun still glows); toward: the
+    // forward-scattering lobe around the sun.
+    float back = clamp(-dot(N, u_fxLight[0].xyz), 0.0, 1.0);
+    float toward = clamp(-dot(V, u_fxLight[0].xyz), 0.0, 1.0);
+    float toward2 = toward * toward;
+    float through = (1.2 * back / (back + 0.2)) * (0.3 + 1.7 * toward2 * toward2);
+    return fxLightColor(u_fxLight[1].rgb * vec3(1.0, 0.85, 0.6)) * (through * weave * u_fxLight[2].w);
+}
+#endif
 
 vec3 fxAmbient(vec3 N)
 {
@@ -250,7 +265,6 @@ vec3 fxPointSpecular(vec3 N, vec3 P, vec3 V)
 SAMPLER2DSHADOW(s_fxShadowMap, 15);
 uniform mat4 u_fxShadowMtx; // view space -> shadow map uv and depth
 uniform vec4 u_fxShadow;    // x: one texel in uv, y: shadow strength, z: normal offset in view units, w: depth bias
-uniform vec4 u_fxGroundSun; // x: the draw's sun as the location's lightmaps show it under it (1: none, fx/ground_light.hpp)
 
 // 1 = fully lit by the sun, 1 - strength = fully shadowed. P and N in view space.
 float fxSunShadow(vec3 P, vec3 N)
@@ -271,8 +285,7 @@ float fxSunShadow(vec3 P, vec3 N)
     // Outside the map (and beyond its far plane) everything is lit; fade out over the last tenth.
     vec2 edge = abs(coord.xy - vec2_splat(0.5)) * 2.0;
     float inside = clamp((1.0 - max(max(edge.x, edge.y), coord.z)) * 10.0, 0.0, 1.0);
-    // Characters cast on each other through the map; the buildings' shade is the ground's own, under the draw.
-    lit = min(1.0 - (1.0 - lit) * inside, u_fxGroundSun.x);
+    lit = 1.0 - (1.0 - lit) * inside;
     return 1.0 - (1.0 - lit) * u_fxShadow.y;
 }
 #else

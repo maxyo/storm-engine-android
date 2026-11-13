@@ -22,7 +22,7 @@ build/ui-host/storm_ui_shot --pack <pack dir> --doc gallery/button.rml --out sho
 ```
 
 The build pulls in `src/libs/renderer_bgfx` for bgfx, its shader build and the pinned sources
-(offline: `-DFETCHCONTENT_SOURCE_DIR_STORM_BGFX_UPSTREAM=<checkout>`). `storm_ui_shot` renders
+(offline: `-DFETCHCONTENT_SOURCE_DIR_STORM_{BGFX,BX,BIMG,BGFX_CMAKE}=<checkouts>`, bgfx patched). `storm_ui_shot` renders
 off-screen through the UI's bgfx backend on bgfx's GLES 3.0 renderer (Mesa llvmpipe, headless,
 simulated clock), the tool acting as the frame owner with the engine's UI view range (`--views N`)
 and decoding game pictures from `--game-root` itself. It can replay touches:

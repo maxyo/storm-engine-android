@@ -35,7 +35,7 @@ bool SupportsLut3d();
 bool SupportsShadowMap();
 bool SupportsAoVolume();
 bool SupportsNormalMap(bgfx::TextureFormat::Enum format);
-bool SupportsMsaa();
+uint8_t MsaaSamples(); // 1, 2 or 4
 bool SupportsSmaa();
 // The format of SMAA's edge target: RG8 where it renders, else RGBA8.
 bgfx::TextureFormat::Enum SmaaEdgeFormat();

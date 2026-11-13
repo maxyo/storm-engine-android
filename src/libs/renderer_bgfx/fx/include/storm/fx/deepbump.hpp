@@ -18,6 +18,11 @@ namespace storm::fx
 // The model is fully convolutional: it runs once on the whole texture, wrapped around by kDeepBumpPad texels on every
 // side (the texture tiles) and grown to a multiple of 32 (its five 2x downsamplings).
 inline constexpr int kDeepBumpPad = 64;
+
+// The first 8 bytes of the sha256 of the model the game runs (src/libs/relief/model/deepbump256-int8.onnx): part of
+// the relief maps' method (ReliefMethod), so another model never reuses their maps. src/libs/relief/CMakeLists.txt
+// fails the build when the model file does not match it.
+inline constexpr uint64_t kDeepBumpModelDigest = 0x24b0975701c94500ull;
 void DeepBumpInputSize(int width, int height, int &padded_width, int &padded_height);
 
 // The model's input for a texture: the mean of R, G and B (0..1), box-downsampled from width x height to

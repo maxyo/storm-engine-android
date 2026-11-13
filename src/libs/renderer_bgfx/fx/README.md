@@ -38,8 +38,10 @@ never showed on this port.
   before the upscale), dither, contact shadows,
   a gentle Caribbean grade, anisotropy 4, the sea's band limit, per-pixel lighting with 4 point lights and normal
   maps, sun shadows (low), the ambient-occlusion volume of interiors, the AgX tone curve on the luminance
-  (strength 0.6), the grade of the place and hour (hue and warmth only), aerial perspective and height fog, rim light.
-- **Высокая**: as Средняя with anisotropy 8, soft sea edges, specular and translucency, 8 point
+  (strength 0.6), the grade of the place and hour (hue and warmth only), aerial perspective and height fog, rim light,
+  sunlight through the sails (a warm term on sails and flags with the sun behind them, scaled by the luminance of the
+  canvas texture, the sun's visibility taken on the sail's sunlit side).
+- **Высокая**: as Средняя with anisotropy 8, soft sea edges, specular, 8 point
   lights, soft sun shadows and ambient occlusion, the sun glare (replacing the game's sun glow and flare sprites)
   and sun shafts.
 

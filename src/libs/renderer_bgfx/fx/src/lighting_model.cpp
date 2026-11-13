@@ -18,7 +18,7 @@ LightingMaterial LightingMaterial::Hull()
 
 LightingMaterial LightingMaterial::Sail()
 {
-    return {8.0f, 0.04f, 0.55f, 0.2f, 0.35f, 0.3f};
+    return {8.0f, 0.04f, 0.8f, 0.2f, 0.35f, 0.3f};
 }
 
 LightingMaterial LightingMaterial::Character()
@@ -54,7 +54,7 @@ LightingUniforms ComputeLighting(const LightingInput &input, const LightingMater
     LightingUniforms u{};
     u.u_fxLight[0] = {sun[0], sun[1], sun[2], material.specular_power};
     u.u_fxLight[1] = {input.sun_diffuse[0], input.sun_diffuse[1], input.sun_diffuse[2], material.specular_strength};
-    u.u_fxLight[2] = {up[0], up[1], up[2], material.translucency};
+    u.u_fxLight[2] = {up[0], up[1], up[2], material.translucency * std::max(settings.sail_light, 0.0f)};
     for (int i = 0; i < 3; ++i)
     {
         u.u_fxLight[3][i] = input.ambient[i] * (1.0f + kContrast) * hue[i];

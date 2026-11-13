@@ -6,6 +6,9 @@
 
 #include "../texture/core/service.hpp"
 
+#include <bx/error.h>
+#include <bx/readerwriter.h>
+
 #include <algorithm>
 
 namespace storm::shim
@@ -17,54 +20,28 @@ FormatInfo format_info(D3DFORMAT format)
 {
     switch (static_cast<uint32_t>(format))
     {
-    case D3DFMT_A8R8G8B8:
-        return {4, 0, false, true};
-    case D3DFMT_X8R8G8B8:
-        return {4, 0, false, false};
-    case D3DFMT_R8G8B8:
-        return {3, 0, false, false};
-    case D3DFMT_R5G6B5:
-    case D3DFMT_X1R5G5B5:
-    case D3DFMT_X4R4G4B4:
-        return {2, 0, false, false};
-    case D3DFMT_A1R5G5B5:
-    case D3DFMT_A4R4G4B4:
-    case D3DFMT_A8L8:
-        return {2, 0, false, true};
-    case D3DFMT_V8U8:
-        return {2, 0, false, false};
-    case D3DFMT_A8:
-        return {1, 0, false, true};
-    case D3DFMT_L8:
-    case D3DFMT_P8:
-        return {1, 0, false, false};
-    case D3DFMT_Q8W8V8U8:
-    case D3DFMT_X8L8V8U8:
-    case D3DFMT_A8B8G8R8:
-    case D3DFMT_X8B8G8R8:
-        return {4, 0, false, true};
-    case D3DFMT_A32B32G32R32F: // bone palettes (GPU skinning), sampled with texelFetch
-        return {16, 0, false, true};
-    case D3DFMT_DXT1:
-        return {0, 8, false, true};
-    case D3DFMT_DXT2:
-    case D3DFMT_DXT3:
-    case D3DFMT_DXT4:
-    case D3DFMT_DXT5:
-        return {0, 16, false, true};
     case D3DFMT_D16:
     case D3DFMT_D16_LOCKABLE:
-        return {2, 0, true, false};
+        return {2, 0, true};
     case D3DFMT_D24S8:
     case D3DFMT_D24X8:
     case D3DFMT_D32:
     case D3DFMT_D24X4S4:
     case D3DFMT_D15S1:
-        return {4, 0, true, false};
+        return {4, 0, true};
     default:
-        trap("unsupported D3DFORMAT (sized as 32-bit; see convert_to_rgba8)");
-        return {4, 0, false, true};
+        break;
     }
+    const bimg::TextureFormat::Enum texels = texture::d3d_format(static_cast<uint32_t>(format)).format;
+    if (texels == bimg::TextureFormat::Unknown)
+    {
+        trap("unsupported D3DFORMAT (sized as 32-bit; texture/core d3d_format lists the supported ones)");
+        return {4, 0, false};
+    }
+    const bimg::ImageBlockInfo &block = bimg::getBlockInfo(texels);
+    if (bimg::isCompressed(texels))
+        return {0, block.blockSize, false};
+    return {static_cast<uint8_t>(block.bitsPerPixel / 8), 0, false};
 }
 
 uint32_t level_pitch(D3DFORMAT format, uint32_t width)
@@ -78,97 +55,6 @@ uint32_t level_size(D3DFORMAT format, uint32_t width, uint32_t height)
     const FormatInfo info = format_info(format);
     return info.block_bytes ? level_pitch(format, width) * std::max(1u, (height + 3) / 4)
                             : level_pitch(format, width) * height;
-}
-
-void convert_to_rgba8(D3DFORMAT format, const uint8_t *src, uint32_t src_pitch, uint32_t width, uint32_t height,
-                      uint8_t *dst)
-{
-    for (uint32_t y = 0; y < height; ++y)
-    {
-        const uint8_t *s = src + static_cast<size_t>(y) * src_pitch;
-        uint8_t *d = dst + static_cast<size_t>(y) * width * 4;
-        switch (static_cast<uint32_t>(format))
-        {
-        case D3DFMT_A8R8G8B8:
-            for (uint32_t x = 0; x < width; ++x, s += 4, d += 4)
-                d[0] = s[2], d[1] = s[1], d[2] = s[0], d[3] = s[3];
-            break;
-        case D3DFMT_X8R8G8B8:
-            for (uint32_t x = 0; x < width; ++x, s += 4, d += 4)
-                d[0] = s[2], d[1] = s[1], d[2] = s[0], d[3] = 255;
-            break;
-        case D3DFMT_A8B8G8R8:
-        case D3DFMT_Q8W8V8U8:
-            memcpy(d, s, static_cast<size_t>(width) * 4);
-            break;
-        case D3DFMT_X8B8G8R8:
-        case D3DFMT_X8L8V8U8:
-            for (uint32_t x = 0; x < width; ++x, s += 4, d += 4)
-                d[0] = s[0], d[1] = s[1], d[2] = s[2], d[3] = 255;
-            break;
-        case D3DFMT_R8G8B8:
-            for (uint32_t x = 0; x < width; ++x, s += 3, d += 4)
-                d[0] = s[2], d[1] = s[1], d[2] = s[0], d[3] = 255;
-            break;
-        case D3DFMT_R5G6B5:
-            for (uint32_t x = 0; x < width; ++x, s += 2, d += 4)
-            {
-                const uint32_t v = s[0] | (s[1] << 8);
-                const uint32_t r = v >> 11, g = (v >> 5) & 63, b = v & 31;
-                d[0] = static_cast<uint8_t>((r << 3) | (r >> 2));
-                d[1] = static_cast<uint8_t>((g << 2) | (g >> 4));
-                d[2] = static_cast<uint8_t>((b << 3) | (b >> 2));
-                d[3] = 255;
-            }
-            break;
-        case D3DFMT_A1R5G5B5:
-        case D3DFMT_X1R5G5B5:
-            for (uint32_t x = 0; x < width; ++x, s += 2, d += 4)
-            {
-                const uint32_t v = s[0] | (s[1] << 8);
-                const uint32_t r = (v >> 10) & 31, g = (v >> 5) & 31, b = v & 31;
-                d[0] = static_cast<uint8_t>((r << 3) | (r >> 2));
-                d[1] = static_cast<uint8_t>((g << 3) | (g >> 2));
-                d[2] = static_cast<uint8_t>((b << 3) | (b >> 2));
-                d[3] = (format == D3DFMT_X1R5G5B5 || (v & 0x8000)) ? 255 : 0;
-            }
-            break;
-        case D3DFMT_A4R4G4B4:
-        case D3DFMT_X4R4G4B4:
-            for (uint32_t x = 0; x < width; ++x, s += 2, d += 4)
-            {
-                const uint32_t v = s[0] | (s[1] << 8);
-                d[0] = static_cast<uint8_t>(((v >> 8) & 15) * 17);
-                d[1] = static_cast<uint8_t>(((v >> 4) & 15) * 17);
-                d[2] = static_cast<uint8_t>((v & 15) * 17);
-                d[3] = format == D3DFMT_X4R4G4B4 ? 255 : static_cast<uint8_t>((v >> 12) * 17);
-            }
-            break;
-        case D3DFMT_A8:
-            for (uint32_t x = 0; x < width; ++x, ++s, d += 4)
-                d[0] = d[1] = d[2] = 0, d[3] = s[0];
-            break;
-        case D3DFMT_L8:
-        case D3DFMT_P8:
-            for (uint32_t x = 0; x < width; ++x, ++s, d += 4)
-                d[0] = d[1] = d[2] = s[0], d[3] = 255;
-            break;
-        case D3DFMT_A8L8:
-            for (uint32_t x = 0; x < width; ++x, s += 2, d += 4)
-                d[0] = d[1] = d[2] = s[0], d[3] = s[1];
-            break;
-        case D3DFMT_V8U8:
-            for (uint32_t x = 0; x < width; ++x, s += 2, d += 4)
-                d[0] = s[0], d[1] = s[1], d[2] = 0, d[3] = 255;
-            break;
-        default:
-            // Not a format the engine is known to use: report it and show magenta, never plausible pixels.
-            trap("texture upload in an unsupported D3DFORMAT");
-            for (uint32_t x = 0; x < width; ++x, d += 4)
-                d[0] = 255, d[1] = 0, d[2] = 255, d[3] = 255;
-            break;
-        }
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -388,83 +274,110 @@ Tier select_tier(const TexStore &store)
     return store.kind == TexKind::Cube ? tier_cube : tier_2d;
 }
 
-// bgfx can only restrict the mip range of a texture created from an image container;
-// D3D textures with a partial mip chain (very common in .tx files) need that.
-// `first_level` drops the largest levels (temporary textures while transcoding).
-const bgfx::Memory *make_dds(const TexStore &store, bgfx::TextureFormat::Enum gpu_format, bool compressed,
-                             uint32_t first_level = 0)
+// The bgfx format of a sampled texture's D3D texels as they are (texture/core d3d_format). Its support on this GPU
+// is logged once per format and kind: native, converted to RGBA8 by bgfx at upload (emulated), or missing (an error).
+bgfx::TextureFormat::Enum texel_format(const TexStore &store)
 {
-    const uint32_t dxgi = gpu_format == bgfx::TextureFormat::BC1   ? 71
-                          : gpu_format == bgfx::TextureFormat::BC2 ? 74
-                          : gpu_format == bgfx::TextureFormat::BC3 ? 77
-                                                                   : 28; // R8G8B8A8_UNORM
-    const uint32_t levels = store.levels - first_level;
-    size_t payload = 0;
-    for (uint32_t level = first_level; level < store.levels; ++level)
+    const auto format = static_cast<bgfx::TextureFormat::Enum>(texture::d3d_format(static_cast<uint32_t>(store.format)).format);
+    const uint16_t native = store.kind == TexKind::Cube     ? BGFX_CAPS_FORMAT_TEXTURE_CUBE
+                            : store.kind == TexKind::Volume ? BGFX_CAPS_FORMAT_TEXTURE_3D
+                                                            : BGFX_CAPS_FORMAT_TEXTURE_2D;
+    const uint16_t emulated = store.kind == TexKind::Cube     ? BGFX_CAPS_FORMAT_TEXTURE_CUBE_EMULATED
+                              : store.kind == TexKind::Volume ? BGFX_CAPS_FORMAT_TEXTURE_3D_EMULATED
+                                                              : BGFX_CAPS_FORMAT_TEXTURE_2D_EMULATED;
+    static bool reported[bgfx::TextureFormat::Count][3] = {};
+    bool &done = reported[format][static_cast<int>(store.kind)];
+    if (!done)
     {
-        const uint32_t w = store.level_width(level), h = store.level_height(level);
-        payload += (compressed ? level_size(store.format, w, h) : static_cast<size_t>(w) * h * 4) * store.level_depth(level);
+        done = true;
+        const uint16_t caps = Context::instance().caps()->formats[format];
+        const char *kind = store.kind == TexKind::Cube ? "cube" : store.kind == TexKind::Volume ? "3D" : "2D";
+        if (caps & native)
+            logf("texture format %s (D3DFORMAT %u) for %s textures: native", bimg::getName(bimg::TextureFormat::Enum(format)),
+                 static_cast<uint32_t>(store.format), kind);
+        else if (caps & emulated)
+            logf("texture format %s (D3DFORMAT %u) for %s textures: not supported by this GPU, bgfx converts it to RGBA8 "
+                 "at upload (twice the memory of 16-bit formats)",
+                 bimg::getName(bimg::TextureFormat::Enum(format)), static_cast<uint32_t>(store.format), kind);
+        else
+            logf("ERROR: texture format %s (D3DFORMAT %u) for %s textures is neither supported nor emulated: such "
+                 "textures fail to create",
+                 bimg::getName(bimg::TextureFormat::Enum(format)), static_cast<uint32_t>(store.format), kind);
     }
-    payload *= store.faces();
-    const bgfx::Memory *memory = bgfx::alloc(static_cast<uint32_t>(4 + 124 + 20 + payload));
-    uint32_t *header = reinterpret_cast<uint32_t *>(memory->data);
-    memset(header, 0, 4 + 124 + 20);
-    const bool cube = store.kind == TexKind::Cube;
-    const bool volume = store.kind == TexKind::Volume;
-    header[0] = 0x20534444; // "DDS "
-    header[1] = 124;
-    header[2] = 0x1 | 0x2 | 0x4 | 0x1000 | 0x20000 | (volume ? 0x800000 : 0);
-    header[3] = store.level_height(first_level);
-    header[4] = store.level_width(first_level);
-    header[6] = volume ? store.level_depth(first_level) : 0;
-    header[7] = levels;
-    header[19] = 32;         // pixel format size
-    header[20] = 0x4;        // DDPF_FOURCC
-    header[21] = 0x30315844; // "DX10"
-    header[27] = 0x1000 | (levels > 1 ? 0x400008 : 0) | (cube ? 0x8 : 0);
-    header[28] = cube ? 0xFE00 : volume ? 0x200000 : 0;
-    header[32] = dxgi;
-    header[33] = volume ? 4 : 3; // D3D10_RESOURCE_DIMENSION_TEXTURE3D / TEXTURE2D
-    header[34] = cube ? 4 : 0;
-    header[35] = 1;
-    const bool block_source = format_info(store.format).block_bytes != 0;
-    std::vector<uint8_t> decoded;
-    uint8_t *out = memory->data + 4 + 124 + 20;
+    return format;
+}
+
+// One level of the CPU copy as the GPU takes it in `gpu_format`: the texels as they are, the unused bits of the X
+// formats set (texture::set_opaque), or DXT decoded to RGBA8 (the Rgba tier). `out`: level_upload_size() bytes.
+size_t level_upload_size(const TexStore &store, bgfx::TextureFormat::Enum gpu_format, uint32_t level)
+{
+    const uint32_t w = store.level_width(level), h = store.level_height(level);
+    const size_t slice = format_info(store.format).block_bytes && gpu_format == bgfx::TextureFormat::RGBA8
+                             ? static_cast<size_t>(w) * h * 4
+                             : level_size(store.format, w, h);
+    return slice * store.level_depth(level);
+}
+
+void write_level(const TexStore &store, const TexStore::Sub &sub, bgfx::TextureFormat::Enum gpu_format, uint32_t level,
+                 uint8_t *out)
+{
+    const size_t bytes = level_upload_size(store, gpu_format, level);
+    if (sub.data.empty())
+    {
+        memset(out, 0, bytes);
+        return;
+    }
+    const uint32_t w = store.level_width(level), h = store.level_height(level), d = store.level_depth(level);
+    if (format_info(store.format).block_bytes && gpu_format == bgfx::TextureFormat::RGBA8)
+    {
+        const size_t slice_bytes = level_size(store.format, w, h);
+        for (uint32_t z = 0; z < d; ++z)
+            texture::decode_rgba8(static_cast<uint32_t>(store.format), sub.data.data() + z * slice_bytes, w, h,
+                                  out + static_cast<size_t>(z) * w * h * 4);
+        return;
+    }
+    memcpy(out, sub.data.data(), bytes);
+    const texture::D3dFormat texels = texture::d3d_format(static_cast<uint32_t>(store.format));
+    if (texels.opaque)
+        texture::set_opaque(texels.format, out, static_cast<size_t>(w) * h * d);
+}
+
+// bgfx can only restrict the mip range of a texture created from an image container;
+// D3D textures with a partial mip chain (very common in .tx files) need that. bimg writes the DDS.
+// `first_level` drops the largest levels (temporary textures while transcoding).
+const bgfx::Memory *make_dds(const TexStore &store, bgfx::TextureFormat::Enum gpu_format, uint32_t first_level = 0)
+{
+    std::vector<uint8_t> payload; // face-major, level-minor, as DDS
+    size_t total = 0;
+    for (uint32_t level = first_level; level < store.levels; ++level)
+        total += level_upload_size(store, gpu_format, level);
+    payload.resize(total * store.faces());
+    uint8_t *out = payload.data();
     for (uint32_t face = 0; face < store.faces(); ++face)
         for (uint32_t level = first_level; level < store.levels; ++level)
         {
-            const TexStore::Sub &sub = store.subs[face * store.levels + level];
-            const uint32_t w = store.level_width(level), h = store.level_height(level);
-            const uint32_t d = store.level_depth(level);
-            const size_t bytes = (compressed ? level_size(store.format, w, h) : static_cast<size_t>(w) * h * 4) * d;
-            if (sub.data.empty())
-                memset(out, 0, bytes);
-            else if (compressed)
-                memcpy(out, sub.data.data(), bytes);
-            else if (block_source)
-            {
-                // the decoder writes whole 4x4 blocks; keep the visible w x h part of every slice
-                const uint32_t aligned_w = texture::blocks_x(w) * 4;
-                const size_t slice_bytes = level_size(store.format, w, h);
-                decoded.resize(static_cast<size_t>(aligned_w) * texture::blocks_x(h) * 4 * 4);
-                for (uint32_t z = 0; z < d; ++z)
-                {
-                    texture::decode_level(layout_of(store).format, sub.data.data() + z * slice_bytes, w, h, decoded.data());
-                    uint8_t *slice = out + static_cast<size_t>(z) * w * h * 4;
-                    for (uint32_t y = 0; y < h; ++y)
-                        memcpy(slice + static_cast<size_t>(y) * w * 4,
-                               decoded.data() + static_cast<size_t>(y) * aligned_w * 4, static_cast<size_t>(w) * 4);
-                }
-            }
-            else
-            {
-                const uint32_t pitch = level_pitch(store.format, w);
-                for (uint32_t z = 0; z < d; ++z)
-                    convert_to_rgba8(store.format, sub.data.data() + static_cast<size_t>(z) * pitch * h, pitch, w, h,
-                                     out + static_cast<size_t>(z) * w * h * 4);
-            }
-            out += bytes;
+            write_level(store, store.subs[face * store.levels + level], gpu_format, level, out);
+            out += level_upload_size(store, gpu_format, level);
         }
+    bimg::ImageContainer image{};
+    image.m_format = static_cast<bimg::TextureFormat::Enum>(gpu_format);
+    image.m_offset = UINT32_MAX;
+    image.m_data = payload.data();
+    image.m_size = static_cast<uint32_t>(payload.size());
+    image.m_width = store.level_width(first_level);
+    image.m_height = store.level_height(first_level);
+    image.m_depth = store.kind == TexKind::Volume ? store.level_depth(first_level) : 0; // DDS: 0 unless a volume
+    image.m_numLayers = 1;
+    image.m_numMips = static_cast<uint8_t>(store.levels - first_level);
+    image.m_cubeMap = store.kind == TexKind::Cube;
+    bx::Error error;
+    bx::SizerWriter sizer;
+    const int32_t size = bimg::imageWriteDds(&sizer, image, nullptr, 0, &error);
+    const bgfx::Memory *memory = bgfx::alloc(static_cast<uint32_t>(size));
+    bx::StaticMemoryBlockWriter writer(memory->data, memory->size);
+    bimg::imageWriteDds(&writer, image, nullptr, 0, &error);
+    if (!error.isOk())
+        trap("DDS container of a texture could not be written (bimg::imageWriteDds)");
     return memory;
 }
 
@@ -524,8 +437,10 @@ void TexStore::create_sampled()
         return;
     }
     gpu_compressed = format_info(format).block_bytes != 0 && tier != Tier::Rgba;
-    gpu_format = gpu_compressed ? bc_format(format) : bgfx::TextureFormat::RGBA8;
-    handle = bgfx::createTexture(counted_texture_upload(make_dds(*this, gpu_format, gpu_compressed)));
+    gpu_format = !format_info(format).block_bytes ? texel_format(*this)
+                 : gpu_compressed                 ? bc_format(format)
+                                                  : bgfx::TextureFormat::RGBA8;
+    handle = bgfx::createTexture(counted_texture_upload(make_dds(*this, gpu_format)));
     if (!bgfx::isValid(handle))
         logf("texture creation failed: %ux%u levels=%u d3dformat=%u", width, height, levels,
              static_cast<uint32_t>(format));
@@ -564,7 +479,7 @@ bool TexStore::create_transcoded()
     const uint32_t first_level = levels > 1 && std::max(width, height) >= 1024 ? 1 : 0;
     gpu_compressed = true;
     gpu_format = bc_format(format);
-    handle = bgfx::createTexture(counted_texture_upload(make_dds(*this, gpu_format, true, first_level)));
+    handle = bgfx::createTexture(counted_texture_upload(make_dds(*this, gpu_format, first_level)));
     if (!bgfx::isValid(handle))
         return false;
     transcoded = true;
@@ -702,19 +617,8 @@ void TexStore::sync()
                 continue;
             s.dirty = false;
             const uint32_t w = level_width(level), h = level_height(level), d = level_depth(level);
-            const bgfx::Memory *memory;
-            if (gpu_compressed || gpu_format == bgfx::TextureFormat::RGBA32F)
-            {
-                memory = bgfx::copy(s.data.data(), static_cast<uint32_t>(s.data.size()));
-            }
-            else
-            {
-                memory = bgfx::alloc(w * h * d * 4);
-                const uint32_t pitch = level_pitch(format, w);
-                for (uint32_t z = 0; z < d; ++z)
-                    convert_to_rgba8(format, s.data.data() + static_cast<size_t>(z) * pitch * h, pitch, w, h,
-                                     memory->data + static_cast<size_t>(z) * w * h * 4);
-            }
+            const bgfx::Memory *memory = bgfx::alloc(static_cast<uint32_t>(level_upload_size(*this, gpu_format, level)));
+            write_level(*this, s, gpu_format, level, memory->data);
             counted_texture_upload(memory);
             switch (kind)
             {
@@ -903,8 +807,6 @@ VertexBuffer::~VertexBuffer()
         device->forget_transient(this);
     if (bgfx::isValid(handle) && Context::instance().initialised())
         bgfx::destroy(handle);
-    if (bgfx::isValid(dynamic) && Context::instance().initialised())
-        bgfx::destroy(dynamic);
     perf_resize(&render::PerfCounters::buffer_shadow_bytes, shadow.size(), 0);
     perf_resize(&render::PerfCounters::buffer_gpu_bytes, gpu_bytes, 0);
 }
@@ -942,8 +844,6 @@ IndexBuffer::~IndexBuffer()
 {
     if (bgfx::isValid(handle) && Context::instance().initialised())
         bgfx::destroy(handle);
-    if (bgfx::isValid(dynamic) && Context::instance().initialised())
-        bgfx::destroy(dynamic);
     perf_resize(&render::PerfCounters::buffer_shadow_bytes, shadow.size(), 0);
     perf_resize(&render::PerfCounters::buffer_gpu_bytes, gpu_bytes, 0);
 }

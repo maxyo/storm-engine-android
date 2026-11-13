@@ -6,9 +6,11 @@ include(FetchContent)
 # Third-party code must not inherit the engine's global flags (UNICODE, the
 # Windows type headers, -std=c++20 for C sources ...).
 set_directory_properties(PROPERTIES INCLUDE_DIRECTORIES "" COMPILE_DEFINITIONS "" COMPILE_OPTIONS "")
-# The engine renders from its main thread; bgfx::frame() executes the backend
-# inline, so the EGL context lives on the thread that owns the SDL window.
-set(BGFX_CONFIG_MULTITHREADED OFF CACHE BOOL "" FORCE)
+# bgfx runs its GL backend on its own render thread, which owns the EGL context; the game thread records frames
+# and hands them over in bgfx::frame() (shim/device.hpp, Context). A host that must stay on one thread calls
+# bgfx::renderFrame() before bgfx::init (the launcher's screens under a GLSurfaceView, ui/android/jni_host.cpp;
+# the engine with render_thread=0).
+set(BGFX_CONFIG_MULTITHREADED ON CACHE BOOL "" FORCE)
 set(BGFX_CONFIG_MAX_TEXTURES 8192 CACHE STRING "" FORCE)
 set(BGFX_CONFIG_MAX_VERTEX_LAYOUTS 256 CACHE STRING "" FORCE)
 set(BGFX_CONFIG_MAX_DYNAMIC_VERTEX_BUFFERS 8192 CACHE STRING "" FORCE)
@@ -48,10 +50,12 @@ if(ANDROID)
     add_library(storm_bgfx_runtime SHARED runtime/bgfx_runtime.cpp)
     # Next to libengine.so (game/), where the APK packaging takes the engine's libraries from.
     set_target_properties(storm_bgfx_runtime PROPERTIES OUTPUT_NAME bgfx LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/game")
-    target_link_libraries(storm_bgfx_runtime PRIVATE -Wl,--whole-archive bgfx bimg bx -Wl,--no-whole-archive)
+    # bimg_encode (the ETC2/EAC encoders of the texture transcode and the relief maps) is not linked whole: only what
+    # the encoder entry points referenced by runtime/bgfx_runtime.cpp reach comes in, not its other codecs and tools.
+    target_link_libraries(storm_bgfx_runtime PRIVATE -Wl,--whole-archive bgfx bimg bx -Wl,--no-whole-archive bimg_encode)
     target_link_options(storm_bgfx_runtime PRIVATE -Wl,--no-undefined -Wl,-z,max-page-size=16384)
     # The consumers compile against the same headers and configuration (BX_CONFIG_DEBUG ...).
-    foreach(part bgfx bimg bx)
+    foreach(part bgfx bimg bx bimg_encode)
         target_include_directories(storm_bgfx_runtime SYSTEM INTERFACE "$<TARGET_PROPERTY:${part},INTERFACE_INCLUDE_DIRECTORIES>")
         target_compile_definitions(storm_bgfx_runtime INTERFACE "$<TARGET_PROPERTY:${part},INTERFACE_COMPILE_DEFINITIONS>")
     endforeach()
@@ -59,31 +63,8 @@ if(ANDROID)
     storm_build_stamp(storm_bgfx_runtime)
 else()
     add_library(storm_bgfx_runtime INTERFACE)
-    target_link_libraries(storm_bgfx_runtime INTERFACE bgfx bimg bx)
+    target_link_libraries(storm_bgfx_runtime INTERFACE bgfx bimg_encode bimg bx)
 endif()
-
-# etcpak: ETC2 encoder for the DXT -> ETC2 texture transcode (src/texture).
-# Only the block compressors are built; no application, image I/O or threading code.
-# Offline: -DFETCHCONTENT_SOURCE_DIR_STORM_ETCPAK=/path/to/pinned/checkout
-storm_fetch_declare(storm_etcpak
-    GIT_REPOSITORY https://github.com/wolfpld/etcpak
-    GIT_TAG 3d716e1550023dc5ff8b602636af8b76584e0b66
-    STORM_POPULATE_ONLY)
-FetchContent_MakeAvailable(storm_etcpak)
-add_library(storm_etcpak STATIC
-    "${storm_etcpak_SOURCE_DIR}/ProcessRGB.cpp"
-    "${storm_etcpak_SOURCE_DIR}/Tables.cpp"
-    "${storm_etcpak_SOURCE_DIR}/Dither.cpp")
-target_include_directories(storm_etcpak SYSTEM INTERFACE "${storm_etcpak_SOURCE_DIR}")
-target_compile_features(storm_etcpak PRIVATE cxx_std_17)
-target_compile_options(storm_etcpak PRIVATE -w -O3)
-target_compile_definitions(storm_etcpak PRIVATE NDEBUG)
-# SSE4.1 is part of the x86-64 Android ABI and of every x86-64 development host;
-# arm64 uses etcpak's NEON paths by default.
-if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
-    target_compile_options(storm_etcpak PRIVATE -msse4.1)
-endif()
-set_target_properties(storm_etcpak PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 include(cmake/storm_shaderc.cmake)
 set(STORM_BGFX_SHADER_PROFILE "300_es" CACHE STRING "shaderc profile for embedded shader blobs")
@@ -163,12 +144,12 @@ target_compile_definitions(storm_bgfx PRIVATE NOMINMAX)
 # context.cpp records Tracy zones through src/libs/util/include/profiler.hpp (no other util header).
 set_property(SOURCE src/shim/context.cpp APPEND PROPERTY INCLUDE_DIRECTORIES "${CMAKE_CURRENT_LIST_DIR}/../util/include")
 
-# DXT -> ETC2 transcode and on-disk cache (no bgfx dependency; unit-tested on the host).
+# DXT -> ETC2 transcode and on-disk cache (bimg only, no bgfx; unit-tested on the host).
 file(GLOB texture_core_sources CONFIGURE_DEPENDS src/texture/core/*.cpp src/texture/core/*.hpp)
 add_library(storm_texture_core STATIC ${texture_core_sources})
 target_compile_features(storm_texture_core PUBLIC cxx_std_20)
 target_include_directories(storm_texture_core PUBLIC src/texture/core)
-target_link_libraries(storm_texture_core PRIVATE storm_etcpak storm_bgfx_runtime)
+target_link_libraries(storm_texture_core PUBLIC storm_bgfx_runtime)
 find_package(Threads REQUIRED)
 target_link_libraries(storm_texture_core PUBLIC Threads::Threads)
 set_target_properties(storm_texture_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
@@ -179,7 +160,7 @@ target_link_libraries(storm_bgfx PRIVATE storm_relief_core)
 # Graphics effects package (fx/README.md): presets «Оригинал / Среднее / Высокое», driven by src/effects.
 set(STORM_FX_SHADERC_COMMAND "${STORM_SHADERC_COMMAND}")
 set(STORM_FX_SHADERC_DEPENDS "${STORM_SHADERC_DEPENDS}")
-set(STORM_FX_BGFX_SHADER_INCLUDE "${STORM_BGFX_SOURCE_DIR}/bgfx/src")
+set(STORM_FX_BGFX_SHADER_INCLUDE "${STORM_BGFX_SOURCE_DIR}/src")
 add_subdirectory(fx)
 target_link_libraries(storm_bgfx PUBLIC storm_bgfx_fx)
 
@@ -191,7 +172,7 @@ if(STORM_BGFX_BUILD_TESTS)
     target_link_libraries(storm_texture_bench PRIVATE storm_texture_core)
     if(NOT CMAKE_CROSSCOMPILING)
         add_executable(storm_texture_tests tests/texture/tests.cpp)
-        target_link_libraries(storm_texture_tests PRIVATE storm_texture_core bimg_decode bimg bx)
+        target_link_libraries(storm_texture_tests PRIVATE storm_texture_core bimg_decode storm_bgfx_runtime)
         enable_testing()
         add_test(NAME storm_texture_tests COMMAND storm_texture_tests)
     endif()

@@ -12,9 +12,10 @@
 #include "storm/render/program_cache.hpp"
 #include "texture/core/formats.hpp"
 
-#include <GLES2/gl2.h>
 
 #include <algorithm>
+#include <iterator>
+#include <cctype>
 #include <cmath>
 #include <cstring>
 
@@ -97,11 +98,17 @@ const Option kOptions[] = {
      [](fx::Settings &s, int v) { s.ao_volume = static_cast<uint8_t>(std::clamp(v, 0, 3)); }},
     {"fx_shadows", "0 off, 1 low, 2 soft",
      [](fx::Settings &s, int v) { s.shadows = static_cast<fx::ShadowQuality>(std::clamp(v, 0, 2)); }},
+    {"fx_town_light", "0 the game's town lightmaps, 1 our own for the live sun",
+     [](fx::Settings &s, int v) { s.town_light = on(v); }},
+    {"fx_town_light_debug", "0 off, 1 our town lightmaps show the sun's visibility",
+     [](fx::Settings &s, int v) { s.town_light_debug = on(v); }},
     {"fx_point_lights", "4, 8", [](fx::Settings &s, int v) { s.point_lights = static_cast<uint8_t>(v >= 8 ? 8 : 4); }},
     {"fx_light_per_pixel", "0 off, 1 on", [](fx::Settings &s, int v) { set_flag(s, fx::kLightingPerPixel, v); }},
     {"fx_light_hemisphere", "0 off, 1 on", [](fx::Settings &s, int v) { set_flag(s, fx::kLightingHemisphere, v); }},
     {"fx_light_specular", "0 off, 1 on", [](fx::Settings &s, int v) { set_flag(s, fx::kLightingSpecular, v); }},
     {"fx_light_translucent", "0 off, 1 on", [](fx::Settings &s, int v) { set_flag(s, fx::kLightingTranslucent, v); }},
+    {"fx_sail_light", "0..300 % sunlight through sails",
+     [](fx::Settings &s, int v) { s.sail_light = static_cast<float>(std::clamp(v, 0, 300)) / 100.0f; }},
     {"fx_light_point", "0 off, 1 on", [](fx::Settings &s, int v) { set_flag(s, fx::kLightingPoint, v); }},
     {"fx_light_normal_map", "0 off, 1 on", [](fx::Settings &s, int v) { set_flag(s, fx::kLightingNormalMap, v); }},
     {"fx_normal_map_strength", "0..100 % relief strength",
@@ -150,18 +157,6 @@ std::string describe(const fx::Settings &s)
              static_cast<int>(s.shadows), s.lighting_flags, s.contact_shadows);
     return text;
 }
-
-bool has_extension(const char *name)
-{
-    const char *extensions = reinterpret_cast<const char *>(glGetString(GL_EXTENSIONS));
-    if (!extensions)
-        return false;
-    const size_t length = strlen(name);
-    for (const char *p = extensions; (p = strstr(p, name)) != nullptr; p += length)
-        if ((p == extensions || p[-1] == ' ') && (p[length] == ' ' || p[length] == '\0'))
-            return true;
-    return false;
-}
 } // namespace
 
 Host &Host::instance()
@@ -180,12 +175,10 @@ void Host::on_device_created()
     facts.scene_depth = true;
     facts.msaa_depth = true;
     // bgfx has no capability bit for it; the GL backend applies it only with this extension.
-    facts.anisotropy = has_extension("GL_EXT_texture_filter_anisotropic");
+    const shim::GlInfo &gl = shim::Context::instance().gl_info(); // read on the render thread
+    facts.anisotropy = gl.has_extension("GL_EXT_texture_filter_anisotropic");
     if (facts.anisotropy)
-    {
-        constexpr GLenum kMaxAnisotropy = 0x84FF; // GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT
-        glGetFloatv(kMaxAnisotropy, &device_max_anisotropy_);
-    }
+        device_max_anisotropy_ = gl.max_anisotropy;
     support_device_ = fx::DetectSupport(facts);
     device_ready_ = true;
     // Nothing is drawn yet: the device starts on the plain legacy path (no effect, no MSAA, not even «Низкая»'s
@@ -287,7 +280,10 @@ void Host::apply()
         if (caps_profile_ != fx::CapsProfile::Device)
             report_.changes.push_back(std::string("caps profile forced: ") + fx::CapsProfileName(caps_profile_));
         if (msaa_broken_)
-            target_support_.msaa = target_support_.msaa_depth = false;
+        {
+            target_support_.msaa_samples = 1;
+            target_support_.msaa_depth = false;
+        }
         if (post_broken_)
             target_support_.lut_3d = false;
         next = fx::ConstrainSettings(next, target_support_, report_.changes);
@@ -519,16 +515,16 @@ void Host::end_frame(bool scene_frame, uint32_t frame)
         const fx::SelfTest::Result result = self_test_.Poll(frame);
         if (result.done && result.failed == fx::SelfTest::Stage::None)
         {
-            const char *gpu = reinterpret_cast<const char *>(glGetString(GL_RENDERER));
-            shim::logf("effects self-test passed on %s (preset %d, MSAA %ux)", gpu ? gpu : "?", preset_,
+            shim::logf("effects self-test passed on %s (preset %d, MSAA %ux)",
+                       shim::Context::instance().gl_info().renderer.c_str(), preset_,
                        fx::RendererStateFor(tested_).msaa_samples);
             verified_.push_back(tested_);
         }
         if (result.done && result.failed != fx::SelfTest::Stage::None)
         {
-            const char *gpu = reinterpret_cast<const char *>(glGetString(GL_RENDERER));
             const bool scene = result.failed == fx::SelfTest::Stage::SceneTarget;
-            shim::logf("ERROR: effects self-test failed on %s (%s): %s. %s switched off; %s", gpu ? gpu : "?",
+            shim::logf("ERROR: effects self-test failed on %s (%s): %s. %s switched off; %s",
+                       shim::Context::instance().gl_info().renderer.c_str(),
                        bgfx::getRendererName(bgfx::getRendererType()), result.detail.c_str(),
                        scene ? "MSAA" : "the post-processing chain", support_.Describe().c_str());
             // Like a missing capability: ConstrainSettings switches the stage off and reports it.
@@ -549,6 +545,15 @@ void Host::end_frame(bool scene_frame, uint32_t frame)
     weather_this_frame_ = false;
     sun_glare_ = sun_ghosts_ = 0.0f;
     lighting_.end_frame();
+    {
+        const auto now = std::chrono::steady_clock::now();
+        const float dt = last_frame_end_ == std::chrono::steady_clock::time_point{}
+                             ? 0.0f
+                             : std::chrono::duration<float>(now - last_frame_end_).count();
+        last_frame_end_ = now;
+        // Our lightmaps for the hour's sun, for the next frame's draws.
+        lighting_.town_light().update(weather_.sun_dir, weather_last_frame_ && weather_.sun_present, std::min(dt, 0.25f));
+    }
     ao_bound_ = ao_.update(settings_.ao_volume > 0); // for the next frame's draws
     lighting_.set_ao_volume(ao_bound_);
     transform_view_ = UINT16_MAX; // the shim's views start again next frame
@@ -604,11 +609,12 @@ void Host::end_frame(bool scene_frame, uint32_t frame)
                          profile_sum_rcas_ / profile_gpu_frames_);
             const Lighting::Counts counts = lighting_.last_frame();
             shim::logf("effects profile: preset %d scene=%ux%u display=%ux%u %s cpu_frame_ms=%.2f draws=%.0f post_views=%u lit_draws=%u "
-                       "baked_draws=%u coverage_draws=%u relief_draws=%u aerial_draws=%u shadowed_draws=%u casters=%u ao_draws=%u lamp_draws=%u lamp_casters=%u lamp_slots=%d lamp_static_faces=%d",
+                       "baked_draws=%u coverage_draws=%u relief_draws=%u aerial_draws=%u shadowed_draws=%u casters=%u ao_draws=%u lamp_draws=%u lamp_casters=%u lamp_slots=%d lamp_static_faces=%d sun_static_tiles=%u sun_static_triangles=%u lightmapped_draws=%u town_relit_draws=%u",
                        preset_, last_post_size_[0], last_post_size_[1], last_post_size_[2], last_post_size_[3], gpu,
                        profile_sum_cpu_ / kProfileFrames, static_cast<double>(profile_draws_) / kProfileFrames,
                        last_post_views_, counts.lit, counts.baked, counts.coverage, counts.relief, counts.aerial, counts.shadowed, counts.casters, counts.ao, counts.lamp_lit, counts.lamp_casters,
-                       lighting_.lamp_shadows().last_slots(), lighting_.lamp_shadows().last_static_faces());
+                       lighting_.lamp_shadows().last_slots(), lighting_.lamp_shadows().last_static_faces(),
+                       lighting_.shadows().last_static_casters()[0], lighting_.shadows().last_static_casters()[1], lighting_.town_light().last_counts()[0], lighting_.town_light().last_counts()[1]);
             profile_count_ = profile_gpu_frames_ = 0;
             profile_sum_frame_ = profile_sum_post_ = profile_sum_cpu_ = 0.0;
             profile_sum_smaa_ = profile_sum_easu_ = profile_sum_rcas_ = 0.0;
@@ -657,63 +663,19 @@ void SetEffectsWorldOrigin(const std::array<float, 3> &origin)
     effects::Host::instance().lighting().set_world_origin(origin);
 }
 
-void SetEffectsGroundLight(std::string_view name, std::span<const std::array<float, 3>> positions,
-                           std::span<const std::array<float, 2>> uvs, std::span<const uint32_t> indices,
-                           std::span<const uint32_t> triangle_lightmap, std::span<const EffectsLightmap> lightmaps)
+void SetEffectsLightmaps(std::string_view name, std::span<const std::array<float, 3>> positions,
+                         std::span<const std::array<float, 2>> uvs, std::span<const uint32_t> indices,
+                         std::span<const uint32_t> triangle_lightmap, std::span<const EffectsLightmap> lightmaps)
 {
-    effects::SunShadows &shadows = effects::Host::instance().lighting().shadows();
-    if (indices.empty())
-    {
-        shadows.set_ground({});
-        return;
-    }
-    std::vector<fx::GroundLightmap> maps;
-    maps.reserve(lightmaps.size());
-    std::vector<uint8_t> rgba;
-    for (const EffectsLightmap &map : lightmaps)
-    {
-        const char kind = map.format[3];
-        const texture::DxtFormat format =
-            kind == '1' ? texture::DxtFormat::Bc1 : kind == '3' ? texture::DxtFormat::Bc2 : texture::DxtFormat::Bc3;
-        fx::GroundLightmap out;
-        if ((kind == '1' || kind == '3' || kind == '5') && map.width >= 4 && map.height >= 4 &&
-            map.data.size() >= texture::dxt_level_size(format, map.width, map.height))
-        {
-            rgba.resize(static_cast<size_t>(map.width) * map.height * 4);
-            texture::decode_level(format, map.data.data(), map.width, map.height, rgba.data());
-            out.width = static_cast<int>(map.width);
-            out.height = static_cast<int>(map.height);
-            out.luminance.resize(static_cast<size_t>(map.width) * map.height);
-            for (size_t i = 0; i < out.luminance.size(); ++i)
-                out.luminance[i] = static_cast<uint8_t>(
-                    (299u * rgba[4 * i] + 587u * rgba[4 * i + 1] + 114u * rgba[4 * i + 2] + 500u) / 1000u);
-        }
-        else
-            shim::logf("effects: ground light of %.*s: a lightmap of %ux%u %.4s is not DXT1/3/5 of that size: the "
-                       "characters on it keep the full sun",
-                       static_cast<int>(name.size()), name.data(), map.width, map.height, map.format.data());
-        maps.push_back(std::move(out));
-    }
-    std::vector<fx::Vec3> points(positions.begin(), positions.end());
-    fx::GroundLight ground;
-    ground.Build(points, uvs, indices, triangle_lightmap, std::move(maps));
-    shim::logf("effects: ground light of %.*s: %zu ground triangles under %zu lightmaps light the characters outdoors",
-               static_cast<int>(name.size()), name.data(), ground.Triangles(), lightmaps.size());
-    shadows.set_ground(std::move(ground));
+    effects::Host::instance().lighting().town_light().set_lightmaps(name, positions, uvs, indices, triangle_lightmap, lightmaps);
 }
 
 void SetEffectsLocationGeometry(const EffectsLocationGeometry &geometry)
 {
     effects::Host::instance().lighting().lamp_shadows().set_geometry(geometry);
-    // The AO volume of an interior: the same geometry, with the triangles of textures that cut holes replaced by the
-    // pieces the alpha test keeps, as points at the bake's occupancy cell size of 0.1 m (effects/casters.hpp: one rule
-    // for every pass; holes narrower than a cell are below what the volume resolves).
-    std::vector<fx::Vec3> points;
-    std::vector<uint32_t> triangles;
-    const bool room = geometry.room_hi[0] > geometry.room_lo[0] && geometry.room_hi[1] > geometry.room_lo[1] &&
-                      geometry.room_hi[2] > geometry.room_lo[2];
-    if (geometry.interior && room)
-    {
+    // The geometry with the triangles of textures that cut holes replaced by the pieces the alpha test keeps
+    // (effects/casters.hpp: one rule for every pass), pieces of `piece` metres shrunk to `shrink` of their size.
+    const auto cut_out = [&](float piece, float shrink, std::vector<fx::Vec3> &points, std::vector<uint32_t> &triangles) {
         points.assign(geometry.positions.begin(), geometry.positions.end());
         std::vector<bool> cut(geometry.indices.size(), false);
         std::vector<uint32_t> pieces;
@@ -727,12 +689,44 @@ void SetEffectsLocationGeometry(const EffectsLocationGeometry &geometry)
                 std::fill(cut.begin() + surface.first_index, cut.begin() + surface.first_index + surface.index_count, true);
                 fx::AppendCutTriangles(points, pieces, geometry.uvs,
                                        geometry.indices.subspan(surface.first_index, surface.index_count), *store->cutout,
-                                       material.cut, 0.1f, 0.02f);
+                                       material.cut, piece, shrink);
             }
         for (size_t i = 0; i < geometry.indices.size(); ++i)
             if (!cut[i])
                 triangles.push_back(geometry.indices[i]);
         triangles.insert(triangles.end(), pieces.begin(), pieces.end());
+    };
+    effects::Lighting &lighting = effects::Host::instance().lighting();
+    std::vector<fx::Vec3> points;
+    std::vector<uint32_t> triangles;
+    if (geometry.interior)
+    {
+        lighting.shadows().set_casters({});
+        lighting.town_light().set_occluders({}, {}, {}, {}, {});
+        // The AO volume of an interior, from pieces shrunk to points at the bake's occupancy cell size of 0.1 m (holes
+        // narrower than a cell are below what the volume resolves).
+        const bool room = geometry.room_hi[0] > geometry.room_lo[0] && geometry.room_hi[1] > geometry.room_lo[1] &&
+                          geometry.room_hi[2] > geometry.room_lo[2];
+        if (room)
+            cut_out(0.1f, 0.02f, points, triangles);
+    }
+    else
+    {
+        // Outdoors it casts the sun's shadows (in tiles, with its textures' holes) and closes the sky and the sun of our
+        // own lightmaps: palm leaves dapple them as they do the colour pass.
+        lighting.shadows().set_casters(geometry);
+        std::vector<fx::Occluders::Cut> cut(geometry.indices.size() / 3);
+        if (geometry.uvs.size() == geometry.positions.size())
+            for (const auto &surface : geometry.surfaces)
+            {
+                const shim::TexStore *store = shim::store_of(surface.texture);
+                const effects::CasterMaterial material = effects::location_caster_material(store);
+                if (material.cut <= 0.0f || surface.first_index + surface.index_count > geometry.indices.size())
+                    continue;
+                for (uint32_t t = surface.first_index / 3; t < (surface.first_index + surface.index_count) / 3; ++t)
+                    cut[t] = {store->cutout, material.cut};
+            }
+        lighting.town_light().set_occluders(geometry.name, geometry.positions, geometry.uvs, geometry.indices, std::move(cut));
     }
     effects::Host::instance().ao_volumes().set_geometry(std::string(geometry.name), std::move(points), std::move(triangles),
                                                         geometry.room_lo, geometry.room_hi);
@@ -802,6 +796,9 @@ void SetEffectsTextureSource(storm::shim::BaseTexture *texture, const char *path
     {
         store->cutout = effects::texture_cutout(*store);
         effects::Host::instance().lighting().normal_maps().on_texture_loaded(*store, path, file);
+        std::string lower(path ? path : "");
+        std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        store->lightmap = lower.find("lighting") != std::string::npos && lower.find("shadow.tga") != std::string::npos;
     }
 }
 
@@ -813,6 +810,48 @@ void ConfigureRelief(const ReliefConfig &config)
 void ShutdownRelief()
 {
     effects::ReliefGenerator::instance().shutdown();
+}
+
+void RemoveOldReliefStores(const std::vector<std::filesystem::path> &directories, const std::filesystem::path &live)
+{
+    std::error_code error;
+    const std::filesystem::path current = std::filesystem::weakly_canonical(live, error);
+    // `a` is `b` or one of its ancestors (lexically, after resolving links and dots).
+    const auto within = [](const std::filesystem::path &a, const std::filesystem::path &b) {
+        auto ai = a.begin(), bi = b.begin();
+        for (; ai != a.end() && bi != b.end(); ++ai, ++bi)
+            if (*ai != *bi)
+                return false;
+        return ai == a.end() || (ai->empty() && std::next(ai) == a.end());
+    };
+    for (const std::filesystem::path &old : directories)
+    {
+        error.clear();
+        if (!std::filesystem::is_directory(old, error))
+            continue;
+        const std::filesystem::path resolved = std::filesystem::weakly_canonical(old, error);
+        if (!live.empty() && (within(resolved, current) || within(current, resolved)))
+        {
+            shim::logf("ERROR: effects: %s is not removed as an old relief store: it is or holds the relief directory in "
+                       "use (%s)",
+                       old.string().c_str(), current.string().c_str());
+            continue;
+        }
+        uintmax_t bytes = 0, files = 0;
+        for (const auto &entry : std::filesystem::recursive_directory_iterator(old, error))
+            if (entry.is_regular_file(error))
+            {
+                bytes += entry.file_size(error);
+                ++files;
+            }
+        std::filesystem::remove_all(old, error);
+        if (error)
+            shim::logf("ERROR: effects: the old relief store %s could not be removed (%s)", old.string().c_str(),
+                       error.message().c_str());
+        else
+            shim::logf("effects: the old relief store %s of earlier builds removed (%ju files, %.1f MB)", old.string().c_str(),
+                       files, static_cast<double>(bytes) / 1048576.0);
+    }
 }
 
 std::string TakeEffectsNotice()

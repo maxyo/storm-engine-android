@@ -97,8 +97,11 @@ struct Geometry
     std::vector<int> indices;
     uint32_t index_count = 0;
     Rml::Vector2f min, max; // bounds of the positions
-    bgfx::VertexBufferHandle vb = BGFX_INVALID_HANDLE;
-    bgfx::IndexBufferHandle ib = BGFX_INVALID_HANDLE;
+    // Dynamic buffers although written once: bgfx places them in its shared vertex and index buffers (one layout,
+    // so their offsets stay whole vertices), where a static buffer each made a GL buffer per element and opening a
+    // screen created a few hundred in its first frame.
+    bgfx::DynamicVertexBufferHandle vb = BGFX_INVALID_HANDLE;
+    bgfx::DynamicIndexBufferHandle ib = BGFX_INVALID_HANDLE;
     uint32_t epoch = 0;
 
     ~Geometry()
@@ -112,8 +115,10 @@ struct Geometry
             return true;
         if (vertices.empty() || indices.empty())
             return false;
-        vb = bgfx::createVertexBuffer(bgfx::copy(vertices.data(), uint32_t(vertices.size() * sizeof(Rml::Vertex))), Layout());
-        ib = bgfx::createIndexBuffer(bgfx::copy(indices.data(), uint32_t(indices.size() * sizeof(int))), BGFX_BUFFER_INDEX32);
+        vb = bgfx::createDynamicVertexBuffer(bgfx::copy(vertices.data(), uint32_t(vertices.size() * sizeof(Rml::Vertex))),
+                                             Layout());
+        ib = bgfx::createDynamicIndexBuffer(bgfx::copy(indices.data(), uint32_t(indices.size() * sizeof(int))),
+                                            BGFX_BUFFER_INDEX32);
         epoch = g_epoch;
         std::vector<Rml::Vertex>().swap(vertices);
         std::vector<int>().swap(indices);
@@ -1181,9 +1186,18 @@ bool BgfxBackendImpl::CreateGpu()
     uniforms_.mask = bgfx::createUniform("s_ui_mask", T::Sampler);
 
     const bgfx::Caps *caps = bgfx::getCaps();
-    const bool msaa_ok = (caps->formats[bgfx::TextureFormat::RGBA8] & BGFX_CAPS_FORMAT_TEXTURE_FRAMEBUFFER_MSAA) &&
-                         (caps->formats[bgfx::TextureFormat::D24S8] & BGFX_CAPS_FORMAT_TEXTURE_FRAMEBUFFER_MSAA);
-    msaa_ = msaa_ok ? options_.msaa_samples : 0;
+    // The layers are RGBA8 colour + D24S8 depth/stencil: both must render with the sample count (per-format caps).
+    const auto layer_msaa = [caps](int samples) {
+        const uint32_t flag = samples >= 4 ? BGFX_CAPS_FORMAT_TEXTURE_FRAMEBUFFER_MSAA_X4 : BGFX_CAPS_FORMAT_TEXTURE_FRAMEBUFFER_MSAA_X2;
+        return (caps->formats[bgfx::TextureFormat::RGBA8] & flag) && (caps->formats[bgfx::TextureFormat::D24S8] & flag);
+    };
+    msaa_ = 0;
+    for (int samples = options_.msaa_samples; samples >= 2 && msaa_ == 0; samples /= 2)
+        if (layer_msaa(samples))
+            msaa_ = samples;
+    if (msaa_ != options_.msaa_samples)
+        Rml::Log::Message(Rml::Log::LT_WARNING, "UI layers: MSAA %dx is not available for RGBA8 + D24S8 targets: %s", options_.msaa_samples,
+                          msaa_ ? "2x instead" : "no multisampling");
     for (const bgfx::ProgramHandle handle : programs_)
         if (!bgfx::isValid(handle))
             return false;
@@ -1758,6 +1772,27 @@ Executor::Executor(BgfxBackendImpl &backend, const Executor &plan, uint16_t firs
     : b_(&backend), live_(true), first_view_(first_view), schedule_(plan.schedule_), plan_(plan.plan_), unfiltered_(plan.unfiltered_)
 {
     const std::vector<Schedule::Slot> &slots = schedule_.Slots();
+    // Tile GPUs: what the frame no longer needs is invalidated after the last view that draws into it
+    // (BGFX_CLEAR_DISCARD_*, patches/bgfx-gl-framebuffer-discard.patch), so it is never written back to memory.
+    // Only the main UI's layers (set 0): it redraws them from a clear every frame. The jobs' layers (set 1) keep
+    // their content across frames. A layer's multisampled colour is not needed once resolved; without MSAA the
+    // attachment is the texture the composite samples and stays. The set's depth/stencil goes after its last view.
+    std::vector<uint16_t> discard(slots.size(), BGFX_CLEAR_NONE);
+    int last_layer_slot = -1;
+    for (size_t s = 0; s < slots.size(); ++s)
+    {
+        const Target &target = slots[s].target;
+        if (target.kind != TargetKind::Layer || target.set != 0)
+            continue;
+        last_layer_slot = int(s);
+        bool written_later = false;
+        for (size_t later = s + 1; later < slots.size() && !written_later; ++later)
+            written_later = slots[later].target == target;
+        if (!written_later && b_->msaa_ > 0)
+            discard[s] |= BGFX_CLEAR_DISCARD_COLOR_0;
+    }
+    if (last_layer_slot >= 0)
+        discard[size_t(last_layer_slot)] |= BGFX_CLEAR_DISCARD_DEPTH | BGFX_CLEAR_DISCARD_STENCIL;
     for (size_t s = 0; s < slots.size(); ++s)
     {
         const Schedule::Slot &slot = slots[s];
@@ -1768,7 +1803,7 @@ Executor::Executor(BgfxBackendImpl &backend, const Executor &plan, uint16_t firs
         bgfx::setViewRect(view, uint16_t(slot.rect.x), uint16_t(slot.rect.y), uint16_t(slot.rect.w), uint16_t(slot.rect.h));
         bgfx::setViewScissor(view, 0, 0, 0, 0);
         bgfx::setViewTransform(view, nullptr, nullptr);
-        bgfx::setViewClear(view, slot.clear, 0, 1.0f, 0);
+        bgfx::setViewClear(view, slot.clear | discard[s], 0, 1.0f, 0);
         bgfx::touch(view);
     }
 }
@@ -2341,7 +2376,9 @@ void Executor::Main(const Commands &commands, bool clear_final, bool degraded)
     projection_.reset();
     layers_ = 1;
     post_ = {0, 1, 2};
-    Begin(Layer(0), Full(), {{Layer(0), Whole()}, {Stencil(), Whole()}}, {}, BGFX_CLEAR_COLOR | BGFX_CLEAR_STENCIL);
+    // Depth too: it shares the stencil's attachment (D24S8), and a tile GPU loads a combined buffer that is not
+    // cleared whole from memory.
+    Begin(Layer(0), Full(), {{Layer(0), Whole()}, {Stencil(), Whole()}}, {}, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH | BGFX_CLEAR_STENCIL);
     for (const Command &command : commands)
         Run(command, degraded);
     // Composite the base layer over the target (the game picture), premultiplied.

@@ -55,14 +55,10 @@ struct FormatInfo
     uint8_t bytes_per_pixel = 0; // 0 for block formats
     uint8_t block_bytes = 0;     // 8 or 16 for DXTn
     bool depth = false;
-    bool has_alpha = false;
 };
 FormatInfo format_info(D3DFORMAT format);
 uint32_t level_pitch(D3DFORMAT format, uint32_t width);
 uint32_t level_size(D3DFORMAT format, uint32_t width, uint32_t height);
-// Converts one level of an uncompressed D3D format to RGBA8 (R first).
-void convert_to_rgba8(D3DFORMAT format, const uint8_t *src, uint32_t src_pitch, uint32_t width, uint32_t height,
-                      uint8_t *dst);
 
 // ---------------------------------------------------------------------------
 // texture storage shared by textures and surfaces
@@ -119,6 +115,8 @@ struct TexStore
     std::shared_ptr<const fx::AlphaMask> cutout;
     // Effects: the normal map derived from this height texture (src/effects/normal_maps.hpp), null for others.
     std::shared_ptr<effects::NormalMapEntry> normal_map;
+    // A location lightmap (lighting\<time>\...\shadow.tga): the surfaces it lies on carry the sun's shadows already.
+    bool lightmap = false;
 
     ~TexStore();
     uint32_t faces() const { return kind == TexKind::Cube ? 6 : 1; }
@@ -246,10 +244,10 @@ struct VertexBuffer final : Object, BufferBase
     };
     std::vector<RangeBounds> bounds;
     uint32_t bounds_serial = UINT32_MAX;
-    // GPU copy: a static buffer while the data has been written once; a rewrite turns it into a dedicated dynamic
-    // buffer that later rewrites update in place (Device::upload_buffer).
-    bgfx::VertexBufferHandle handle = BGFX_INVALID_HANDLE;
-    bgfx::DynamicVertexBufferHandle dynamic = BGFX_INVALID_HANDLE;
+    // GPU copy (Device::upload_buffer): a range of bgfx's shared dynamic buffers in the layout (`stride`) it is drawn
+    // with; rewrites update it in place.
+    bgfx::DynamicVertexBufferHandle handle = BGFX_INVALID_HANDLE;
+    uint32_t stride = 0;
     ~VertexBuffer() override;
     HRESULT Lock(UINT offset, UINT size, void **data, DWORD flags);
     HRESULT Unlock();
@@ -260,8 +258,7 @@ struct VertexBuffer final : Object, BufferBase
 struct IndexBuffer final : Object, BufferBase
 {
     bool index32 = false;
-    bgfx::IndexBufferHandle handle = BGFX_INVALID_HANDLE;           // written once (see VertexBuffer)
-    bgfx::DynamicIndexBufferHandle dynamic = BGFX_INVALID_HANDLE;   // rewritten: updated in place
+    bgfx::DynamicIndexBufferHandle handle = BGFX_INVALID_HANDLE; // shared, updated in place (see VertexBuffer)
     ~IndexBuffer() override;
     HRESULT Lock(UINT offset, UINT size, void **data, DWORD flags);
     HRESULT Unlock();

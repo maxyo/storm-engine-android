@@ -1,13 +1,16 @@
 #pragma once
 
 #include "bone_palettes.hpp"
+#include "frame_overlap.hpp"
 #include "shim.hpp"
 #include "storm/render/frame_owner.hpp"
 
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <map>
 #include <mutex>
+#include <string>
 
 struct SDL_Window;
 
@@ -24,11 +27,43 @@ namespace storm::shim
 inline constexpr uint32_t kSamplerUnits = 14;
 inline constexpr uint32_t kBonePaletteUnit = 13;
 
+// What the GL driver says about itself, read once on bgfx's render thread (the only thread with the GL context).
+// Empty strings on a backend without GL (headless Noop).
+struct GlInfo
+{
+    std::string vendor, renderer, version, extensions; // glGetString
+    float max_anisotropy = 0.0f;                       // GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT; 0 without the extension
+    // A whole name of the extension list.
+    bool has_extension(const char *name) const;
+};
+
 // Owns bgfx::init/shutdown, the surface and the frame-owner contract.
+//
+// Threads. bgfx runs multithreaded (BGFX_CONFIG_MULTITHREADED): the game thread only records frames;
+// bgfx::frame() hands a frame to bgfx's render thread, which owns the EGL context, executes the GL backend and
+// presents, after bgfx::frame() has returned. The render thread reports each finished frame
+// (render_frame_done, patches/bgfx-render-thread-hooks.patch); the surface is given back to Android, and Swappy's
+// window taken away, only when every frame handed over is finished. Nothing outside bgfx calls GL or EGL.
+// render_thread=0 (set_render_thread) keeps bgfx single-threaded for measurements: the backend then runs inside
+// bgfx::frame() on the game thread.
 class Context final : public render::FrameOwner
 {
   public:
     static Context &instance();
+
+    // Before the device exists (render::SetRenderThread): false = bgfx renders on the game thread.
+    void set_render_thread(bool enabled);
+    bool render_thread() const { return render_thread_active_; }
+    // render::SetFrameOverlap: -1 chosen per frame (FrameOverlap), 0 never, 1 always. Any time.
+    void set_frame_overlap(int mode);
+    // Valid from init on.
+    const GlInfo &gl_info() const { return gl_info_; }
+    // Any thread: a frame handed to the render thread is not finished yet (rendered and presented).
+    bool frames_in_flight()
+    {
+        std::lock_guard lock(release_mutex_);
+        return !render_idle();
+    }
 
     BonePalettes &bone_palettes() { return bone_palettes_; }
 
@@ -58,8 +93,8 @@ class Context final : public render::FrameOwner
     void surface_lost();
     // Marks the surface for re-attachment; the actual bgfx reset happens once SDL holds a native window.
     void surface_restored();
-    // Any thread (Android UI thread, before it destroys the surface): stops further bgfx frames and
-    // blocks while one is executing (bgfx renders and swaps inside bgfx::frame()), or the timeout expires.
+    // Any thread (Android UI thread, before it destroys the surface): stops further presenting frames and
+    // blocks until the render thread has finished those handed over, or the timeout expires.
     void request_surface_release();
     // Game thread, at safe points: honours a pending release request and retries a pending restore.
     void poll_surface();
@@ -67,8 +102,9 @@ class Context final : public render::FrameOwner
     void begin_frame_if_needed();
     // Composites `game_color` to the surface, runs client UI hooks and presents.
     void present(bgfx::TextureHandle game_color, uint32_t game_width, uint32_t game_height);
-    // The only place the game thread calls bgfx::frame(). Returns false without calling it when the
-    // surface is about to be destroyed; presentation is then suspended.
+    // The only place the game thread calls bgfx::frame(). A presenting frame is refused (false, bgfx::frame() not
+    // called) when the surface is about to be destroyed; presentation is then suspended. A BGFX_FRAME_FLUSH frame
+    // presents nothing and always runs: a read-back in progress completes, and the memory it writes stays valid.
     bool run_frame(uint32_t flags, uint32_t *frame_number = nullptr);
 
     uint64_t frame_index() const { return frame_.frame_index; }
@@ -120,6 +156,17 @@ class Context final : public render::FrameOwner
     void try_restore();
     bool read_density(); // true when it changed
     uint32_t reset_flags() const;
+    // Render thread (bgfx::setRenderFrameDone): frame `frame` is rendered and presented.
+    static void render_frame_done(uint32_t frame);
+    // True when the render thread has finished every frame handed over; release_mutex_ held.
+    bool render_idle() const { return !in_frame_ && (!frames_handed_ || done_frame_ == handed_frame_); }
+    // Waits for render_idle(); `lock` holds release_mutex_. False after `what` was logged as an error (3 s).
+    bool wait_render_idle(std::unique_lock<std::mutex> &lock, const char *what);
+    // Game thread, after presenting frame `number` was handed to the render thread: waits for the frame that
+    // frame_overlap.hpp says (this one, or the one before). `game`: the game thread's work for the frame. Returns
+    // the part of the time blocked for this frame (`blocked` in bgfx::frame() plus the wait here) that was not on
+    // the frame's critical path, for the ADPF work clock.
+    std::chrono::nanoseconds frame_gate(uint32_t number, std::chrono::nanoseconds game, std::chrono::nanoseconds blocked);
 
     SDL_Window *window_ = nullptr;
     bool initialised_ = false;
@@ -135,9 +182,22 @@ class Context final : public render::FrameOwner
     bool frame_aborted_ = false; // draws of an unfinished frame are still queued in bgfx
     std::atomic<bool> release_requested_{false};
     std::atomic<bool> surface_in_use_{false};
-    bool in_frame_ = false; // guarded by release_mutex_
+    // Guarded by release_mutex_; release_done_ is notified when any of them changes.
+    bool in_frame_ = false;       // the game thread is inside bgfx::frame()
+    bool frames_handed_ = false;  // handed_frame_ is a frame of this device
+    uint32_t handed_frame_ = 0;   // number of the last frame bgfx::frame() handed to the render thread
+    uint32_t done_frame_ = 0;     // number of the last frame the render thread finished
+    bool gl_info_read_ = false;   // gl_info_ is filled (render thread, its first finished frame)
+    int render_tid_ = 0;          // the render thread's Linux tid, with gl_info_
+    std::chrono::steady_clock::time_point hand_time_[4]{}; // when frame (number & 3) was given to bgfx::frame()
+    std::chrono::steady_clock::time_point done_time_{};    // when done_frame_ was finished
+    std::chrono::nanoseconds render_work_{0}; // render thread's time for done_frame_ without its present wait
     std::mutex release_mutex_;
     std::condition_variable release_done_;
+    bool render_thread_ = true;         // requested
+    bool render_thread_active_ = false; // this device runs bgfx's render thread
+    bool gl_backend_ = false;           // the device has a GL context (not headless)
+    GlInfo gl_info_;
     BonePalettes bone_palettes_;
     bool flip_y_ = false;
     bool border_clamp_ = false;
@@ -157,6 +217,11 @@ class Context final : public render::FrameOwner
     GameTarget game_target_;
     uint32_t last_frame_ = 0;
     uint32_t submitted_frames_ = 0;
+    std::chrono::steady_clock::duration frame_blocked_{}; // the last bgfx::frame() call, wall time
+    FrameOverlap overlap_;
+    int overlap_mode_ = -1;
+    bool overlap_logged_ = false; // the first choice of this device is in the log
+    std::chrono::steady_clock::time_point gate_end_{}; // the game thread's work for the next frame starts here
 };
 
 struct Device final : Object
@@ -331,6 +396,8 @@ struct Device final : Object
     TexStorePtr scaled_color, scaled_depth, held_color, held_depth;
     // The picture presented again while a pause menu holds the game (render::HoldGamePicture).
     TexStorePtr paused_picture;
+    uint32_t frame_surface_generation = 0; // the surface generation when the previous frame was presented
+    bool backbuffer_recreated = false;     // create_backbuffer ran since the previous Present
     void keep_paused_picture();
     void release_paused_picture();
     bool scaled_next = false;          // the next frame starts on the scaled stores (this one had a 3D scene)
@@ -372,9 +439,7 @@ struct Device final : Object
     std::map<FbKey, bgfx::FrameBufferHandle> framebuffers;
     std::unordered_map<uint64_t, std::unique_ptr<LayoutInfo>> fvf_layouts;
     std::map<std::pair<uint32_t, uint32_t>, bgfx::ProgramHandle> programs;
-    std::unordered_map<uint16_t, uint32_t> program_uniform_bytes; // by program handle: user uniforms of both shaders
     std::vector<bgfx::ShaderHandle> shaders; // index = shader id
-    bgfx::VertexLayout byte_layout;
 
     // uniform handles + last value sent (uniforms are sticky in submission order)
     struct Uniform
@@ -443,7 +508,7 @@ struct Device final : Object
     std::vector<TransientRange> transient_ranges;
     void forget_transient(const VertexBuffer *vb);
     // The GPU copy of a buffer drawn from its own storage (not as transient data): see draw.cpp.
-    void upload_buffer(VertexBuffer &vb);
+    void upload_buffer(VertexBuffer &vb, const bgfx::VertexLayout &layout);
     void upload_buffer(IndexBuffer &ib, bool index32);
     bool uniforms_changed = false; // a uniform was set since the previous submit
 

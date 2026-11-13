@@ -13,6 +13,7 @@
 #include <chrono>
 #include <cstdarg>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <fstream>
 #include <memory>
@@ -71,7 +72,7 @@ struct TxFile
         format = static_cast<uint32_t>(header[4]);
         top_bytes = static_cast<uint32_t>(header[5]);
         if ((flags & (kTxFlagPalette | kTxFlagCubemap)) || !texture::tx_format_known(format) || width == 0 || height == 0 ||
-            width > 8192 || height > 8192 || levels == 0 || top_bytes != texture::tx_level_bytes(format, width, height))
+            width > 8192 || height > 8192 || levels == 0 || top_bytes != texture::d3d_level_bytes(format, width, height))
             return false;
         data.assign(std::istreambuf_iterator<char>(in), {});
         return data.size() >= top_bytes;
@@ -141,9 +142,9 @@ std::optional<uint64_t> Key(const Candidate &candidate, const TxFile &tx, int ma
         return std::nullopt;
     const std::span<const uint8_t> bytes = tx.Level(probe);
     const int pw = static_cast<int>(tx.width >> probe), ph = static_cast<int>(tx.height >> probe);
-    if (bytes.size() != texture::tx_level_bytes(tx.format, pw, ph))
+    if (bytes.size() != texture::d3d_level_bytes(tx.format, pw, ph))
         return std::nullopt;
-    return fx::ReliefKey(candidate.name, bytes, pw, ph, fx::kReliefMethodVersion, map_size);
+    return fx::ReliefKey(candidate.name, bytes, pw, ph, fx::ReliefMethod(candidate.relief), map_size);
 }
 
 // A grey "bump" texture: a height map the game derives itself (the runtime classifier decides from the same level).
@@ -156,7 +157,7 @@ bool GreyHeightMap(const Candidate &candidate, const TxFile &tx)
         return false;
     const uint32_t pw = tx.width >> probe, ph = tx.height >> probe;
     std::vector<uint8_t> rgba(size_t(pw) * ph * 4);
-    return texture::decode_tx_level(tx.format, tx.Level(probe).data(), pw, ph, rgba.data()) && fx::IsGrayscale(rgba);
+    return texture::decode_rgba8(tx.format, tx.Level(probe).data(), pw, ph, rgba.data()) && fx::IsGrayscale(rgba);
 }
 
 // The key of a texture that gets a prepared map, with the class it is prepared as.
@@ -290,8 +291,8 @@ bool ReadTextureLevel(const std::filesystem::path &file, int max_size, std::vect
     const uint32_t lw = std::max(1u, tx.width >> level), lh = std::max(1u, tx.height >> level);
     const std::span<const uint8_t> bytes = tx.Level(level);
     rgba.assign(size_t(lw) * lh * 4, 0);
-    if (bytes.size() < texture::tx_level_bytes(tx.format, lw, lh) ||
-        !texture::decode_tx_level(tx.format, bytes.data(), lw, lh, rgba.data()))
+    if (bytes.size() < texture::d3d_level_bytes(tx.format, lw, lh) ||
+        !texture::decode_rgba8(tx.format, bytes.data(), lw, lh, rgba.data()))
         return false;
     width = static_cast<int>(lw);
     height = static_cast<int>(lh);
@@ -377,8 +378,8 @@ Outcome Session::PrepareFile(const std::filesystem::path &textures, const std::f
     const int width = static_cast<int>(lw), height = static_cast<int>(lh);
     std::vector<uint8_t> rgba(size_t(lw) * lh * 4);
     const std::span<const uint8_t> bytes = tx.Level(level);
-    if (bytes.size() < texture::tx_level_bytes(tx.format, lw, lh) ||
-        !texture::decode_tx_level(tx.format, bytes.data(), lw, lh, rgba.data()))
+    if (bytes.size() < texture::d3d_level_bytes(tx.format, lw, lh) ||
+        !texture::decode_rgba8(tx.format, bytes.data(), lw, lh, rgba.data()))
     {
         failure = "unreadable level " + std::to_string(level);
         Log("ERROR: no relief map for %s: %s", candidate->name.c_str(), failure.c_str());
@@ -418,7 +419,7 @@ Outcome Session::PrepareFile(const std::filesystem::path &textures, const std::f
     const fx::NormalMap rg8 = fx::DeepBumpNormalMap(normals, mw, mh, target);
     const double mips_ms = lap();
     const fx::NormalMap map{rg8.width, rg8.height, rg8.mip_count, fx::NormalMapFormat::EacRg11,
-                            texture::encode_eac_rg11_chain(rg8.rg.data(), rg8.width, rg8.height, rg8.mip_count)};
+                            texture::encode_eac_chain(texture::EacFormat::Rg11, rg8.rg.data(), rg8.width, rg8.height, rg8.mip_count)};
     const double encode_ms = lap();
     if (!fx::WriteReliefMap(output, *key, map))
     {
@@ -443,9 +444,19 @@ int Prune(const std::filesystem::path &textures, const std::filesystem::path &ou
     for (const Candidate &candidate : Candidates(textures))
     {
         TxFile tx;
+        if (!tx.Load(candidate.file))
+            continue;
         fx::ReliefClass relief;
-        if (const std::optional<uint64_t> key = tx.Load(candidate.file) ? PreparedKey(candidate, tx, map_size, relief) : std::nullopt)
+        if (const std::optional<uint64_t> key = PreparedKey(candidate, tx, map_size, relief))
             current.push_back(fx::ReliefFile(output, *key));
+        else if (GreyHeightMap(candidate, tx))
+        {
+            // The game's own map of a grey "bump" texture, under the height maps' method: kept while it is current.
+            Candidate height = candidate;
+            height.relief = fx::ReliefClass::HeightMap;
+            if (const std::optional<uint64_t> height_key = Key(height, tx, fx::kReliefMapSize))
+                current.push_back(fx::ReliefFile(output, *height_key));
+        }
     }
     std::sort(current.begin(), current.end());
     int removed = 0;
@@ -463,12 +474,28 @@ namespace
 {
 std::string CompleteMark(const std::filesystem::path &textures, int map_size)
 {
-    return "method " + std::to_string(fx::kReliefMethodVersion) + " size " + std::to_string(map_size) + " textures " +
+    // Every class's method (model, options, versions): another build's maps never count as complete.
+    uint64_t methods = 0;
+    for (const fx::ReliefClass relief : {fx::ReliefClass::Stone, fx::ReliefClass::Wood, fx::ReliefClass::Building,
+                                         fx::ReliefClass::Plaster, fx::ReliefClass::HeightMap})
+        methods = (methods ^ fx::ReliefMethod(relief)) * 0x100000001b3ull;
+    char hex[24];
+    std::snprintf(hex, sizeof(hex), "%016llx", static_cast<unsigned long long>(methods));
+    return std::string("method ") + hex + " size " + std::to_string(map_size) + " textures " +
            std::to_string(Candidates(textures).size()) + "\n";
 }
 std::filesystem::path CompleteFile(const std::filesystem::path &output)
 {
     return output / "complete.txt";
+}
+
+int CountMaps(const std::filesystem::path &output)
+{
+    int maps = 0;
+    std::error_code error;
+    for (const auto &entry : std::filesystem::directory_iterator(output, error))
+        maps += entry.path().extension() == ".relief" ? 1 : 0;
+    return maps;
 }
 } // namespace
 
@@ -476,14 +503,26 @@ void MarkComplete(const std::filesystem::path &textures, const std::filesystem::
 {
     std::error_code error;
     std::filesystem::create_directories(output, error);
-    std::ofstream(CompleteFile(output), std::ios::trunc) << CompleteMark(textures, map_size);
+    std::ofstream(CompleteFile(output), std::ios::trunc) << CompleteMark(textures, map_size) << "maps " << CountMaps(output)
+                                                         << "\n";
 }
 
-bool Complete(const std::filesystem::path &textures, const std::filesystem::path &output, int map_size)
+bool Complete(const std::filesystem::path &textures, const std::filesystem::path &output, int map_size, int *missing)
 {
+    if (missing)
+        *missing = 0;
     std::ifstream in(CompleteFile(output));
-    const std::string mark{std::istreambuf_iterator<char>(in), {}};
-    return !mark.empty() && mark == CompleteMark(textures, map_size);
+    std::string method, maps;
+    if (!std::getline(in, method) || !std::getline(in, maps) || method + "\n" != CompleteMark(textures, map_size) ||
+        maps.rfind("maps ", 0) != 0)
+        return false;
+    // The system may evict a cache: maps of a complete pass gone since are made again.
+    const int marked = std::atoi(maps.c_str() + 5), present = CountMaps(output);
+    if (present >= marked)
+        return true;
+    if (missing)
+        *missing = marked - present;
+    return false;
 }
 
 std::string Result::Json() const

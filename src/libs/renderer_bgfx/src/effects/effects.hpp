@@ -191,6 +191,7 @@ class Host
     fx::ContactShadows contact_;
     AoVolumes ao_;
     const AoVolumes::Bound *ao_bound_ = nullptr;
+    std::chrono::steady_clock::time_point last_frame_end_{}; // the lightmaps' sun turns with the time between frames
     float camera_height_ = 0.0f; // of the last world pass
     bgfx::UniformHandle u_sea_fx_ = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle s_sea_depth_ = BGFX_INVALID_HANDLE;

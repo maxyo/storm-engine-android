@@ -10,8 +10,11 @@
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <fstream>
 #include <thread>
+#include <mutex>
+#include <condition_variable>
 #include <unistd.h>
 
 using namespace storm::texture;
@@ -135,7 +138,7 @@ void test_decoder()
         CHECK(rgba[t * 4 + 3] == expect6[t]);
 }
 
-// etcpak's pixel convention, checked through bimg's reference ETC2 decoder.
+// The ETC2 encoder's channel order, checked through bimg's reference ETC2 decoder.
 void test_channel_order()
 {
     std::vector<uint8_t> image(16 * 4);
@@ -147,8 +150,7 @@ void test_channel_order()
             for (int i = 0; i < 16; ++i)
                 image[i * 4 + 3] = 90;
         uint8_t block[16];
-        EncodeScratch scratch;
-        encode_level(format, image.data(), 4, 4, block, scratch);
+        encode_etc(format, image.data(), 4, 4, block);
         uint8_t decoded[64];
         bimg::imageDecodeToRgba8(&allocator, decoded, block, 4, 4, 16,
                                  format == EtcFormat::Rgb8 ? bimg::TextureFormat::ETC2 : bimg::TextureFormat::ETC2A);
@@ -157,43 +159,87 @@ void test_channel_order()
     }
 }
 
-// EAC RG11 of a derived normal map level (etcpak CompressEacRg) through bimg's reference decoder: R and G land in
-// the right channels, smooth gradients stay within a few steps, and a level that is no multiple of 4 is padded.
-void test_eac_rg11()
+// EAC R11 and RG11 of a derived map level through bimg's reference decoder: R and G land in the right channels,
+// smooth gradients stay within a few steps, and a level that is no multiple of 4 is padded.
+void test_eac()
 {
     const uint32_t w = 8, h = 6;
-    std::vector<uint8_t> rg(size_t(w) * h * 2);
-    for (uint32_t y = 0; y < h; ++y)
-        for (uint32_t x = 0; x < w; ++x)
-        {
-            rg[(y * w + x) * 2 + 0] = static_cast<uint8_t>(40 + x * 20);
-            rg[(y * w + x) * 2 + 1] = static_cast<uint8_t>(200 - y * 25);
-        }
-    std::vector<uint8_t> blocks(size_t(blocks_x(w)) * blocks_x(h) * 16);
-    encode_eac_rg11(rg.data(), w, h, blocks.data());
-    std::vector<uint8_t> decoded(size_t(w) * 8 * 4);
-    bimg::imageDecodeToRgba8(&allocator, decoded.data(), blocks.data(), w, 8, w * 4, bimg::TextureFormat::EACRG11);
-    int worst = 0;
-    for (uint32_t y = 0; y < h; ++y)
-        for (uint32_t x = 0; x < w; ++x)
-            for (int c = 0; c < 2; ++c)
-                worst = std::max(worst, std::abs(decoded[(y * w + x) * 4 + c] - rg[(y * w + x) * 2 + c]));
-    CHECK(worst <= 4);
+    for (EacFormat format : {EacFormat::R11, EacFormat::Rg11})
+    {
+        const uint32_t channels = eac_channels(format);
+        std::vector<uint8_t> texels(size_t(w) * h * channels);
+        for (uint32_t y = 0; y < h; ++y)
+            for (uint32_t x = 0; x < w; ++x)
+            {
+                texels[(y * w + x) * channels + 0] = static_cast<uint8_t>(40 + x * 20);
+                if (channels == 2)
+                    texels[(y * w + x) * channels + 1] = static_cast<uint8_t>(200 - y * 25);
+            }
+        std::vector<uint8_t> blocks(size_t(blocks_x(w)) * blocks_x(h) * eac_block_bytes(format));
+        encode_eac(format, texels.data(), w, h, blocks.data());
+        std::vector<uint8_t> decoded(size_t(w) * 8 * 4);
+        bimg::imageDecodeToRgba8(&allocator, decoded.data(), blocks.data(), w, 8, w * 4,
+                                 format == EacFormat::R11 ? bimg::TextureFormat::EACR11 : bimg::TextureFormat::EACRG11);
+        int worst = 0;
+        for (uint32_t y = 0; y < h; ++y)
+            for (uint32_t x = 0; x < w; ++x)
+                for (uint32_t c = 0; c < channels; ++c)
+                    worst = std::max(worst, std::abs(decoded[(y * w + x) * 4 + c] - texels[(y * w + x) * channels + c]));
+        CHECK(worst <= 4);
+        const std::vector<uint8_t> chain = encode_eac_chain(format, texels.data(), w, h, 1);
+        CHECK(chain == blocks);
+    }
 }
 
 // The game's uncompressed .tx formats decode to RGBA8 (R first) as the renderer uploads them.
 void test_tx_formats()
 {
     CHECK(tx_format_known(21) && tx_format_known(0x31545844) && !tx_format_known(50));
-    CHECK(tx_level_bytes(23, 4, 2) == 16 && tx_level_bytes(0x31545844, 5, 5) == 32 && tx_level_bytes(21, 2, 2) == 16);
+    CHECK(d3d_level_bytes(23, 4, 2) == 16 && d3d_level_bytes(0x31545844, 5, 5) == 32 && d3d_level_bytes(21, 2, 2) == 16);
     const uint8_t argb[4] = {10, 20, 30, 40}; // B, G, R, A in memory
     uint8_t out[4];
-    CHECK(decode_tx_level(21, argb, 1, 1, out) && out[0] == 30 && out[1] == 20 && out[2] == 10 && out[3] == 40);
+    CHECK(decode_rgba8(21, argb, 1, 1, out) && out[0] == 30 && out[1] == 20 && out[2] == 10 && out[3] == 40);
     const uint8_t rgb565[2] = {0x00, 0xF8}; // pure red
-    CHECK(decode_tx_level(23, rgb565, 1, 1, out) && out[0] == 255 && out[1] == 0 && out[2] == 0 && out[3] == 255);
+    CHECK(decode_rgba8(23, rgb565, 1, 1, out) && out[0] == 255 && out[1] == 0 && out[2] == 0 && out[3] == 255);
     const uint8_t argb4444[2] = {0x0F, 0x80}; // a 8, r 0, g 0, b 15
-    CHECK(decode_tx_level(26, argb4444, 1, 1, out) && out[0] == 0 && out[2] == 255 && out[3] == 136);
-    CHECK(!decode_tx_level(50, argb, 1, 1, out));
+    CHECK(decode_rgba8(26, argb4444, 1, 1, out) && out[0] == 0 && out[2] == 255 && out[3] == 136);
+    CHECK(!decode_rgba8(50, argb, 1, 1, out));
+}
+
+// Every value of the 16-bit formats decodes to the nearest 8-bit value (v * 255 / max, rounded), as a GPU sampling
+// the native format does. The converters before bimg replicated bits instead: 14 of the 96 5- and 6-bit values came
+// out one step lower; 4-bit values (times 17) and 1-bit alpha are the same either way.
+void test_d3d_decode_exhaustive()
+{
+    std::vector<uint8_t> texels(65536 * 2);
+    for (uint32_t v = 0; v < 65536; ++v)
+        texels[v * 2] = uint8_t(v), texels[v * 2 + 1] = uint8_t(v >> 8);
+    std::vector<uint8_t> rgba(65536 * 4);
+    const auto unorm = [](uint32_t value, uint32_t max) { return uint8_t((value * 255 * 2 + max) / (2 * max)); };
+    int mismatches = 0;
+    for (uint32_t format : {23u, 25u, 26u})
+    {
+        CHECK(decode_rgba8(format, texels.data(), 256, 256, rgba.data()));
+        for (uint32_t v = 0; v < 65536; ++v)
+        {
+            uint8_t e[4];
+            if (format == 23)
+                e[0] = unorm(v >> 11, 31), e[1] = unorm((v >> 5) & 63, 63), e[2] = unorm(v & 31, 31), e[3] = 255;
+            else if (format == 25)
+                e[0] = unorm((v >> 10) & 31, 31), e[1] = unorm((v >> 5) & 31, 31), e[2] = unorm(v & 31, 31),
+                e[3] = (v & 0x8000) ? 255 : 0;
+            else
+                e[0] = unorm((v >> 8) & 15, 15), e[1] = unorm((v >> 4) & 15, 15), e[2] = unorm(v & 15, 15),
+                e[3] = unorm(v >> 12, 15);
+            mismatches += memcmp(e, &rgba[v * 4], 4) != 0;
+        }
+    }
+    CHECK(mismatches == 0);
+    const uint8_t xrgb[8] = {1, 2, 3, 0, 4, 5, 6, 77};
+    uint8_t out[8];
+    CHECK(decode_rgba8(22, xrgb, 2, 1, out) && out[0] == 3 && out[2] == 1 && out[3] == 255 && out[4] == 6 && out[7] == 255);
+    const uint8_t abgr[4] = {9, 8, 7, 6};
+    CHECK(decode_rgba8(32, abgr, 1, 1, out) && memcmp(out, abgr, 4) == 0);
 }
 
 void test_hash()
@@ -405,9 +451,31 @@ void test_service(const fs::path &directory)
     key_builder.add(payload.data(), payload.size());
     const uint64_t key = key_builder.key();
     CHECK(!service.lookup(key, layout));
+    // Identical contents share the job while it is in flight. Every worker is held by a task first, so the job
+    // cannot finish (and leave the in-flight table) between the two submits on a loaded machine.
+    std::mutex hold_mutex;
+    std::condition_variable hold_wake;
+    unsigned held = 0;
+    bool open = false;
+    for (unsigned i = 0; i < Service::worker_count(); ++i)
+        service.post([&] {
+            std::unique_lock hold(hold_mutex);
+            ++held;
+            hold_wake.notify_all();
+            hold_wake.wait(hold, [&] { return open; });
+        });
+    {
+        std::unique_lock hold(hold_mutex);
+        hold_wake.wait(hold, [&] { return held == Service::worker_count(); });
+    }
     auto job = service.submit(layout, key, EtcFormat::Rgb8, payload);
     CHECK(job != nullptr);
     CHECK(service.submit(layout, key, EtcFormat::Rgb8, payload) == job); // deduplicated
+    {
+        std::lock_guard hold(hold_mutex);
+        open = true;
+    }
+    hold_wake.notify_all();
     for (int i = 0; i < 500 && job->state.load() != Job::Done; ++i)
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     CHECK(job->state.load() == Job::Done && job->result && job->result->size == ktx_size(EtcFormat::Rgb8, layout));
@@ -447,8 +515,9 @@ int main()
     fs::create_directories(directory);
     test_decoder();
     test_channel_order();
-    test_eac_rg11();
+    test_eac();
     test_tx_formats();
+    test_d3d_decode_exhaustive();
     test_hash();
     test_quality();
     test_cube();

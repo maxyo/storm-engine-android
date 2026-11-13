@@ -140,8 +140,14 @@ struct Settings
     // keep their ratios), the same on Средняя and Высокая. 1.0: the owner's choice, DeepBump's maps at the full strength
     // of our own derivation (relief_store.hpp).
     float normal_map_strength = 1.0f;
+    // With kLightingTranslucent: strength of the sunlight through sails and flags (scales LightingMaterial::translucency).
+    float sail_light = 1.0f;
     uint16_t normal_map_size = 512;   // with kLightingNormalMap: larger side of the resident normal maps (EAC RG11 + mips)
     ShadowQuality shadows = ShadowQuality::Off; // sun shadows on per-pixel lit surfaces (needs kLightingPerPixel)
+    // Towns light their lightmapped surfaces with our own bake for the live sun instead of the game's lightmaps
+    // (needs kLightingPerPixel; src/effects/town_light.hpp).
+    bool town_light = false;
+    bool town_light_debug = false; // our town lightmaps show their sun visibility (grey) instead of the relit paint
     // Ambient-occlusion volume of interiors (ao_volume.hpp): 0 off, else one of the strengths AoVolumeLevel names.
     uint8_t ao_volume = 0;
     // The lamps of a location relight it with shadows (lamp_shadows.hpp): how many lamps around the camera take
@@ -152,7 +158,7 @@ struct Settings
     // camera cast shadows, their still faces redrawn whenever they move. 0, 1 or 2.
     uint8_t lamp_moving = 0;
     float lamp_gain = 1.0f;  // the lamps' strength on baked surfaces, 1 = the chosen look (0..3)
-    float lamp_baked = 0.5f; // the part of that light the baked colours are taken to hold already (0..1): 1 = lamps
+    float lamp_baked = 0.25f; // the part of that light the baked colours are taken to hold already (0..1): 1 = lamps
                              // only take light away where they are hidden, less = they also brighten what they reach
     // Indoors the lit models stand this much above the room light around them (0 = at its level): the owner wants
     // the characters to stand out from the room a little.
@@ -177,7 +183,8 @@ struct Support
     bool shadow_map = false;    // D16 texture as a render target: Settings::shadows
     bool scene_depth = false;   // the scene's depth attachment can be sampled: Settings::ssao, Settings::sea_soft_edges
     bool normal_map = false;    // EAC RG11 textures (the derived maps): kLightingNormalMap
-    bool msaa = false;          // multisampled RGBA8 render targets: Settings::msaa
+    uint8_t msaa_samples = 1;   // the highest MSAA sample count (1 = none, 2 or 4) the scene target renders with,
+                                // RGBA8 colour and D24S8 depth both (per-format bgfx caps): Settings::msaa
     bool smaa = false;          // R8 and RG8 textures (the SMAA search and area tables): Settings::smaa
     bool msaa_depth = false;    // the scene depth can still be sampled when the scene target is multisampled
                                 // (renderer knowledge, like scene_depth): msaa together with ssao / sea soft edges

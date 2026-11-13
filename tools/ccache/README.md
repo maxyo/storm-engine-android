@@ -43,7 +43,7 @@ instead of a cold compile.
   include it by name, as `src/libs/diagnostics/include/watermark.hpp` does.
 - Cross-worktree hits need **the same build directory depth** in the worktree (relative paths
   must match): `build/<name>` everywhere, or the script defaults (`build/android-ci/<name>`).
-- Pinned FetchContent sources (bgfx, etcpak, glm, RmlUi, FreeType, lunasvg, json) are fetched once
+- Pinned FetchContent sources (bgfx, glm, RmlUi, FreeType, lunasvg, json) are fetched once
   per machine into `~/.cache/storm-deps/fetchcontent/<name>-<digest of the pin>`
   (`storm_fetch_declare` in `cmake/StormBuildCache.cmake`, `STORM_DEPS_CACHE` overrides the
   root): pristine copies, shared read-only by all build directories. Unpatched ones are compiled

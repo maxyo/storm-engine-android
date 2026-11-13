@@ -356,6 +356,7 @@ int main()
                 std::memset(static_cast<uint8_t *>(rect.pBits) + y * rect.Pitch, 0xFF, 16);
             white->UnlockRect(0);
             harness.texture = white;
+            float far_without_slot[2] = {0.0f, 0.0f};
             for (const int moving : {0, 1})
                 for (const float lantern_x : {-2.0f, 2.0f})
                 {
@@ -384,6 +385,20 @@ int main()
                                 "spot %.1f\n",
                                 pass ? "PASS" : "FAIL", lantern_x, moving, shadowed, lit);
                     ok &= pass;
+                    // The slot's light is the game's point light: it reaches as far, as strong. The open floor 5.3 m
+                    // from the lantern (x = 0.8 of its side, z = 2.8) is as bright with the slot as without it.
+                    const float far_x = lantern_x < 0.0f ? -2.8f : 2.8f;
+                    const float far = mean(picture, (far_x + 3.0f) / 6.0f, (3.0f - 2.8f) / 6.0f);
+                    float &without = far_without_slot[lantern_x < 0.0f ? 0 : 1];
+                    if (!moving)
+                        without = far;
+                    else
+                    {
+                        const bool same = std::fabs(far - without) <= 0.01f * without + 1.0f;
+                        std::printf("%s lantern at x = %.0f: the floor 5.3 m away %.1f with its slot, %.1f without\n",
+                                    same ? "PASS" : "FAIL", lantern_x, far, without);
+                        ok &= same;
+                    }
                 }
             render::SetEffectsDynamicLights({});
             // A ship's lantern: the same room is now a ship (its geometry in the ship's space, reported once when the

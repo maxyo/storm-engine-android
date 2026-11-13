@@ -7,6 +7,13 @@
       "file": "RESOURCE/MODELS/Locations/UnderWater/UnderWater_morning10.col",
       "error": "engine error: geometry: resource\\models\\locations\\UnderWater\\UnderWater.gm has 86193 vertices but its vertex colour file resource\\models\\locations\\UnderWater\\UnderWater_morning10.col has 83897 entries",
       "reason": "The game ships a baked vertex colour file made for an older version of the model (2296 vertices fewer). The engine reports it (geom_static.cpp) and draws the model's own vertex colours, as the original engine did; the data is the game's."
+    },
+    {
+      "game": "TEHO 1.7.3",
+      "scene": "menu:main",
+      "file": "RESOURCE/MODELS/Ships/Sloop1/sloop1_mast2.gm",
+      "error": "missing texture: Can't load texture resource\\textures\\PHONG256_BW.GIF.tx",
+      "reason": "The sloop of the main menu (sloop1_mast2.gm, also sloop1_mast201.gm and Frigate_h1.gm) names the texture PHONG256_BW.GIF, which the game does not ship (not in RESOURCE/Textures of the installer). The engine logs it and draws the mast without that texture, as the original engine does; the data is the game's."
     }
   ]
 }

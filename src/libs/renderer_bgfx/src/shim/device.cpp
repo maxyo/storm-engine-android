@@ -2,6 +2,9 @@
 #include "effects/effects.hpp"
 #include "perf.hpp"
 #include "util.hpp"
+#include "../texture/core/formats.hpp"
+
+#include <bx/allocator.h>
 
 #include <SDL2/SDL.h>
 
@@ -107,7 +110,6 @@ Device *Device::current = nullptr;
 Device::Device(SDL_Window *sdl_window, const D3DPRESENT_PARAMETERS &present) : window(sdl_window), params(present)
 {
     current = this;
-    byte_layout.begin().add(bgfx::Attrib::TexCoord7, 1, bgfx::AttribType::Uint8).end();
     lights.resize(kMaxLights);
     shaders.assign(embedded_shader_count(), BGFX_INVALID_HANDLE);
 
@@ -187,6 +189,7 @@ void Device::create_backbuffer(uint32_t width, uint32_t height)
     held_color.reset(); // parked stores of the old surfaces
     held_depth.reset();
     release_paused_picture();
+    backbuffer_recreated = true;
     create_scene_stores(width, height);
     rt = back_color;
     rt->AddRef();
@@ -509,15 +512,22 @@ HRESULT Device::Present()
     // render::HoldGamePicture (a pause menu over the game): the first 3D frame presented after the hold was asked for
     // is kept and presented in place of the following frames, which draw no scene (GamePictureHeld). A kept picture
     // of another size than the game picture (the display or the window changed) is dropped: the next frame is drawn
-    // in full and kept again.
-    if (paused_picture && (!context.hold_requested() || paused_picture->width != back_color->store->width ||
+    // in full and kept again; so is one the context stopped trusting (a lost or restored surface: Context::picture_held
+    // went false and the engine drew this frame in full).
+    if (paused_picture && (!context.picture_held() || paused_picture->width != back_color->store->width ||
                            paused_picture->height != back_color->store->height))
         release_paused_picture();
     const TexStore &shown = paused_picture ? *paused_picture : *back_color->store;
     const uint32_t presented = context.last_frame();
     context.present(shown.handle, shown.width, shown.height);
-    if (context.hold_requested() && !paused_picture && scene_frame && context.last_frame() != presented)
+    // A frame in which the surface or the back buffer changed is not kept: drawn across a surface re-creation or a
+    // resize its picture can be lost with the old surface (a black picture behind the menu after a rotation). The
+    // engine draws the next one in full as well (nothing is held yet), and that one is kept.
+    const bool stable = context.Surface().generation == frame_surface_generation && !backbuffer_recreated;
+    if (context.hold_requested() && !paused_picture && scene_frame && stable && context.last_frame() != presented)
         keep_paused_picture();
+    frame_surface_generation = context.Surface().generation;
+    backbuffer_recreated = false;
     effects.end_frame(scene_frame, context.last_frame());
     // The render scale applies to 3D frames: the next frame starts on the scaled scene stores after a 3D frame, on the
     // display-size picture otherwise (menus, loading screens).
@@ -1103,9 +1113,11 @@ HRESULT Device::GetRenderTargetData(Surface *target, Surface *dest)
     read_region.init(staging);
     const uint32_t ready_frame = bgfx::read(read_region, pixels.data());
     uint32_t current = 0;
-    for (int i = 0; i < 4 && current < ready_frame; ++i)
-        if (!Context::instance().run_frame(BGFX_FRAME_FLUSH, &current))
-            break; // the surface is going away: the copy keeps whatever was read so far
+    // The render thread writes `pixels` while it executes the frame the read was recorded in; that frame is finished
+    // when bgfx::frame() has returned the next number, and `ready_frame` is one later still. Flush frames present
+    // nothing and are never refused (Context::run_frame), so `pixels` outlives the write.
+    while (current < ready_frame)
+        Context::instance().run_frame(BGFX_FRAME_FLUSH, &current);
     // A flush ends the bgfx frame: views and sticky uniforms start over.
     views_used = 0;
     view_has_content = false;
@@ -1113,22 +1125,15 @@ HRESULT Device::GetRenderTargetData(Surface *target, Surface *dest)
     bgfx::destroy(staging);
     uint32_t pitch = 0;
     uint8_t *out = to->store->lock(to->face, to->level, &pitch, nullptr, false);
-    const D3DFORMAT format = to->store->format;
-    for (uint32_t y = 0; y < h; ++y)
-    {
-        const uint8_t *row = pixels.data() + static_cast<size_t>(y) * w * 4;
-        uint8_t *d = out + static_cast<size_t>(y) * pitch;
-        if (format == D3DFMT_A8R8G8B8 || format == D3DFMT_X8R8G8B8)
-            for (uint32_t x = 0; x < w; ++x, row += 4, d += 4)
-                d[0] = row[2], d[1] = row[1], d[2] = row[0], d[3] = row[3];
-        else if (format == D3DFMT_R5G6B5)
-            for (uint32_t x = 0; x < w; ++x, row += 4, d += 2)
-            {
-                const uint16_t v = static_cast<uint16_t>(((row[0] >> 3) << 11) | ((row[1] >> 2) << 5) | (row[2] >> 3));
-                d[0] = static_cast<uint8_t>(v);
-                d[1] = static_cast<uint8_t>(v >> 8);
-            }
-    }
+    // RGBA8 into the surface's own texels (texture/core d3d_format): A8R8G8B8/X8R8G8B8 are BGRA8, R5G6B5 is B5G6R5.
+    static bx::DefaultAllocator allocator;
+    const auto texels = texture::d3d_format(static_cast<uint32_t>(to->store->format)).format;
+    if (bimg::isCompressed(texels) || texels == bimg::TextureFormat::Unknown)
+        trap("Device::GetRenderTargetData into an unsupported destination format (left unchanged)");
+    else
+        for (uint32_t y = 0; y < h; ++y) // row by row: the surface's pitch
+            bimg::imageConvert(&allocator, out + static_cast<size_t>(y) * pitch, texels,
+                               pixels.data() + static_cast<size_t>(y) * w * 4, bimg::TextureFormat::RGBA8, w, 1, 1);
     to->store->unlock(to->face, to->level);
     return D3D_OK;
 }

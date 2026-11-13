@@ -23,7 +23,7 @@ else()
     set(storm_shaderc_inputs "${STORM_DEPS_CACHE}/shaderc-inputs-${storm_shaderc_pin_key}.txt")
     file(GLOB storm_shaderc_patches "${CMAKE_CURRENT_LIST_DIR}/../patches/bgfx-*.patch")
     # Sets storm_shaderc_key from the inputs recorded so far. The recorded paths are relative to the
-    # bgfx.cmake root; the patches apply in its bgfx/ directory.
+    # patched bgfx tree, where the patches apply.
     function(storm_shaderc_compute_key)
         set(key "${storm_shaderc_pin_key}")
         set(inputs "")
@@ -37,7 +37,7 @@ else()
                 set(relevant TRUE)
             endif()
             foreach(path ${paths})
-                if("bgfx/${path}" IN_LIST inputs)
+                if(path IN_LIST inputs)
                     set(relevant TRUE)
                 endif()
             endforeach()
@@ -82,15 +82,15 @@ else()
                     message(FATAL_ERROR "Building the host shaderc in ${build} failed")
                 endif()
             endforeach()
-            # Record every file of the patched bgfx.cmake tree this build compiled or included.
+            # Record every file of the patched bgfx tree this build compiled or included.
             load_cache("${build}" READ_WITH_PREFIX storm_shaderc_ CMAKE_MAKE_PROGRAM)
             execute_process(COMMAND "${storm_shaderc_CMAKE_MAKE_PROGRAM}" -C "${build}" -t deps
                 RESULT_VARIABLE result OUTPUT_VARIABLE deps ERROR_VARIABLE deps_error)
             if(NOT result EQUAL 0)
                 message(FATAL_ERROR "Cannot read the dependency log of ${build}: ${deps_error}")
             endif()
-            string(REGEX MATCHALL "_deps/storm_bgfx_upstream-patched-[0-9a-f]+/[^\n]+" used "${deps}")
-            list(TRANSFORM used REPLACE "^_deps/storm_bgfx_upstream-patched-[0-9a-f]+/" "")
+            string(REGEX MATCHALL "_deps/storm_bgfx-patched-[0-9a-f]+/[^\n]+" used "${deps}")
+            list(TRANSFORM used REPLACE "^_deps/storm_bgfx-patched-[0-9a-f]+/" "")
             if(NOT used)
                 message(FATAL_ERROR "The dependency log of ${build} names no file of the bgfx sources: the shaderc "
                     "patch classification (${CMAKE_CURRENT_LIST_FILE}) no longer matches the build layout")

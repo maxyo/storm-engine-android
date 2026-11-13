@@ -47,9 +47,8 @@ class Shadows
     // Sets the shadow map (sampler stage kShadowMapStage), u_fxShadowMtx and u_fxShadow for the next draw call.
     // `camera_view`: the receiver's world -> view matrix (receivers shade in view space; draws of one frame may use
     // different cameras). Required for every draw of a FX_LIGHT_SHADOW variant; calling it before the first Begin()
-    // is an error. `ground_sun`: the receiver's sun from the location's lightmaps (fx::GroundLight; 1 = none): the
-    // receiver is never more in the sun than that.
-    void Bind(const std::array<float, 16> &camera_view, float ground_sun);
+    // is an error.
+    void Bind(const std::array<float, 16> &camera_view);
 
     void Shutdown();
     void OnDeviceLost();
@@ -64,7 +63,6 @@ class Shadows
     bgfx::UniformHandle s_map_ = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle u_matrix_ = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle u_params_ = BGFX_INVALID_HANDLE;
-    bgfx::UniformHandle u_ground_ = BGFX_INVALID_HANDLE;
     std::array<float, 16> world_to_shadow_{}; // world -> shadow map uv and 0..1 depth
     std::array<float, 16> camera_view_{};     // the camera view_to_shadow_ was made for
     std::array<float, 16> view_to_shadow_{};

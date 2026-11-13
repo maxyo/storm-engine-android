@@ -8,7 +8,7 @@
 #   STORM_FX_SHADERC_DEPENDS       target/file the shader build depends on
 #   STORM_FX_BGFX_SHADER_INCLUDE   <bgfx>/src (bgfx_shader.sh)
 # render/bgfx can pass its STORM_SHADERC_COMMAND / STORM_SHADERC_DEPENDS and
-# "${STORM_BGFX_SOURCE_DIR}/bgfx/src" unchanged.
+# "${STORM_BGFX_SOURCE_DIR}/src" unchanged.
 cmake_minimum_required(VERSION 3.21)
 if(NOT TARGET storm_bgfx_runtime)
     message(FATAL_ERROR "renderer_bgfx/fx needs the pinned bgfx (storm_bgfx_runtime); configure tools/fx-preview or add it from renderer_bgfx")
@@ -42,7 +42,7 @@ include(shaders/shaders.cmake)
 add_library(storm_bgfx_fx_core STATIC
     src/color_lut.cpp src/noise_bake.cpp src/sky_model.cpp
     src/lighting_model.cpp src/light_set.cpp src/shadow_model.cpp src/normal_map.cpp src/settings.cpp src/log.cpp
-    src/ao_volume.cpp src/voxelizer_impl.c src/lamp_shadows.cpp src/ground_light.cpp src/deepbump.cpp src/relief_store.cpp
+    src/ao_volume.cpp src/voxelizer_impl.c src/lamp_shadows.cpp src/sun_fit.cpp src/town_light.cpp src/deepbump.cpp src/relief_store.cpp
     src/cutout.cpp)
 target_compile_features(storm_bgfx_fx_core PUBLIC cxx_std_20)
 target_include_directories(storm_bgfx_fx_core PUBLIC include)
