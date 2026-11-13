@@ -29,12 +29,13 @@ inline constexpr int kReliefMapSize = 512;
 inline constexpr uint32_t kReliefHeightMethod = 0x48000002u; // 2: the file layout with the height
 // Bump when the prepared maps change in a way ReliefMethod cannot see (the models' post-processing, the file layout).
 // The models, the height's version, the gloss's and the height maps' derivation are in ReliefMethod. 6: PBRify's normals
-// and height instead of DeepBump (the owner's choice), the file with the material texture.
-inline constexpr uint32_t kReliefMethodVersion = 6;
+// and height instead of DeepBump (the owner's choice), the file with the material texture; 7: the material's gloss
+// from PBRify's roughness.
+inline constexpr uint32_t kReliefMethodVersion = 7;
 
 // The method of a texture's map: everything its making depends on, so a change never reuses a map made before it.
 // PBRify maps (the same for every colour class with a height): kReliefMethodVersion, the models
-// (kReliefNormalModelDigest, kReliefHeightModelDigest), the map size, kHeightMapVersion and kGlossMethod; height maps: kReliefHeightMethod and their
+// (kReliefNormalModelDigest, kReliefHeightModelDigest, kReliefRoughnessModelDigest), the map size, kHeightMapVersion and kGlossMethod; height maps: kReliefHeightMethod and their
 // derivation's options. ReliefClass::None has none (0).
 uint64_t ReliefMethod(ReliefClass relief);
 
@@ -55,8 +56,8 @@ std::optional<NormalMap> ReadReliefMap(const std::filesystem::path &directory, u
 bool HasReliefMap(const std::filesystem::path &directory, uint64_t key);
 
 // The gloss maps (gloss_map.hpp) in the same directory: key ReliefKey(..., GlossMethod(class), kGlossMapSize), one file
-// "<key>.gloss" each: the material texture of a texture without height, EAC RG11 with all mips (R 0.5, the
-// flat height; G the gloss); the same writing and checks as the relief maps.
+// "<key>.gloss" each: the material texture of a texture without height, EAC RG11 with all mips (R the metal mask,
+// G the gloss: GlossMaterial); the same writing and checks as the relief maps.
 std::filesystem::path GlossFile(const std::filesystem::path &directory, uint64_t key);
 bool WriteGlossMap(const std::filesystem::path &directory, uint64_t key, const NormalMap &map);
 std::optional<NormalMap> ReadGlossMap(const std::filesystem::path &directory, uint64_t key, std::string *error = nullptr);

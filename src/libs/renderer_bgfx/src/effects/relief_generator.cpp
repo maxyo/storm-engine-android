@@ -78,6 +78,7 @@ void ReliefGenerator::shutdown()
     session_.reset();
     normal_model_.clear();
     height_model_.clear();
+    roughness_model_.clear();
 }
 
 void ReliefGenerator::request(const std::shared_ptr<NormalMapEntry> &entry, std::filesystem::path file)
@@ -164,6 +165,7 @@ void ReliefGenerator::run()
                         session_.reset();
                         normal_model_ = {};
                         height_model_ = {};
+                        roughness_model_ = {};
                         shim::logf("effects: relief generation idle: the relief models are released");
                         continue;
                     }
@@ -220,24 +222,27 @@ bool ReliefGenerator::open_session()
     const Clock::time_point start = Clock::now();
     normal_model_ = setup_.model("pbrify-normal-int8.onnx");
     height_model_ = setup_.model("pbrify-height-int8.onnx");
+    roughness_model_ = setup_.model("pbrify-roughness-int8.onnx");
     std::string error = "the relief models could not be read";
     // All cores but the game's main and render threads.
     const unsigned cores = std::thread::hardware_concurrency();
     const int threads = cores > 2 ? static_cast<int>(cores - 2) : 1;
-    std::unique_ptr<relief::Session> session = normal_model_.empty() || height_model_.empty()
-                                                   ? nullptr
-                                                   : relief::Session::Open({normal_model_, height_model_}, threads, error);
+    std::unique_ptr<relief::Session> session =
+        normal_model_.empty() || height_model_.empty() || roughness_model_.empty()
+            ? nullptr
+            : relief::Session::Open({normal_model_, height_model_, roughness_model_}, threads, error);
     if (!session)
     {
         model_failed_ = true;
         normal_model_.clear();
         height_model_.clear();
+        roughness_model_.clear();
         shim::logf("ERROR: effects: relief generation unavailable (%s): textures without a map get no relief",
                    error.c_str());
         return false;
     }
     shim::logf("effects: relief generation: PBRify models loaded (%.1f MB, onnxruntime %s) in %.0f ms",
-               static_cast<double>(normal_model_.size() + height_model_.size()) / 1048576.0, session->stats().provider.c_str(),
+               static_cast<double>(normal_model_.size() + height_model_.size() + roughness_model_.size()) / 1048576.0, session->stats().provider.c_str(),
                Ms(start));
     std::lock_guard lock(mutex_);
     if (stopping_)
@@ -268,17 +273,21 @@ void ReliefGenerator::prepare_request(const Request &request)
             stats_.slowest_ms = std::max(stats_.slowest_ms, ms);
         }
     }
+    // A gloss entry waits for the texture's gloss map, a relief entry for its relief map: one preparation makes both.
+    const bool gloss = entry->gloss != fx::GlossClass::None;
     if ((outcome == relief::Outcome::Prepared || outcome == relief::Outcome::Existing) &&
-        fx::HasReliefMap(setup_.directory, entry->key))
+        (gloss ? fx::HasGlossMap(setup_.directory, entry->key) : fx::HasReliefMap(setup_.directory, entry->key)))
     {
         entry->state = NormalMapEntry::Stored; // the next draw reads and uploads it
         return;
     }
     if (outcome == relief::Outcome::Failed)
-        shim::logf("ERROR: effects: relief map of %s not made (%s)", entry->name.c_str(), failure.c_str());
+        shim::logf("ERROR: effects: %s map of %s not made (%s)", gloss ? "gloss" : "relief", entry->name.c_str(),
+                   failure.c_str());
     else
         // The preparation and the game disagree on the texture (its key or class): a defect to fix, not a state.
-        shim::logf("ERROR: effects: relief map of %s: its file %s %s", entry->name.c_str(), request.file.string().c_str(),
+        shim::logf("ERROR: effects: %s map of %s: its file %s %s", gloss ? "gloss" : "relief", entry->name.c_str(),
+                   request.file.string().c_str(),
                    outcome == relief::Outcome::Skipped ? "gets no prepared map" : "has a map under another key");
     entry->state = NormalMapEntry::Failed;
 }
@@ -308,7 +317,7 @@ void ReliefGenerator::prepare_rest()
             shim::logf("effects: relief generation: %d maps of another method or game removed", stale);
         rest_ = relief::List(setup_.textures);
         rest_at_ = 0;
-        shim::logf("effects: relief generation: %zu relief textures of the game to make in the background (listed in "
+        shim::logf("effects: relief generation: %zu relief and gloss textures of the game to make in the background (listed in "
                    "%.0f ms)",
                    rest_.size(), Ms(start));
     }

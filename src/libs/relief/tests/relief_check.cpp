@@ -1,6 +1,8 @@
 // Host check of the relief preparation with the real PBRify models (storm_relief_core): a small synthetic game,
-// prepared, marked complete, keyed as the game keys it, resumed without work, stale maps pruned, cancelled.
+// prepared (a stone texture's relief with its material, a bottle's own gloss map), marked complete, keyed as the game
+// keys it, resumed without work, stale maps pruned, cancelled.
 #include "relief.hpp"
+#include "storm/fx/gloss_map.hpp"
 #include "storm/fx/height_map.hpp"
 #include "storm/fx/relief_store.hpp"
 
@@ -65,27 +67,29 @@ int main(int argc, char **argv)
         std::ifstream in(std::string(argv[1]) + "/" + name, std::ios::binary);
         return std::vector<uint8_t>{std::istreambuf_iterator<char>(in), {}};
     };
-    const std::vector<uint8_t> normal = read("pbrify-normal-int8.onnx"), height = read("pbrify-height-int8.onnx");
+    const std::vector<uint8_t> normal = read("pbrify-normal-int8.onnx"), height = read("pbrify-height-int8.onnx"),
+                               roughness = read("pbrify-roughness-int8.onnx");
     const std::filesystem::path root = std::filesystem::temp_directory_path() / "storm_relief_check";
     std::filesystem::remove_all(root);
     const std::filesystem::path textures = root / "RESOURCE/Textures", output = root / "relief";
     const std::vector<uint8_t> probe = WriteTx(textures / "Locations/StoneWall.tga.tx", 128);
-    WriteTx(textures / "Characters/Face.tga.tx", 64); // no relief by the rules
+    const std::vector<uint8_t> bottle_probe = WriteTx(textures / "Locations/Bottle.tga.tx", 64); // glass: gloss only
+    WriteTx(textures / "Characters/Face.tga.tx", 64); // no relief, no gloss by the rules
 
     relief::Job job;
     job.textures = textures;
     job.output = output;
-    job.models = {normal, height};
+    job.models = {normal, height, roughness};
     job.map_size = 128;
     job.threads = 2;
     CHECK(!relief::Complete(textures, output, job.map_size));
     int calls = 0;
     relief::Result result = relief::Prepare(job, [&](const relief::Progress &) { return ++calls, false; });
-    CHECK(result.status == 0 && result.prepared == 1 && result.failed == 0 && result.total == 1 && calls == 2);
+    CHECK(result.status == 0 && result.prepared == 2 && result.failed == 0 && result.total == 2 && calls == 3);
     CHECK(result.provider.rfind("CPU", 0) == 0);
     // Marked complete (the game skips its background pass), until the game has another relief texture.
     CHECK(relief::Complete(textures, output, job.map_size) && !relief::Complete(textures, output, 256));
-    // By name, only relief textures.
+    // By name, only relief and gloss textures.
     {
         const std::filesystem::path game = root / "ordered";
         WriteTx(game / "RESOURCE/Textures/StoneB.tga.tx", 64);
@@ -100,10 +104,15 @@ int main(int argc, char **argv)
     CHECK(map && map->width == 128 && map->mip_count == 8 && map->format == fx::NormalMapFormat::EacRg11);
     // A stone texture's map holds its material texture (EAC RG11: height, gloss; the same mips) and the stone's depth.
     CHECK(map && map->material.size() == map->rg.size() && map->depth == fx::ReliefDepthTexels(fx::ReliefClass::Stone) * 0.25f);
+    // The bottle: no relief, its own gloss map (EAC RG11: metal mask, gloss) at its size, all mips.
+    const uint64_t gloss_key = fx::ReliefKey("locations/bottle", bottle_probe, 64, 64, fx::GlossMethod(fx::GlossClass::Glass),
+                                             fx::kGlossMapSize);
+    const std::optional<fx::NormalMap> gloss = fx::ReadGlossMap(output, gloss_key);
+    CHECK(gloss && gloss->width == 64 && gloss->mip_count == 7 && gloss->format == fx::NormalMapFormat::EacRg11);
     // Resumed: nothing to do; a stale map from another game is pruned after the complete run.
     fx::WriteReliefMap(output, 42, *map);
     result = relief::Prepare(job, nullptr);
-    CHECK(result.status == 0 && result.prepared == 0 && result.existing == 1 && result.removed == 1 && !fx::HasReliefMap(output, 42));
+    CHECK(result.status == 0 && result.prepared == 0 && result.existing == 2 && result.removed == 1 && !fx::HasReliefMap(output, 42));
     // The system evicts part of the cache: the pass is no longer complete, and says how many maps went.
     std::filesystem::remove(fx::ReliefFile(output, key));
     int missing = 0;
@@ -117,7 +126,7 @@ int main(int argc, char **argv)
     CHECK(result.status == 1 && result.prepared == 0 && fx::HasReliefMap(output, 42));
     // A broken model is an error, not a crash.
     const std::vector<uint8_t> junk(100, 7);
-    job.models = {junk, height};
+    job.models = {normal, height, junk};
     CHECK(relief::Prepare(job, nullptr).status == 2);
     std::filesystem::remove_all(root);
     if (failures)

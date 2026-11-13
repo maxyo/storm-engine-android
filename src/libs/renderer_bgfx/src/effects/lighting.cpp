@@ -274,6 +274,7 @@ void Lighting::prepare(const shim::Device &device, const shim::LayoutInfo &layou
     // (relief_store.hpp), else its own gloss map (characters stay matte: no map, their material has no highlight).
     NormalMaps::Relief gloss_map;
     fx::GlossClass gloss_class = fx::GlossClass::None;
+    bool metal_mask = false; // the material's R is a metal mask (a gloss map's), not a relief's height
     shim::TexStore *gloss_store = shim::store_of(device.s.textures[0]);
     if (gloss_ && layout.has_normal && gloss_store && device.s.tss[0][D3DTSS_COLOROP] != D3DTOP_DISABLE &&
         !(lit && material_ == Material::Character))
@@ -288,6 +289,7 @@ void Lighting::prepare(const shim::Device &device, const shim::LayoutInfo &layou
         {
             gloss_map = normal_maps_.gloss(*gloss_store, fx_);
             gloss_class = gloss_store->gloss_map->gloss;
+            metal_mask = true;
         }
     }
     const bool gloss_debug = gloss_ && settings_.gloss_debug != 0;
@@ -519,7 +521,8 @@ void Lighting::prepare(const shim::Device &device, const shim::LayoutInfo &layou
         draw.material_flags = device.sampler_flags(0, *gloss_store);
         ++frame_.glossy;
     }
-    draw.gloss = {glossy ? gloss_map.fade : 0.0f, glossy ? fx::GlossMetalTint(gloss_class) : 0.0f,
+    // The metal tint needs the mask: a relief's material has its height in R (metal has no relief height).
+    draw.gloss = {glossy ? gloss_map.fade : 0.0f, glossy && metal_mask ? fx::GlossMetalTint(gloss_class) : 0.0f,
                   gloss_ ? static_cast<float>(settings_.gloss_debug) : 0.0f, gloss_ ? settings_.gloss_strength : 0.0f};
     const bool baked_specular = specular && gloss_ && (glossy || gloss_debug);
 

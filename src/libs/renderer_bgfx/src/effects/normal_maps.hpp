@@ -9,10 +9,11 @@
 //     says how many wait.
 //   * grey height ("bump") textures: their values are heights. The game derives their maps itself (fx::DeriveNormalMap
 //     on a texture worker) into the same directory, once.
-// Gloss maps (fx/gloss_map.hpp) follow the same path for the colour textures of a gloss class (TexStore::gloss_map):
-// an entry at the load, looked up while Settings::gloss is on (now or when it is switched on), derived on a texture
-// worker from the game file when the relief directory has none (~10 ms: no generator queue), stored there as EAC R11
-// with mips, read and uploaded when a draw first asks (fading in like the relief).
+// Gloss maps (fx/gloss_map.hpp) follow the same path for the colour textures of a gloss class whose relief class has no
+// height (TexStore::gloss_map): an entry at the load, looked up while Settings::gloss is on (now or when it is switched
+// on), requested from the relief generator (PBRify's roughness network) when the relief directory has none, stored
+// there as EAC RG11 with mips (R the metal mask, G the gloss), read and uploaded when a draw first asks (fading in like
+// the relief).
 // Maps are EAC RG11 with mips, read on a texture worker and uploaded when a draw first needs them (a smaller preset
 // drops their top mips); with the parallax, the cavity or the gloss on, the colour textures' material texture (EAC RG11:
 // R height, G gloss; the same mips, in the same file) is uploaded beside them. A texture whose relief class has a height
@@ -66,7 +67,7 @@ struct NormalMapEntry
                   // switched on), or its map left the cache since (the next draw looks it up)
         Pending,  // on a texture worker (being looked up, read or derived)
         Stored,   // in the relief directory
-        Waiting,  // a colour texture whose map the relief generator is making
+        Waiting,  // a colour texture whose map (or gloss map) the relief generator is making
         Missing,  // a colour texture without a map that will not get one: the generator is unavailable (logged)
         Derived,  // `map` is ready for the upload
         Uploaded, // `handle` is valid
@@ -131,9 +132,8 @@ class NormalMaps
         uint32_t missing = 0;   // loaded colour textures of a relief class that get no map (generator unavailable)
         uint32_t derived = 0;   // height maps derived since the start
         double derive_ms = 0.0; // worker time spent deriving them
-        uint32_t gloss_resident = 0, gloss_unqueued = 0, gloss_derived = 0;
+        uint32_t gloss_resident = 0, gloss_unqueued = 0, gloss_waiting = 0, gloss_missing = 0;
         size_t gloss_bytes = 0;
-        double gloss_derive_ms = 0.0, gloss_slowest_ms = 0.0;
     };
     Stats stats();
     // Every few seconds, when the stats changed: one "effects relief:" line.
@@ -145,7 +145,7 @@ class NormalMaps
     // On a texture worker: Stored when the directory has its map, else requested (colour textures) or derived (height
     // maps, from the game file).
     void look_up(const std::shared_ptr<NormalMapEntry> &entry);
-    // The same for a gloss map: Stored, or derived from the game file.
+    // The same for a gloss map: Stored, or requested from the generator.
     void look_up_gloss(const std::shared_ptr<NormalMapEntry> &entry);
     Relief upload(const std::shared_ptr<NormalMapEntry> &entry, fx::Lighting &lighting, int max_size);
     void add_gloss(shim::TexStore &store, const std::string &name, std::span<const uint8_t> probe, uint32_t pw, uint32_t ph,
@@ -171,8 +171,6 @@ class NormalMaps
     {
         std::atomic<uint32_t> derived{0};
         std::atomic<uint64_t> derive_us{0};
-        std::atomic<uint32_t> gloss_derived{0};
-        std::atomic<uint64_t> gloss_derive_us{0}, gloss_slowest_us{0};
     };
     std::shared_ptr<Counters> counters_ = std::make_shared<Counters>(); // shared with the worker tasks
 };

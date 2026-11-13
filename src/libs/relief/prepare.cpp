@@ -13,6 +13,7 @@
 #include <atomic>
 #include <cctype>
 #include <chrono>
+#include <cmath>
 #include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
@@ -99,6 +100,7 @@ struct Candidate
     std::filesystem::path file;
     std::string name; // normalized texture path
     fx::ReliefClass relief = fx::ReliefClass::None;
+    fx::GlossClass gloss = fx::GlossClass::None;
 };
 
 std::string Lower(std::string text)
@@ -108,7 +110,7 @@ std::string Lower(std::string text)
     return text;
 }
 
-// A relief texture: the rules give it relief, or its name says "bump" (its pixels decide).
+// A relief or gloss texture: the rules give it relief or gloss, or its name says "bump" (its pixels decide).
 std::optional<Candidate> Classify(const std::filesystem::path &textures, const std::filesystem::path &file)
 {
     std::error_code error;
@@ -119,9 +121,10 @@ std::optional<Candidate> Classify(const std::filesystem::path &textures, const s
         return std::nullopt;
     const fx::ReliefVerdict verdict = fx::ClassifyTextureName(name);
     const bool bump = fx::NameSuggestsHeightMap(name) && !(verdict.by_folder && verdict.relief == fx::ReliefClass::None);
-    if (verdict.relief == fx::ReliefClass::None && !bump)
+    const fx::GlossClass gloss = fx::ClassifyGlossName(name).gloss;
+    if (verdict.relief == fx::ReliefClass::None && !bump && gloss == fx::GlossClass::None)
         return std::nullopt;
-    return Candidate{file, name, verdict.relief};
+    return Candidate{file, name, verdict.relief, gloss};
 }
 
 std::vector<Candidate> Candidates(const std::filesystem::path &textures)
@@ -136,8 +139,9 @@ std::vector<Candidate> Candidates(const std::filesystem::path &textures)
     return list;
 }
 
-// The texture's key, or nothing when it gets no prepared map (unknown format, too small for a probe level).
-std::optional<uint64_t> Key(const Candidate &candidate, const TxFile &tx, int map_size)
+// The texture's key under `method`, or nothing when it gets no prepared map (unknown format, too small for a probe
+// level).
+std::optional<uint64_t> Key(const Candidate &candidate, const TxFile &tx, uint64_t method, int map_size)
 {
     const int probe = fx::ReliefProbeLevel(static_cast<int>(tx.width), static_cast<int>(tx.height), static_cast<int>(tx.levels));
     if (probe < 0)
@@ -146,7 +150,90 @@ std::optional<uint64_t> Key(const Candidate &candidate, const TxFile &tx, int ma
     const int pw = static_cast<int>(tx.width >> probe), ph = static_cast<int>(tx.height >> probe);
     if (bytes.size() != texture::d3d_level_bytes(tx.format, pw, ph))
         return std::nullopt;
-    return fx::ReliefKey(candidate.name, bytes, pw, ph, fx::ReliefMethod(candidate.relief), map_size);
+    return fx::ReliefKey(candidate.name, bytes, pw, ph, method, map_size);
+}
+
+std::optional<uint64_t> Key(const Candidate &candidate, const TxFile &tx, int map_size)
+{
+    return candidate.relief == fx::ReliefClass::None ? std::nullopt
+                                                     : Key(candidate, tx, fx::ReliefMethod(candidate.relief), map_size);
+}
+
+// The key of the texture's own gloss map: a texture of a gloss class whose relief class has no height (the others
+// keep their gloss in their relief's material texture).
+std::optional<uint64_t> GlossKey(const Candidate &candidate, const TxFile &tx)
+{
+    if (candidate.gloss == fx::GlossClass::None || fx::ReliefHasHeight(candidate.relief))
+        return std::nullopt;
+    return Key(candidate, tx, fx::GlossMethod(candidate.gloss), fx::kGlossMapSize);
+}
+
+// Box halvings of an RGBA8 image down to `tw` x `th` (a size NormalMapSize gives: the image halved, or itself).
+std::vector<uint8_t> HalveTo(std::vector<uint8_t> rgba, int &w, int &h, int tw, int th)
+{
+    while (w > tw || h > th)
+    {
+        const int nw = w > tw ? w / 2 : w, nh = h > th ? h / 2 : h, sx = w / nw, sy = h / nh;
+        std::vector<uint8_t> out(static_cast<size_t>(nw) * nh * 4);
+        for (int y = 0; y < nh; ++y)
+            for (int x = 0; x < nw; ++x)
+                for (int c = 0; c < 4; ++c)
+                {
+                    int sum = 0;
+                    for (int dy = 0; dy < sy; ++dy)
+                        for (int dx = 0; dx < sx; ++dx)
+                            sum += rgba[(static_cast<size_t>(y * sy + dy) * w + x * sx + dx) * 4 + c];
+                    out[(static_cast<size_t>(y) * nw + x) * 4 + c] = static_cast<uint8_t>((sum + sx * sy / 2) / (sx * sy));
+                }
+        rgba = std::move(out);
+        w = nw;
+        h = nh;
+    }
+    return rgba;
+}
+
+// The same for one float plane.
+std::vector<float> HalveTo(std::vector<float> v, int w, int h, int tw, int th)
+{
+    while (w > tw || h > th)
+    {
+        const int nw = w > tw ? w / 2 : w, nh = h > th ? h / 2 : h, sx = w / nw, sy = h / nh;
+        std::vector<float> out(static_cast<size_t>(nw) * nh);
+        for (int y = 0; y < nh; ++y)
+            for (int x = 0; x < nw; ++x)
+            {
+                float sum = 0.0f;
+                for (int dy = 0; dy < sy; ++dy)
+                    for (int dx = 0; dx < sx; ++dx)
+                        sum += v[static_cast<size_t>(y * sy + dy) * w + x * sx + dx];
+                out[static_cast<size_t>(y) * nw + x] = sum / static_cast<float>(sx * sy);
+            }
+        v = std::move(out);
+        w = nw;
+        h = nh;
+    }
+    return v;
+}
+
+// A plane of `w` x `h` bilinearly stretched (wrapping: the textures tile) over `tw` x `th`, texel centres aligned.
+std::vector<uint8_t> Stretch(std::span<const float> v, int w, int h, int tw, int th)
+{
+    std::vector<uint8_t> out(static_cast<size_t>(tw) * th);
+    for (int y = 0; y < th; ++y)
+        for (int x = 0; x < tw; ++x)
+        {
+            const float fx = (static_cast<float>(x) + 0.5f) * static_cast<float>(w) / static_cast<float>(tw) - 0.5f;
+            const float fy = (static_cast<float>(y) + 0.5f) * static_cast<float>(h) / static_cast<float>(th) - 0.5f;
+            const int x0 = static_cast<int>(std::floor(fx)), y0 = static_cast<int>(std::floor(fy));
+            const float ax = fx - static_cast<float>(x0), ay = fy - static_cast<float>(y0);
+            const auto at = [&](int xi, int yi) {
+                return v[static_cast<size_t>(((yi % h) + h) % h) * w + static_cast<size_t>(((xi % w) + w) % w)];
+            };
+            const float value = (at(x0, y0) * (1 - ax) + at(x0 + 1, y0) * ax) * (1 - ay) +
+                                (at(x0, y0 + 1) * (1 - ax) + at(x0 + 1, y0 + 1) * ax) * ay;
+            out[static_cast<size_t>(y) * tw + x] = static_cast<uint8_t>(std::lround(std::clamp(value, 0.0f, 1.0f) * 255.0f));
+        }
+    return out;
 }
 
 // A grey "bump" texture: a height map the game derives itself (the runtime classifier decides from the same level).
@@ -331,7 +418,7 @@ std::vector<std::filesystem::path> List(const std::filesystem::path &textures)
 
 struct Session::Impl
 {
-    Model normal, height; // PBRify's two networks
+    Model normal, height, roughness; // PBRify's three networks
     Stats stats;
     std::atomic<bool> cancelled{false};
 };
@@ -345,7 +432,8 @@ std::unique_ptr<Session> Session::Open(const Models &models, int threads, std::s
 {
     auto impl = std::make_unique<Impl>();
     threads = threads > 0 ? threads : static_cast<int>(std::max(1u, std::thread::hardware_concurrency()));
-    if (!impl->normal.Open(models.normal, threads, error) || !impl->height.Open(models.height, threads, error))
+    if (!impl->normal.Open(models.normal, threads, error) || !impl->height.Open(models.height, threads, error) ||
+        !impl->roughness.Open(models.roughness, threads, error))
     {
         Log("ERROR: %s", error.c_str());
         return nullptr;
@@ -359,6 +447,7 @@ void Session::Cancel()
     impl_->cancelled = true;
     impl_->normal.Cancel();
     impl_->height.Cancel();
+    impl_->roughness.Cancel();
 }
 
 const Session::Stats &Session::stats() const
@@ -369,9 +458,11 @@ const Session::Stats &Session::stats() const
 Outcome Session::PrepareFile(const std::filesystem::path &textures, const std::filesystem::path &file,
                              const std::filesystem::path &output, int map_size, std::string &failure)
 {
-    // PBRify's normal and height models at the map size (the owner's choice), the normals as the model gives them, EAC
-    // RG11; the material texture (the height normalised per region, the gloss) beside them. Each stage is timed: the log
-    // line of the texture says where the time went.
+    // One decode, then PBRify's networks (the owner's choice): the normals and the height at the map size, the
+    // roughness at the gloss map's. Outputs: the relief map (EAC RG11 normals, with the material texture of a class with
+    // a height: R the height normalised per region, G the gloss) and, for a texture of a gloss class without a height,
+    // its own gloss map (R the metal mask, G the gloss). Each stage is timed: the log line of the texture says where the
+    // time went.
     const Clock::time_point start = Clock::now();
     Clock::time_point mark = start;
     const auto lap = [&mark] {
@@ -383,14 +474,16 @@ Outcome Session::PrepareFile(const std::filesystem::path &textures, const std::f
     const std::optional<Candidate> candidate = Classify(textures, file);
     TxFile tx;
     fx::ReliefClass relief = fx::ReliefClass::None;
-    const std::optional<uint64_t> key =
-        candidate && tx.Load(file) ? PreparedKey(*candidate, tx, map_size, relief) : std::nullopt;
-    if (!key)
+    if (!candidate || !tx.Load(file))
         return Outcome::Skipped;
-    if (fx::HasReliefMap(output, *key))
+    const std::optional<uint64_t> key = PreparedKey(*candidate, tx, map_size, relief);
+    const std::optional<uint64_t> gloss_key = GlossKey(*candidate, tx);
+    if (!key && !gloss_key)
+        return Outcome::Skipped;
+    if ((!key || fx::HasReliefMap(output, *key)) && (!gloss_key || fx::HasGlossMap(output, *gloss_key)))
         return Outcome::Existing;
     const double read_ms = lap();
-    // The source: the first level no larger than twice the map, which the model's input is box-filtered down from.
+    // The source: the first level no larger than twice the map, which the models' inputs are box-filtered down from.
     int level = 0;
     while (level + 1 < static_cast<int>(tx.levels) &&
            std::max(tx.width >> level, tx.height >> level) > uint32_t(2 * map_size))
@@ -407,25 +500,57 @@ Outcome Session::PrepareFile(const std::filesystem::path &textures, const std::f
         return Outcome::Failed;
     }
     const double decode_ms = lap();
+    // The sizes: the relief map's (map_size) and the gloss's (fx::kGlossMapSize), both halvings of the texture.
     fx::NormalMapOptions options;
     options.max_size = map_size;
     int mw = 0, mh = 0;
     fx::NormalMapSize(width, height, options, mw, mh);
-    const std::vector<float> input = fx::ReliefModelInput(rgba, width, height, mw, mh);
+    options.max_size = fx::kGlossMapSize;
+    int gw = 0, gh = 0;
+    fx::NormalMapSize(width, height, options, gw, gh);
     double infer_ms = 0.0;
-    const auto run = [&](Model &model) {
-        return fx::ReliefModelRun(input, mw, mh, [&](const float *image, int pw, int ph, float *out) {
+    const auto run = [&](Model &model, const std::vector<float> &input, int w, int h) {
+        return fx::ReliefModelRun(input, w, h, [&](const float *image, int pw, int ph, float *out) {
             const Clock::time_point infer_start = Clock::now();
             const bool ok = model.Infer(image, pw, ph, out, failure);
             infer_ms += std::chrono::duration<double, std::milli>(Clock::now() - infer_start).count();
             return ok;
         });
     };
-    const std::vector<float> normal_planes = run(impl_->normal);
-    const bool height_wanted = fx::ReliefHasHeight(relief);
-    const std::vector<float> height_planes = height_wanted && !normal_planes.empty() ? run(impl_->height) : std::vector<float>{};
+    const bool height_class = key && fx::ReliefHasHeight(relief);
+    const bool gloss_wanted = candidate->gloss != fx::GlossClass::None && (height_class || gloss_key);
+    bool failed = false;
+    std::vector<float> normal_planes, height_planes, gloss_height, roughness_planes;
+    if (key)
+    {
+        const std::vector<float> input = fx::ReliefModelInput(rgba, width, height, mw, mh);
+        normal_planes = run(impl_->normal, input, mw, mh);
+        failed |= normal_planes.empty();
+        if (height_class && !failed)
+        {
+            height_planes = run(impl_->height, input, mw, mh);
+            failed |= height_planes.empty();
+        }
+    }
+    if (gloss_wanted && !failed)
+    {
+        const std::vector<float> input = fx::ReliefModelInput(rgba, width, height, gw, gh);
+        roughness_planes = run(impl_->roughness, input, gw, gh);
+        failed |= roughness_planes.empty();
+        // The gloss's grooves read the height at its own size: the map's halved, or the height network at the gloss's
+        // size when the texture has no relief height.
+        if (height_class && !failed)
+            gloss_height = HalveTo(fx::ReliefModelHeight(height_planes, mw, mh), mw, mh, gw, gh);
+        else if (!failed)
+        {
+            const std::vector<float> planes = run(impl_->height, input, gw, gh);
+            failed |= planes.empty();
+            if (!failed)
+                gloss_height = fx::ReliefModelHeight(planes, gw, gh);
+        }
+    }
     impl_->stats.infer_seconds += infer_ms / 1000.0;
-    const double model_ms = lap(); // the input, padding and crop around the inferences, and the inferences
+    const double model_ms = lap(); // the inputs, padding and crops around the inferences, and the inferences
     if (impl_->cancelled)
     {
         // onnxruntime's error for a stopped inference varies (and its output, if any, is not the model's).
@@ -433,54 +558,72 @@ Outcome Session::PrepareFile(const std::filesystem::path &textures, const std::f
         Log("relief %s: cancelled", candidate->name.c_str());
         return Outcome::Failed;
     }
-    if (normal_planes.empty() || (height_wanted && height_planes.empty()))
+    if (failed)
     {
         Log("ERROR: no relief map for %s: %s", candidate->name.c_str(), failure.c_str());
         return Outcome::Failed;
     }
-    fx::NormalMap rg8 = fx::NormalMapOfNormals(fx::ReliefModelNormals(normal_planes, mw, mh), mw, mh);
-    const double mips_ms = lap();
-    // The material texture: the height and, for a texture of a gloss class, its gloss at the map's size (the gloss map's
-    // own derivation, fx/gloss_map.hpp, its top level stretched over the map).
-    std::vector<uint8_t> gloss;
-    if (height_wanted)
+    fx::GlossField gloss;
+    if (gloss_wanted)
     {
-        const fx::GlossClass gloss_class = fx::ClassifyGlossName(candidate->name).gloss;
-        const fx::NormalMap g = gloss_class == fx::GlossClass::None ? fx::NormalMap{} : fx::DeriveGlossMap(rgba, width, height, gloss_class);
-        if (!g.rg.empty())
+        int cw = width, ch = height;
+        const std::vector<uint8_t> colour = HalveTo(rgba, cw, ch, gw, gh);
+        gloss = fx::GlossOfRoughness(fx::ReliefModelHeight(roughness_planes, gw, gh), gloss_height, colour, gw, gh,
+                                     candidate->gloss);
+    }
+    const double gloss_ms = lap();
+    fx::NormalMap map;
+    if (key)
+    {
+        fx::NormalMap rg8 = fx::NormalMapOfNormals(fx::ReliefModelNormals(normal_planes, mw, mh), mw, mh);
+        if (height_class)
         {
-            gloss.resize(static_cast<size_t>(mw) * mh);
-            for (int y = 0; y < mh; ++y)
-                for (int x = 0; x < mw; ++x)
-                    gloss[static_cast<size_t>(y) * mw + x] =
-                        g.rg[static_cast<size_t>(y * g.height / mh) * g.width + static_cast<size_t>(x * g.width / mw)];
+            // The material's G: the gloss stretched over the map (empty: no gloss class, G 0).
+            const std::vector<uint8_t> g = gloss.gloss.empty() ? std::vector<uint8_t>{} : Stretch(gloss.gloss, gw, gh, mw, mh);
+            if (!fx::AddReliefMaterial(rg8, relief, fx::ReliefModelHeight(height_planes, mw, mh), g))
+                Log("relief %s: flat, no height", candidate->name.c_str());
         }
-        if (!fx::AddReliefMaterial(rg8, relief, fx::ReliefModelHeight(height_planes, mw, mh), gloss))
-            Log("relief %s: flat, no height", candidate->name.c_str());
+        map = {rg8.width, rg8.height, rg8.mip_count, fx::NormalMapFormat::EacRg11,
+               texture::encode_eac_chain(texture::EacFormat::Rg11, rg8.rg.data(), rg8.width, rg8.height, rg8.mip_count)};
+        if (!rg8.material.empty())
+        {
+            map.material = texture::encode_eac_chain(texture::EacFormat::Rg11, rg8.material.data(), rg8.width, rg8.height,
+                                                     rg8.mip_count);
+            map.depth = rg8.depth;
+        }
+        if (!fx::WriteReliefMap(output, *key, map))
+        {
+            failure = "cannot write " + fx::ReliefFile(output, *key).string();
+            Log("ERROR: no relief map for %s: %s", candidate->name.c_str(), failure.c_str());
+            return Outcome::Failed;
+        }
     }
-    const double height_ms = lap();
-    fx::NormalMap map{rg8.width, rg8.height, rg8.mip_count, fx::NormalMapFormat::EacRg11,
-                      texture::encode_eac_chain(texture::EacFormat::Rg11, rg8.rg.data(), rg8.width, rg8.height, rg8.mip_count)};
-    if (!rg8.material.empty())
+    if (gloss_key)
     {
-        map.material = texture::encode_eac_chain(texture::EacFormat::Rg11, rg8.material.data(), rg8.width, rg8.height, rg8.mip_count);
-        map.depth = rg8.depth;
-    }
-    const double encode_ms = lap();
-    if (!fx::WriteReliefMap(output, *key, map))
-    {
-        failure = "cannot write " + fx::ReliefFile(output, *key).string();
-        Log("ERROR: no relief map for %s: %s", candidate->name.c_str(), failure.c_str());
-        return Outcome::Failed;
+        const fx::NormalMap rg = fx::GlossMaterial(gloss);
+        const fx::NormalMap stored{rg.width, rg.height, rg.mip_count, fx::NormalMapFormat::EacRg11,
+                                   texture::encode_eac_chain(texture::EacFormat::Rg11, rg.rg.data(), rg.width, rg.height,
+                                                             rg.mip_count)};
+        if (rg.rg.empty() || !fx::WriteGlossMap(output, *gloss_key, stored))
+        {
+            failure = "cannot write " + fx::GlossFile(output, *gloss_key).string();
+            Log("ERROR: no gloss map for %s: %s", candidate->name.c_str(), failure.c_str());
+            return Outcome::Failed;
+        }
     }
     const double write_ms = lap();
     const double ms = std::chrono::duration<double, std::milli>(Clock::now() - start).count();
     ++impl_->stats.prepared;
     impl_->stats.max_texture_ms = std::max(impl_->stats.max_texture_ms, ms);
-    Log("relief %s: %dx%d, %.0f ms (read %.0f, decode %.0f, models %.0f of which inference %.0f, "
-        "mips %.0f, material %.0f (depth %.1f texels), encode %.0f, write %.0f)",
-        candidate->name.c_str(), mw, mh, ms, read_ms, decode_ms, model_ms, infer_ms, mips_ms, height_ms,
-        static_cast<double>(map.depth), encode_ms, write_ms);
+    double mean_gloss = 0.0;
+    for (const float g : gloss.gloss)
+        mean_gloss += g;
+    mean_gloss = gloss.gloss.empty() ? 0.0 : mean_gloss / static_cast<double>(gloss.gloss.size());
+    Log("relief %s: %dx%d%s, gloss %s %dx%d (mean %.2f), %.0f ms (read %.0f, decode %.0f, models %.0f of which "
+        "inference %.0f, gloss %.0f, mips, material, encode and write %.0f; depth %.1f texels)",
+        candidate->name.c_str(), key ? mw : 0, key ? mh : 0, key ? "" : " (no relief)", fx::GlossClassName(candidate->gloss),
+        gloss.width, gloss.height, mean_gloss, ms, read_ms, decode_ms, model_ms, infer_ms, gloss_ms, write_ms,
+        static_cast<double>(map.depth));
     return Outcome::Prepared;
 }
 
@@ -493,6 +636,9 @@ int Prune(const std::filesystem::path &textures, const std::filesystem::path &ou
         if (!tx.Load(candidate.file))
             continue;
         fx::ReliefClass relief;
+        // A texture's own gloss map (fx/gloss_map.hpp): a gloss class without a relief height.
+        if (const std::optional<uint64_t> gloss_key = GlossKey(candidate, tx))
+            current.push_back(fx::GlossFile(output, *gloss_key));
         if (const std::optional<uint64_t> key = PreparedKey(candidate, tx, map_size, relief))
             current.push_back(fx::ReliefFile(output, *key));
         else if (GreyHeightMap(candidate, tx))
@@ -504,34 +650,9 @@ int Prune(const std::filesystem::path &textures, const std::filesystem::path &ou
                 current.push_back(fx::ReliefFile(output, *height_key));
         }
     }
-    // The gloss maps the game derives (fx/gloss_map.hpp): every texture of a gloss class.
-    std::error_code error;
-    for (auto it = std::filesystem::recursive_directory_iterator(textures, error);
-         !error && it != std::filesystem::recursive_directory_iterator(); it.increment(error))
-    {
-        if (!it->is_regular_file(error) || Lower(it->path().extension().string()) != ".tx")
-            continue;
-        std::error_code relative_error;
-        const std::string name =
-            fx::NormalizeTexturePath(std::filesystem::relative(it->path(), textures, relative_error).generic_string());
-        TxFile tx;
-        const fx::GlossClass gloss = fx::ClassifyGlossName(name).gloss;
-        // A texture of a relief class with a height has its gloss in its relief's material texture.
-        if (relative_error || gloss == fx::GlossClass::None || fx::ReliefHasHeight(fx::ClassifyTextureName(name).relief) ||
-            !tx.Load(it->path()))
-            continue;
-        const int probe = fx::ReliefProbeLevel(static_cast<int>(tx.width), static_cast<int>(tx.height), static_cast<int>(tx.levels));
-        if (probe < 0)
-            continue;
-        const std::span<const uint8_t> bytes = tx.Level(probe);
-        const uint32_t pw = tx.width >> probe, ph = tx.height >> probe;
-        if (bytes.size() == texture::d3d_level_bytes(tx.format, pw, ph))
-            current.push_back(fx::GlossFile(output, fx::ReliefKey(name, bytes, static_cast<int>(pw), static_cast<int>(ph),
-                                                                  fx::GlossMethod(gloss), fx::kGlossMapSize)));
-    }
     std::sort(current.begin(), current.end());
     int removed = 0;
-    error.clear();
+    std::error_code error;
     for (const auto &entry : std::filesystem::directory_iterator(output, error))
         if ((entry.path().extension() == ".relief" || entry.path().extension() == ".gloss") &&
             !std::binary_search(current.begin(), current.end(), entry.path()))
@@ -551,6 +672,8 @@ std::string CompleteMark(const std::filesystem::path &textures, int map_size)
     for (const fx::ReliefClass relief : {fx::ReliefClass::Stone, fx::ReliefClass::Wood, fx::ReliefClass::Building,
                                          fx::ReliefClass::Plaster, fx::ReliefClass::Metal, fx::ReliefClass::HeightMap})
         methods = (methods ^ fx::ReliefMethod(relief)) * 0x100000001b3ull;
+    for (int gloss = 1; gloss <= static_cast<int>(fx::kLastGlossClass); ++gloss)
+        methods = (methods ^ fx::GlossMethod(static_cast<fx::GlossClass>(gloss))) * 0x100000001b3ull;
     char hex[24];
     std::snprintf(hex, sizeof(hex), "%016llx", static_cast<unsigned long long>(methods));
     return std::string("method ") + hex + " size " + std::to_string(map_size) + " textures " +
@@ -566,7 +689,7 @@ int CountMaps(const std::filesystem::path &output)
     int maps = 0;
     std::error_code error;
     for (const auto &entry : std::filesystem::directory_iterator(output, error))
-        maps += entry.path().extension() == ".relief" ? 1 : 0;
+        maps += entry.path().extension() == ".relief" || entry.path().extension() == ".gloss" ? 1 : 0;
     return maps;
 }
 } // namespace

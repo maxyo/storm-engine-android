@@ -23,8 +23,9 @@ int main(int argc, char **argv)
         std::ifstream in(std::string(argv[3]) + "/" + name, std::ios::binary);
         return std::vector<uint8_t>{std::istreambuf_iterator<char>(in), {}};
     };
-    const std::vector<uint8_t> normal = read("pbrify-normal-int8.onnx"), height = read("pbrify-height-int8.onnx");
-    if (normal.empty() || height.empty())
+    const std::vector<uint8_t> normal = read("pbrify-normal-int8.onnx"), height = read("pbrify-height-int8.onnx"),
+                               roughness = read("pbrify-roughness-int8.onnx");
+    if (normal.empty() || height.empty() || roughness.empty())
     {
         std::fprintf(stderr, "cannot read the models in %s\n", argv[3]);
         return 2;
@@ -32,7 +33,7 @@ int main(int argc, char **argv)
     Job job;
     job.textures = argv[1];
     job.output = argv[2];
-    job.models = {normal, height};
+    job.models = {normal, height, roughness};
     job.map_size = argc > 4 ? std::atoi(argv[4]) : storm::fx::kReliefMapSize;
     job.threads = argc > 5 ? std::atoi(argv[5]) : 0;
     const Result result = Prepare(job, nullptr);

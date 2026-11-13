@@ -59,7 +59,6 @@ enum class NormalMapFormat : uint8_t
 {
     Rg8,     // 2 bytes per texel
     EacRg11, // 16 bytes per 4x4 block (R block, then G block); levels smaller than 4 texels take one block per axis
-    R8, // 1 byte per texel, `rg` holds R only: the gloss as DeriveGlossMap makes it (gloss_map.hpp)
 };
 
 struct NormalMap

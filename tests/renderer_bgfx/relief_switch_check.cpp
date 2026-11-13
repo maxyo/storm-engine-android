@@ -2,8 +2,8 @@
 // is off (a location entered on «Низкая») is looked up when relief is switched on (the preset raised in the same
 // location), exactly like one loaded with relief on: a colour texture without a map is requested from the generator,
 // a grey height texture gets its map derived into the relief directory. Before the fix none was queued until the
-// location was loaded again. Gloss maps (Settings::gloss) the same: an entry at the load, derived from the game file
-// into the relief directory when gloss is switched on; a texture whose relief class has a height (stone) keeps its gloss
+// location was loaded again. Gloss maps (Settings::gloss) the same: an entry at the load, requested from the
+// generator (PBRify's roughness) when gloss is switched on; a texture whose relief class has a height (stone) keeps its gloss
 // in its relief's material texture (fx::AddReliefMaterial) and has no gloss map of its own.
 //
 // No GPU: the textures are shim stores filled the way Renderer::TextureLoad fills them, their game files are written
@@ -139,7 +139,7 @@ int main()
                cannon->normal_map->relief == fx::ReliefClass::Metal,
            "a gloss class without a height (metal) gets a gloss entry, one with a height (stone) its relief's material, "
            "height maps none");
-    expect(off.gloss_unqueued == 1 && off.gloss_derived == 0, "no gloss map is looked up while gloss is off");
+    expect(off.gloss_unqueued == 1 && off.gloss_waiting + off.gloss_missing == 0, "no gloss map is looked up while gloss is off");
     expect(off.unqueued == 3 && off.waiting == 0 && off.missing == 0 && off.derived == 0,
            "nothing is looked up while relief is off");
 
@@ -159,15 +159,10 @@ int main()
     bool glossy_settled = true;
     for (shim::TexStore *store : loaded)
         glossy_settled &= !store->gloss_map || store->gloss_map->state != effects::NormalMapEntry::Pending;
-    std::printf("after the gloss switch: unqueued %u, derived %u (%.1f ms)\n", glossy.gloss_unqueued, glossy.gloss_derived,
-                glossy.gloss_derive_ms);
-    expect(glossy_settled && glossy.gloss_unqueued == 0 && glossy.gloss_derived == 1 &&
-               fx::HasGlossMap(relief, cannon->gloss_map->key),
-           "switching gloss on derives the gloss maps of the textures loaded while it was off");
-    std::string error;
-    const std::optional<fx::NormalMap> stored = fx::ReadGlossMap(relief, cannon->gloss_map->key, &error);
-    expect(stored && stored->format == fx::NormalMapFormat::EacRg11 && stored->width == 128 && stored->mip_count == 8,
-           "a gloss map is stored as an EAC RG11 material texture with all mips at the texture's size (up to 256)");
+    std::printf("after the gloss switch: unqueued %u, waiting %u, missing %u\n", glossy.gloss_unqueued, glossy.gloss_waiting,
+                glossy.gloss_missing);
+    expect(glossy_settled && glossy.gloss_unqueued == 0 && glossy.gloss_waiting + glossy.gloss_missing == 1,
+           "switching gloss on requests the gloss maps of the textures loaded while it was off from the generator");
 
     // A texture loaded with relief on is looked up at once (unchanged).
     maps.on_texture_loaded(*brick, "resource\\textures\\brick_arch.tga.tx", textures / "brick_arch.tga.tx");

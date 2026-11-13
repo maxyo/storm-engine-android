@@ -86,7 +86,7 @@ is not wired into the game. `Shadows::CasterProgram`,
 | `include/storm/fx/lighting.hpp`, `shaders/include/fx_lighting.sh` | lighting flags and uniforms for the fixed-function emulator |
 | `include/storm/fx/light_set.hpp` | point / spot lights: selection per draw call, flash lights |
 | `include/storm/fx/relief_model.hpp`, `relief_store.hpp` | PBRify's normal and height models' input, crop, axes and mips (run by src/libs/relief); the relief directory's files and keys |
-| `include/storm/fx/gloss_map.hpp` | gloss maps derived from the colour textures (material class from the path rules, luminance and colour cues per texel) that shape the sun's and the lamps' highlights |
+| `include/storm/fx/gloss_map.hpp` | gloss from PBRify's roughness network (class from the path rules; GGX-to-Blinn power, grooves, dark texels, metal mask, class caps) that shapes the sun's and the lamps' highlights |
 | `include/storm/fx/height_map.hpp` | the relief's material texture: PBRify's height (normalised per atlas region) for the parallax and the cavity, the gloss beside it |
 | `include/storm/fx/normal_map.hpp` | normal maps of the grey "bump" heights; the path/name rules table that gives each texture its relief class |
 | `include/storm/fx/shadows.hpp` | `Shadows`: sun shadow map |
@@ -155,12 +155,13 @@ textures get `DeriveNormalMap` of their heights, in the game. Both live in the r
 mips: 1 byte per texel plus a third (a 512² map 0.35 MB; prepared maps are 512, fx::kReliefMapSize; Settings::normal_map_size caps the resident
 size).
 
-Gloss maps (`gloss_map.hpp`, Settings::gloss, «Средняя» and «Высокая») come from the same textures the same way: the
-material class from the path (`ClassifyGlossName`: metal, glass, leather, lacquered wood and wet cave stone glossy;
-painted hulls a little; dry wood, stone, plaster and cloth next to nothing; characters none), moved per texel by its
-brightness against its surroundings and, in building atlases and on metal, by its colour (plaster, wood, lacquer,
-window glass; rust). Derived in the game on a texture worker (~10 ms a texture, no model) into the relief directory
-as EAC R11 with mips (256², 43 KB). The lit and baked programs with FX_LIGHT_SPECULAR read them at stage 7
+Gloss maps (`gloss_map.hpp`, Settings::gloss, «Средняя» and «Высокая») come from the same textures the same way:
+which textures get one and which are metal is the path's class (`ClassifyGlossName`; characters none); the gloss itself
+is PBRify's roughness network (the owner's choice), run with the relief's networks by src/libs/relief at 256², its GGX
+roughness turned into the highlight's Blinn-Phong power, darkened in the height's grooves and on dark non-metal texels,
+at least half a gloss on the texels that read as metal by their colour (`GlossMetalMask`: not rust, not the carriages'
+wood), capped on cloth, ground and plaster (0.1) and stone (0.35). A texture without a relief height has its own gloss
+map in the relief directory: EAC RG11 with mips (256², 87 KB), R the metal mask (the highlight's tint), G the gloss. The lit and baked programs with FX_LIGHT_SPECULAR read them at stage 7
 (fx_lighting.sh `fxGlossSpec`: energy-kept Blinn-Phong, power 8..181, reflectance gloss^2.5 / 2): the sun's highlight on
 lit and on baked surfaces outdoors (where the bake shows the open sun), the lamps' highlights with their shadows.
 The colour textures' maps of the classes with a height (stone, wood, building atlases, plaster) also hold the relief's

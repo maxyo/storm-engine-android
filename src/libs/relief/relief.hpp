@@ -29,11 +29,12 @@ enum class Outcome
     Failed,   // logged with the reason
 };
 
-// The two model files (model/README.md).
+// The three model files (model/README.md).
 struct Models
 {
     std::span<const uint8_t> normal; // pbrify-normal-int8.onnx
     std::span<const uint8_t> height; // pbrify-height-int8.onnx
+    std::span<const uint8_t> roughness; // pbrify-roughness-int8.onnx
 };
 
 // The models loaded once (onnxruntime, CPU provider) for many textures. One thread at a time (Cancel aside).

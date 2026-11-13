@@ -347,52 +347,17 @@ void NormalMaps::add_gloss(shim::TexStore &store, const std::string &name, std::
 void NormalMaps::look_up_gloss(const std::shared_ptr<NormalMapEntry> &entry)
 {
     entry->state = NormalMapEntry::Pending;
-    texture::Service::instance().post([entry, relief_dir = directory(), counters = counters_] {
+    texture::Service::instance().post([entry, relief_dir = directory()] {
         if (fx::HasGlossMap(relief_dir, entry->key))
         {
             entry->state = NormalMapEntry::Stored;
             return;
         }
-        // From the game file's first level no larger than the map size.
-        const auto start = std::chrono::steady_clock::now();
-        std::vector<uint8_t> rgba;
-        int width = 0, height = 0;
-        if (!relief::ReadTextureLevel(entry->file, fx::kGlossMapSize, rgba, width, height))
-        {
-            shim::logf("ERROR: effects: gloss map %s: its file %s cannot be read", entry->name.c_str(),
-                       entry->file.string().c_str());
-            entry->state = NormalMapEntry::Failed;
-            return;
-        }
-        const fx::NormalMap r8 = fx::DeriveGlossMap(rgba, width, height, entry->gloss);
-        // The material texture of a texture without height (sampler unit 7, COORDINATION: R height, G gloss): flat.
-        std::vector<uint8_t> rg(r8.rg.size() * 2, 128);
-        for (size_t i = 0; i < r8.rg.size(); ++i)
-            rg[2 * i + 1] = r8.rg[i];
-        fx::NormalMap map{r8.width, r8.height, r8.mip_count, fx::NormalMapFormat::EacRg11,
-                          texture::encode_eac_chain(texture::EacFormat::Rg11, rg.data(), r8.width, r8.height, r8.mip_count)};
-        const auto us = static_cast<uint64_t>(
-            std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - start).count());
-        counters->gloss_derive_us += us;
-        uint64_t slowest = counters->gloss_slowest_us;
-        while (us > slowest && !counters->gloss_slowest_us.compare_exchange_weak(slowest, us))
-        {
-        }
-        ++counters->gloss_derived;
-        shim::logd("effects: gloss %s (%s): %dx%d from %dx%d, %.1f ms", entry->name.c_str(), fx::GlossClassName(entry->gloss),
-                   r8.width, r8.height, width, height, static_cast<double>(us) / 1000.0);
-        if (r8.rg.empty() || !fx::WriteGlossMap(relief_dir, entry->key, map))
-        {
-            entry->state = NormalMapEntry::Failed;
-            return;
-        }
-        if (!entry->wanted)
-        {
-            entry->state = NormalMapEntry::Stored;
-            return;
-        }
-        entry->map = std::move(map);
-        entry->state = NormalMapEntry::Derived;
+        // Made by PBRify's roughness network with the texture's relief, in the generator's queue.
+        shim::logf("effects: gloss %s (%s): no map %016llx yet: requested", entry->name.c_str(),
+                   fx::GlossClassName(entry->gloss), static_cast<unsigned long long>(entry->key));
+        entry->state = NormalMapEntry::Waiting;
+        ReliefGenerator::instance().request(entry, entry->file);
     });
 }
 
@@ -427,10 +392,9 @@ NormalMaps::Stats NormalMaps::stats()
                 stats.gloss_bytes += entry->bytes;
             }
             stats.gloss_unqueued += entry->state == NormalMapEntry::Unqueued ? 1 : 0;
+            stats.gloss_waiting += entry->state == NormalMapEntry::Waiting ? 1 : 0;
+            stats.gloss_missing += entry->state == NormalMapEntry::Missing ? 1 : 0;
         }
-    stats.gloss_derived = counters_->gloss_derived;
-    stats.gloss_derive_ms = static_cast<double>(counters_->gloss_derive_us) / 1000.0;
-    stats.gloss_slowest_ms = static_cast<double>(counters_->gloss_slowest_us) / 1000.0;
     stats.derived = counters_->derived;
     stats.derive_ms = static_cast<double>(counters_->derive_us) / 1000.0;
     return stats;
@@ -447,7 +411,8 @@ void NormalMaps::end_frame()
     const ReliefGenerator::Stats generator = ReliefGenerator::instance().stats();
     const uint32_t rest = generator.rest > 0 ? static_cast<uint32_t>(generator.rest) : 0;
     const bool gloss_same = now.gloss_resident == logged_.gloss_resident && now.gloss_bytes == logged_.gloss_bytes &&
-                            now.gloss_unqueued == logged_.gloss_unqueued && now.gloss_derived == logged_.gloss_derived;
+                            now.gloss_unqueued == logged_.gloss_unqueued && now.gloss_waiting == logged_.gloss_waiting &&
+                            now.gloss_missing == logged_.gloss_missing;
     if (gloss_same && now.resident == logged_.resident && now.materials == logged_.materials && now.bytes == logged_.bytes && now.waiting == logged_.waiting &&
         now.missing == logged_.missing && now.unqueued == logged_.unqueued && now.derived == logged_.derived && rest == logged_rest_ &&
         generator.made == logged_made_)
@@ -464,10 +429,10 @@ void NormalMaps::end_frame()
                generator.hot ? " (paused: the device is hot)" : "", generator.made, generator.made_ms,
                generator.slowest_ms, now.missing, now.derived, now.derive_ms, now.unqueued);
     if (!gloss_same)
-        shim::logf("effects gloss: %u gloss maps resident (%.1f MB, max %d px); %u derived (%.0f ms, slowest %.1f ms); %u "
-                   "loaded while gloss was off",
-                   now.gloss_resident, static_cast<double>(now.gloss_bytes) / 1048576.0, gloss_max_size_, now.gloss_derived,
-                   now.gloss_derive_ms, now.gloss_slowest_ms, now.gloss_unqueued);
+        shim::logf("effects gloss: %u gloss maps resident (%.1f MB, max %d px); %u loaded textures waiting for their map; "
+                   "%u without a map (generation unavailable); %u loaded while gloss was off",
+                   now.gloss_resident, static_cast<double>(now.gloss_bytes) / 1048576.0, gloss_max_size_, now.gloss_waiting,
+                   now.gloss_missing, now.gloss_unqueued);
 }
 
 } // namespace storm::effects

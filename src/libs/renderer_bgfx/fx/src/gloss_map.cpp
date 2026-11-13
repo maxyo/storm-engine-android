@@ -2,6 +2,7 @@
 
 #include "image_field.hpp"
 #include "name_rules.hpp"
+#include "storm/fx/relief_model.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -275,41 +276,16 @@ const Rule kRules[] = {
 };
 #undef STORM_GLOSS
 
-// Per class: the gloss of a plain texel, how far the texel's brightness against its surroundings moves it (polished
-// spots up, gaps and grime down), how much a uniform area gains, and whether the colour cues of the mixed atlases
-// (plaster, wood, lacquer, glass) and of metal (rust) apply.
-struct Params
-{
-    float base;
-    float detail;
-    float uniform;
-    bool atlas_cues;
-    float atlas_wood;    // with atlas_cues: the gloss wood adds (worn, polished wood indoors)
-    float atlas_lacquer; // ... and deep red-brown lacquer
-    bool rust_cues;
-    bool wood_cues;
-};
-
-Params ClassParams(GlossClass gloss)
+// The class caps: the matte classes stay matte whatever the network reads (its smooth patches on cloth, ground and
+// plaster are baked light, not polish).
+float ClassCap(GlossClass gloss)
 {
     switch (gloss)
     {
-    case GlossClass::None: break;
-    case GlossClass::Matte: return {0.04f, 0.03f, 0.0f, false, 0.0f, 0.0f, false, false};
-    case GlossClass::DryWood: return {0.16f, 0.10f, 0.04f, false, 0.0f, 0.0f, false, true};
-    case GlossClass::PaintedWood: return {0.32f, 0.12f, 0.06f, false, 0.0f, 0.0f, false, true};
-    case GlossClass::Lacquered: return {0.48f, 0.14f, 0.08f, false, 0.0f, 0.0f, false, true};
-    case GlossClass::Stone: return {0.12f, 0.08f, 0.03f, false, 0.0f, 0.0f, false, false};
-    case GlossClass::WetStone: return {0.50f, 0.18f, 0.06f, false, 0.0f, 0.0f, false, false};
-    case GlossClass::Building: return {0.12f, 0.08f, 0.03f, true, 0.04f, 0.25f, false, false};
-    // Inside: tables, counters, floors and panels polished by use and varnish.
-    case GlossClass::Interior: return {0.12f, 0.08f, 0.03f, true, 0.10f, 0.38f, false, false};
-    case GlossClass::Tile: return {0.50f, 0.10f, 0.10f, false, 0.0f, 0.0f, false, false};
-    case GlossClass::Leather: return {0.42f, 0.12f, 0.06f, false, 0.0f, 0.0f, false, false};
-    case GlossClass::Metal: return {0.66f, 0.12f, 0.06f, false, 0.0f, 0.0f, true, false};
-    case GlossClass::Glass: return {0.90f, 0.04f, 0.04f, false, 0.0f, 0.0f, false, false};
+    case GlossClass::Matte: return 0.1f;
+    case GlossClass::Stone: return 0.35f;
+    default: return 1.0f;
     }
-    return {};
 }
 
 float Smooth(float edge0, float edge1, float x)
@@ -351,7 +327,7 @@ GlossVerdict ClassifyGlossName(std::string_view path)
 
 uint64_t GlossMethod(GlossClass gloss)
 {
-    return (uint64_t{kGlossMethod} << 8) | static_cast<uint64_t>(gloss);
+    return ((uint64_t{kGlossMethod} << 8) | static_cast<uint64_t>(gloss)) ^ kReliefRoughnessModelDigest;
 }
 
 float GlossMetalTint(GlossClass gloss)
@@ -359,106 +335,125 @@ float GlossMetalTint(GlossClass gloss)
     return gloss == GlossClass::Metal ? 0.7f : 0.0f;
 }
 
-NormalMap DeriveGlossMap(std::span<const uint8_t> rgba, int width, int height, GlossClass gloss)
+namespace
 {
-    NormalMap map;
-    if (gloss == GlossClass::None || width <= 0 || height <= 0 || rgba.size() < static_cast<size_t>(width) * height * 4)
-        return map;
-    const Params params = ClassParams(gloss);
-    // Colour planes at the map size (box-averaged halvings, like the relief's).
-    Field r{width, height, true, {}}, g = r, b = r;
-    for (Field *f : {&r, &g, &b})
-        f->values.resize(static_cast<size_t>(width) * height);
+Field Plane(int width, int height)
+{
+    Field f{width, height, true, {}};
+    f.values.resize(static_cast<size_t>(width) * height);
+    return f;
+}
+} // namespace
+
+std::vector<float> GlossMetalMask(std::span<const uint8_t> rgba, int width, int height)
+{
+    if (width <= 0 || height <= 0 || rgba.size() < static_cast<size_t>(width) * height * 4)
+        return {};
+    Field r = Plane(width, height), g = r, b = r, lum = r;
     for (size_t i = 0; i < r.values.size(); ++i)
     {
         r.values[i] = rgba[i * 4] / 255.0f;
         g.values[i] = rgba[i * 4 + 1] / 255.0f;
         b.values[i] = rgba[i * 4 + 2] / 255.0f;
-    }
-    while (std::max(r.width, r.height) > kGlossMapSize)
-    {
-        r = Halve(r);
-        g = Halve(g);
-        b = Halve(b);
-    }
-    // The colour cues read the colour blurred a little: single noisy texels of grime must not flip between materials.
-    const Field cr_blur = Gaussian(r, 1.5f), cg_blur = Gaussian(g, 1.5f), cb_blur = Gaussian(b, 1.5f);
-    Field lum = r;
-    for (size_t i = 0; i < lum.values.size(); ++i)
         lum.values[i] = 0.299f * r.values[i] + 0.587f * g.values[i] + 0.114f * b.values[i];
-    // DXT block noise and single texels are no polish: the cues read the luminance blurred once.
-    lum = Blur(lum);
-    // The surroundings (sigma 3 texels of the map, ~12 of a 1024 texture) and the local contrast around them.
-    const Field mean = Gaussian(lum, 3.0f);
-    Field contrast = lum;
-    for (size_t i = 0; i < contrast.values.size(); ++i)
-    {
-        const float d = lum.values[i] - mean.values[i];
-        contrast.values[i] = d * d;
     }
-    contrast = Gaussian(contrast, 3.0f);
-
-    Field out = lum;
-    for (size_t i = 0; i < out.values.size(); ++i)
+    // The colour blurred a little (single noisy texels of grime must not flip between materials); the local contrast
+    // over sigma 3 texels of the map (rust is grainy, polished metal flat).
+    const Field cr = Gaussian(r, 1.5f), cg = Gaussian(g, 1.5f), cb = Gaussian(b, 1.5f), mean = Gaussian(lum, 3.0f);
+    Field square = lum;
+    for (size_t i = 0; i < square.values.size(); ++i)
+        square.values[i] = (lum.values[i] - mean.values[i]) * (lum.values[i] - mean.values[i]);
+    const Field contrast = Gaussian(square, 3.0f);
+    std::vector<float> mask(r.values.size());
+    for (size_t i = 0; i < mask.size(); ++i)
     {
-        const float cr = cr_blur.values[i], cg = cg_blur.values[i], cb = cb_blur.values[i];
-        const float hi = std::max({cr, cg, cb}), lo = std::min({cr, cg, cb});
-        const float sat = hi > 1e-3f ? (hi - lo) / hi : 0.0f;
-        const float l = lum.values[i];
-        const float hue = Hue(cr, cg, cb, hi, lo);
-        // Brightness against the surroundings, relative and softly limited: a polished spot up, a gap or grime down.
-        const float relative = std::tanh(3.0f * (l - mean.values[i]) / (mean.values[i] + 0.08f));
-        const float flat = 1.0f - Smooth(0.02f, 0.10f, std::sqrt(contrast.values[i]));
-        float base = params.base;
-        if (params.atlas_cues)
-        {
-            // Mixed building atlas: whitewash and plaster (bright, grey) matte; wood (brown) dry, deep red-brown
-            // lacquered; dark, grey-blue and flat: window glass.
-            const float plaster = Smooth(0.5f, 0.7f, l) * (1.0f - Smooth(0.12f, 0.25f, sat));
-            const bool brown = hue > 10.0f && hue < 45.0f;
-            const float wood = brown ? Smooth(0.25f, 0.45f, sat) * (1.0f - Smooth(0.45f, 0.65f, l)) : 0.0f;
-            // (Red-brown only: olive and yellow-brown dark areas are grime on floors and walls.)
-            const float lacquer = hue > 4.0f && hue < 30.0f ? Smooth(0.5f, 0.7f, sat) * (1.0f - Smooth(0.2f, 0.35f, l)) : 0.0f;
-            // (Grey-blue only: a dark, flat brown or grey area is shade or wood; black is an unused part of the atlas.)
-            const bool cold = hue > 170.0f && hue < 260.0f && sat > 0.08f;
-            const float glass = cold ? Smooth(0.03f, 0.06f, l) * (1.0f - Smooth(0.15f, 0.28f, l)) * flat : 0.0f;
-            base = base * (1.0f - 0.7f * plaster) + params.atlas_wood * wood + params.atlas_lacquer * lacquer + 0.45f * glass;
-        }
-        if (params.wood_cues)
-        {
-            // Grey, weathered wood loses its finish; deep, saturated wood keeps it.
-            base += 0.08f * Smooth(0.35f, 0.65f, sat) - 0.10f * (1.0f - Smooth(0.08f, 0.2f, sat));
-        }
-        if (params.rust_cues)
-        {
-            // Rust (orange-brown, saturated, not bright) is rough; brass and gold (bright yellow) stay polished.
-            // (Copper and bronze are orange too, but brighter and smoother: only dark, saturated, grainy orange.)
-            const float rust = (hue > 8.0f && hue < 40.0f)
-                                   ? Smooth(0.4f, 0.65f, sat) * (1.0f - Smooth(0.2f, 0.34f, l)) * (1.0f - 0.7f * flat)
-                                   : 0.0f;
-            base -= 0.5f * rust;
-            // The gun atlases hold their carriages too: brown, grainy wood that is not bright brass.
-            // (Not brass: its yellow is more saturated.)
-            const float wood = (hue > 12.0f && hue < 42.0f) ? Smooth(0.25f, 0.4f, sat) * (1.0f - Smooth(0.6f, 0.75f, sat)) *
-                                                                   (1.0f - Smooth(0.4f, 0.55f, l)) * (1.0f - 0.3f * flat)
-                                                             : 0.0f;
-            base = base + (0.22f - base) * wood;
-        }
-        out.values[i] = std::clamp(base + params.detail * relative + params.uniform * flat, 0.0f, 1.0f);
+        const float hi = std::max({cr.values[i], cg.values[i], cb.values[i]}), lo = std::min({cr.values[i], cg.values[i], cb.values[i]});
+        const float sat = hi > 1e-3f ? (hi - lo) / hi : 0.0f, l = lum.values[i];
+        const float hue = Hue(cr.values[i], cg.values[i], cb.values[i], hi, lo);
+        const float flat = 1.0f - Smooth(0.02f, 0.10f, std::sqrt(std::max(contrast.values[i], 0.0f)));
+        // Rust: orange-brown, saturated, not bright, grainy (brass and gold are brighter and more yellow).
+        const float rust = hue > 8.0f && hue < 40.0f
+                               ? Smooth(0.4f, 0.65f, sat) * (1.0f - Smooth(0.2f, 0.34f, l)) * (1.0f - 0.7f * flat)
+                               : 0.0f;
+        // The gun atlases hold their carriages too: brown, grainy wood, less saturated than brass.
+        const float wood = hue > 12.0f && hue < 42.0f ? Smooth(0.25f, 0.4f, sat) * (1.0f - Smooth(0.6f, 0.75f, sat)) *
+                                                            (1.0f - Smooth(0.4f, 0.55f, l)) * (1.0f - 0.3f * flat)
+                                                      : 0.0f;
+        mask[i] = std::clamp(1.0f - rust - wood, 0.0f, 1.0f);
     }
+    return mask;
+}
 
-    map.width = out.width;
-    map.height = out.height;
-    map.format = NormalMapFormat::R8;
-    map.rg.reserve(NormalMapBytes(map.width, map.height, NormalMapFormat::R8));
+GlossField GlossOfRoughness(std::span<const float> roughness, std::span<const float> height, std::span<const uint8_t> rgba,
+                            int width, int height_texels, GlossClass gloss)
+{
+    GlossField field;
+    const int w = width, h = height_texels;
+    const size_t texels = static_cast<size_t>(std::max(w, 0)) * std::max(h, 0);
+    if (gloss == GlossClass::None || w <= 0 || h <= 0 || roughness.size() != texels || height.size() != texels ||
+        rgba.size() < texels * 4)
+        return field;
+    // The filters' sigmas are in texels of a 512 map (where they were tuned): halved at 256.
+    const float scale = static_cast<float>(std::max(w, h)) / 512.0f;
+    // The grooves: texels below their surroundings in the height, by how many of the texture's own spreads.
+    Field hf = Plane(w, h);
+    std::copy(height.begin(), height.end(), hf.values.begin());
+    const Field around = Gaussian(hf, 4.0f * scale);
+    double sum = 0.0;
+    for (size_t i = 0; i < texels; ++i)
+        sum += (hf.values[i] - around.values[i]) * (hf.values[i] - around.values[i]);
+    const float spread = std::max(static_cast<float>(std::sqrt(sum / static_cast<double>(texels))), 1e-6f);
+    Field lum = Plane(w, h);
+    for (size_t i = 0; i < texels; ++i)
+        lum.values[i] = (0.299f * rgba[i * 4] + 0.587f * rgba[i * 4 + 1] + 0.114f * rgba[i * 4 + 2]) / 255.0f;
+    lum = Gaussian(lum, 1.5f * scale);
+    const bool metal = gloss == GlossClass::Metal;
+    if (metal)
+        field.metal = GlossMetalMask(rgba, w, h);
+    const float cap = ClassCap(gloss);
+    field.width = w;
+    field.height = h;
+    field.gloss.resize(texels);
+    for (size_t i = 0; i < texels; ++i)
+    {
+        // GGX's perceptual roughness r (alpha r^2) as the Blinn-Phong power that matches it, on the highlight's scale.
+        const float alpha = std::clamp(roughness[i], 0.05f, 1.0f) * std::clamp(roughness[i], 0.05f, 1.0f);
+        const float power = std::max(2.0f / (alpha * alpha) - 2.0f, 1.0f);
+        float g = std::clamp((std::log2(power) - 3.0f) / 4.5f, 0.0f, 1.0f);
+        const float t = std::clamp(((hf.values[i] - around.values[i]) / spread + 1.5f) / 1.5f, 0.0f, 1.0f);
+        g *= 0.25f + 0.75f * t * t * (3.0f - 2.0f * t);
+        if (metal)
+            g = std::max(g, 0.5f * field.metal[i]);
+        else
+            g *= Smooth(0.06f, 0.25f, lum.values[i]);
+        field.gloss[i] = std::min(g, cap);
+    }
+    return field;
+}
+
+NormalMap GlossMaterial(const GlossField &field)
+{
+    NormalMap map;
+    if (field.width <= 0 || field.height <= 0 || field.gloss.size() != static_cast<size_t>(field.width) * field.height)
+        return map;
+    Field g{field.width, field.height, true, field.gloss}, m = g;
+    m.values = field.metal.empty() ? std::vector<float>(g.values.size(), 0.0f) : field.metal;
+    map.width = field.width;
+    map.height = field.height;
+    map.format = NormalMapFormat::Rg8;
+    map.rg.reserve(NormalMapBytes(map.width, map.height, NormalMapFormat::Rg8));
     for (;;)
     {
         ++map.mip_count;
-        for (const float v : out.values)
-            map.rg.push_back(static_cast<uint8_t>(std::lround(v * 255.0f)));
-        if (out.width == 1 && out.height == 1)
+        for (size_t i = 0; i < g.values.size(); ++i)
+        {
+            map.rg.push_back(static_cast<uint8_t>(std::lround(std::clamp(m.values[i], 0.0f, 1.0f) * 255.0f)));
+            map.rg.push_back(static_cast<uint8_t>(std::lround(std::clamp(g.values[i], 0.0f, 1.0f) * 255.0f)));
+        }
+        if (g.width == 1 && g.height == 1)
             break;
-        out = Halve(out);
+        g = Halve(g);
+        m = Halve(m);
     }
     return map;
 }

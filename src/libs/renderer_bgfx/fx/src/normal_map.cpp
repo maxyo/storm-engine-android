@@ -296,7 +296,6 @@ size_t NormalMapLevelBytes(NormalMapFormat format, int width, int height)
     {
     case NormalMapFormat::Rg8: return texels * 2;
     case NormalMapFormat::EacRg11: return blocks * 16;
-    case NormalMapFormat::R8: return texels;
     }
     return 0;
 }

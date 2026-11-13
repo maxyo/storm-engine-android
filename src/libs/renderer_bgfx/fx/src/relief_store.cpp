@@ -67,10 +67,10 @@ uint64_t ReliefMethod(ReliefClass relief)
         const uint64_t parts[2] = {kReliefHeightMethod, NormalMapCacheKey(options)};
         return Mix(method, parts, sizeof(parts));
     }
-    // PBRify's normals and height (their models' digests), the material's height and gloss derivations.
-    const uint64_t parts[6] = {kReliefMethodVersion, kReliefNormalModelDigest, kReliefHeightModelDigest,
-                               static_cast<uint64_t>(kReliefMapSize), ReliefHasHeight(relief) ? kHeightMapVersion : 0u,
-                               kGlossMethod};
+    // PBRify's normals, height and roughness (their models' digests), the material's height and gloss derivations.
+    const uint64_t parts[7] = {kReliefMethodVersion, kReliefNormalModelDigest, kReliefHeightModelDigest,
+                               kReliefRoughnessModelDigest, static_cast<uint64_t>(kReliefMapSize),
+                               ReliefHasHeight(relief) ? kHeightMapVersion : 0u, kGlossMethod};
     return Mix(method, parts, sizeof(parts));
 }
 

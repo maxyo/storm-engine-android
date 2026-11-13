@@ -18,7 +18,7 @@
 //                   (fxGlossSpec), else the material's (fxMaterialSpec). u_fxGloss.w > 0 (Settings::gloss, its value the gloss strength) adds the
 //                   lamps' highlights with their shadows (lit and baked) and the sun's on baked surfaces outdoors, where
 //                   the bake shows the sun; u_fxGloss.y the texture's metal class (its polished texels: the highlight in
-//                   the texture's colour, a little less diffuse light); u_fxGloss.z debug
+//                   the texture's colour, a little less diffuse light; times the map's metal mask, its R); u_fxGloss.z debug
 //                   views: 1 the gloss (magenta: no map), 2 the relief (the normal's tilt by the normal map, grey: none),
 //                   3 the open sun the bake shows times the sun's light (yellow), its highlight (blue); lit draws
 //                   dark blue; 4 the metal mask (cyan).
@@ -538,8 +538,10 @@ void main()
 #ifdef FX_LIGHT_SPECULAR
     if (u_fxGloss.x > 0.0)
     {
-        ffGloss = texture2D(s_fxMaterial, v_texcoord0.xy).g;
-        ffMetal = u_fxGloss.y * smoothstep(0.55, 0.75, ffGloss) * u_fxGloss.x;
+        // G the gloss; R a gloss map's metal mask (fx::GlossMaterial; u_fxGloss.y is 0 where R is a relief's height).
+        vec2 ffMaterial = texture2D(s_fxMaterial, v_texcoord0.xy).rg;
+        ffGloss = ffMaterial.g;
+        ffMetal = u_fxGloss.y * ffMaterial.r * u_fxGloss.x;
         // Metal reflects several times what lacquer or glazing do.
         ffSpec = mix(ffSpec, fxGlossSpec(ffGloss) * vec2(1.0, (1.0 + 2.5 * ffMetal) * u_fxGloss.w), u_fxGloss.x);
     }

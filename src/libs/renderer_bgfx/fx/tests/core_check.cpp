@@ -993,18 +993,21 @@ void CheckReliefModel()
     CHECK(key != ReliefKey("a/b", other, 4, 4, stone, kReliefMapSize));
     CHECK(key != ReliefKey("a/b", probe, 4, 4, ReliefMethod(ReliefClass::HeightMap), kReliefMapSize));
     // The method covers what makes the map: PBRify's maps (one method for every colour class), the derivation of height
-    // maps, the models, the material's height and gloss and the version. The maps of the methods before it (DeepBump's)
-    // are never found again.
+    // maps, the models, the material's height and gloss and the version. The maps of the methods before it (DeepBump's,
+    // the heuristic gloss) are never found again.
     CHECK(ReliefMethod(ReliefClass::None) == 0);
     CHECK(ReliefMethod(ReliefClass::Metal) != ReliefMethod(ReliefClass::Stone) &&
           ReliefMethod(ReliefClass::Metal) != ReliefMethod(ReliefClass::HeightMap)); // no material texture
     for (const ReliefClass colour : {ReliefClass::Stone, ReliefClass::Wood, ReliefClass::Building, ReliefClass::Plaster})
         CHECK(ReliefMethod(colour) == ReliefMethod(ReliefClass::Stone) &&
               ReliefMethod(colour) != ReliefMethod(ReliefClass::HeightMap));
-    CHECK(kReliefMethodVersion == 6);
+    CHECK(kReliefMethodVersion == 7);
     CHECK(ReliefMethod(ReliefClass::Stone) != 3 && key != ReliefKey("a/b", probe, 4, 4, 3, kReliefMapSize));
     // The model files' sha256 prefixes (checked by CMake too).
-    CHECK(kReliefNormalModelDigest == 0xfc91ce30e48deaf5ull && kReliefHeightModelDigest == 0x01f251dc40e79fa7ull);
+    CHECK(kReliefNormalModelDigest == 0xfc91ce30e48deaf5ull && kReliefHeightModelDigest == 0x01f251dc40e79fa7ull &&
+          kReliefRoughnessModelDigest == 0x860845c92142b7d1ull);
+    // The gloss maps' method: the version, the roughness network, the class.
+    CHECK(GlossMethod(GlossClass::Metal) != GlossMethod(GlossClass::Glass) && kGlossMethod == 0x47000005u);
 
     // The store: a written map reads back; a damaged file is deleted and reported.
     const std::filesystem::path dir = std::filesystem::temp_directory_path() / "storm_fx_relief_check";
@@ -1926,49 +1929,58 @@ void CheckGlossMaps()
     CHECK(gloss("Resource\\Textures\\Characters\\blaze.tga.tx") == GlossClass::None);
     CHECK(gloss("Resource\\Textures\\antigua.tga.tx") == GlossClass::None);
 
-    // A brown (wood) and a grey (iron) slightly noisy texture: glass above metal above lacquer above dry wood above
-    // cloth; dark, grainy orange metal is rust, rougher than iron.
+    // The roughness network's output corrected (no model here: fields made up): GGX's roughness as the highlight's power,
+    // the grooves of the height, dark non-metal texels, the metal mask, the class caps.
     constexpr int kSize = 64;
-    std::vector<uint8_t> brown, grey, rusty;
-    for (int i = 0; i < kSize * kSize; ++i)
+    constexpr size_t kTexels = size_t(kSize) * kSize;
+    std::vector<uint8_t> grey, rusty;
+    for (size_t i = 0; i < kTexels; ++i)
     {
         const uint8_t n = static_cast<uint8_t>((i * 7919) % 23), grain = static_cast<uint8_t>((i * 104729) % 41);
         rusty.insert(rusty.end(), {static_cast<uint8_t>(40 + grain), static_cast<uint8_t>(18 + grain / 2), static_cast<uint8_t>(6), 255});
-        brown.insert(brown.end(), {static_cast<uint8_t>(120 + n), static_cast<uint8_t>(80 + n), static_cast<uint8_t>(50 + n), 255});
         grey.insert(grey.end(), {static_cast<uint8_t>(95 + n), static_cast<uint8_t>(100 + n), static_cast<uint8_t>(105 + n), 255});
     }
-    std::vector<uint8_t> rgba = brown;
-    const auto mean = [&](GlossClass c) {
-        const NormalMap map = DeriveGlossMap(rgba, kSize, kSize, c);
+    const std::vector<float> flat(kTexels, 0.5f);
+    const auto mean = [&](const GlossField &f) {
         double sum = 0.0;
-        for (int i = 0; i < kSize * kSize; ++i)
-            sum += map.rg[static_cast<size_t>(i)] / 255.0;
-        return map.format == NormalMapFormat::R8 && map.width == kSize && map.mip_count == 7 ? sum / (kSize * kSize) : -1.0;
+        for (const float g : f.gloss)
+            sum += g;
+        return f.gloss.size() == kTexels ? sum / static_cast<double>(kTexels) : -1.0;
     };
-    rgba = grey;
-    const double metal = mean(GlossClass::Metal), glass = mean(GlossClass::Glass);
-    rgba = rusty;
-    const double rust = mean(GlossClass::Metal);
-    rgba = brown;
-    const double lacquer = mean(GlossClass::Lacquered),
-                 dry = mean(GlossClass::DryWood), matte = mean(GlossClass::Matte), stone = mean(GlossClass::Stone);
-    std::printf("gloss means: glass %.2f metal %.2f rust %.2f lacquer %.2f dry wood %.2f stone %.2f matte %.2f\n", glass,
-                metal, rust, lacquer, dry, stone, matte);
-    CHECK(rust + 0.15 < metal);
-    CHECK(glass > metal && metal > lacquer && lacquer > dry && dry > matte && stone > matte && matte >= 0.0 && matte < 0.1);
-    CHECK(DeriveGlossMap(rgba, kSize, kSize, GlossClass::None).rg.empty());
-    // Larger textures are halved to kGlossMapSize.
-    std::vector<uint8_t> big(size_t(4 * kGlossMapSize) * kGlossMapSize * 4, 128);
-    const NormalMap halved = DeriveGlossMap(big, 2 * kGlossMapSize, 2 * kGlossMapSize, GlossClass::Stone);
-    CHECK(halved.width == kGlossMapSize && halved.height == kGlossMapSize);
-    // A gap darker than its surroundings is less glossy than the plank around it.
-    std::vector<uint8_t> gap = rgba;
+    const auto at = [&](float r, GlossClass c, const std::vector<uint8_t> &rgba = {}) {
+        return mean(GlossOfRoughness(std::vector<float>(kTexels, r), flat, rgba.empty() ? grey : rgba, kSize, kSize, c));
+    };
+    // r 0.3: alpha 0.09, power 2/0.0081 - 2 = 245, g = (log2 245 - 3) / 4.5 = 1.1 -> 1; r 0.5: power 30, 0.42; r 0.67 and
+    // up: matte.
+    std::printf("gloss of roughness 0.3 %.2f, 0.5 %.2f, 0.7 %.2f\n", at(0.3f, GlossClass::Glass), at(0.5f, GlossClass::Glass),
+                at(0.7f, GlossClass::Glass));
+    CHECK(at(0.3f, GlossClass::Glass) > 0.99 && std::abs(at(0.5f, GlossClass::Glass) - 0.424) < 0.02 &&
+          at(0.7f, GlossClass::Glass) == 0.0);
+    // Caps: cloth and plaster 0.1, stone 0.35.
+    CHECK(std::abs(at(0.3f, GlossClass::Matte) - 0.1) < 1e-6 && std::abs(at(0.3f, GlossClass::Stone) - 0.35) < 1e-6);
+    // Dark non-metal texels lose the gloss; metal keeps it, and polished metal at least half of it whatever the network.
+    const std::vector<uint8_t> black(kTexels * 4, 8);
+    CHECK(at(0.5f, GlossClass::Glass, black) < 0.01 && at(0.5f, GlossClass::Metal, black) > 0.4);
+    const std::vector<float> mask = GlossMetalMask(grey, kSize, kSize), rust_mask = GlossMetalMask(rusty, kSize, kSize);
+    std::printf("metal: grey %.2f (mask %.2f), rust %.2f (mask %.2f)\n", at(0.9f, GlossClass::Metal), mask[100],
+                at(0.9f, GlossClass::Metal, rusty), rust_mask[100]);
+    CHECK(at(0.9f, GlossClass::Metal) > 0.45 && at(0.9f, GlossClass::Metal, rusty) + 0.1 < at(0.9f, GlossClass::Metal));
+    CHECK(mask.size() == kTexels && mask[100] > 0.95f && rust_mask[100] < 0.8f);
+    CHECK(GlossOfRoughness(flat, flat, grey, kSize, kSize, GlossClass::None).gloss.empty());
+    CHECK(GlossOfRoughness(flat, {}, grey, kSize, kSize, GlossClass::Stone).gloss.empty());
+    // A groove in the height keeps a quarter of the gloss.
+    std::vector<float> groove = flat;
     for (int y = 0; y < kSize; ++y)
         for (int x = 30; x < 33; ++x)
-            for (int c = 0; c < 3; ++c)
-                gap[(size_t(y) * kSize + x) * 4 + c] = 15;
-    const NormalMap lacquered = DeriveGlossMap(gap, kSize, kSize, GlossClass::Lacquered);
-    CHECK(lacquered.rg[31] + 30 < lacquered.rg[10]);
+            groove[size_t(y) * kSize + x] = 0.1f;
+    const GlossField grooved = GlossOfRoughness(std::vector<float>(kTexels, 0.4f), groove, grey, kSize, kSize, GlossClass::Glass);
+    CHECK(grooved.gloss[31] < 0.4f * grooved.gloss[10]);
+    // The gloss map file's texture: RG8, all mips, R the metal mask, G the gloss.
+    const GlossField metal = GlossOfRoughness(flat, flat, grey, kSize, kSize, GlossClass::Metal);
+    const NormalMap material = GlossMaterial(metal);
+    CHECK(material.format == NormalMapFormat::Rg8 && material.width == kSize && material.mip_count == 7 &&
+          material.rg.size() == NormalMapBytes(kSize, kSize, NormalMapFormat::Rg8) && material.rg[200] > 240 &&
+          std::abs(material.rg[201] - std::lround(metal.gloss[100] * 255.0f)) <= 1);
 }
 
 int main()

@@ -23,7 +23,8 @@ FetchContent_MakeAvailable(storm_onnxruntime)
 set(STORM_RELIEF_MODELS "${CMAKE_CURRENT_SOURCE_DIR}/model")
 file(READ "${CMAKE_CURRENT_SOURCE_DIR}/../renderer_bgfx/fx/include/storm/fx/relief_model.hpp" relief_model_header)
 foreach(pair "pbrify-normal-int8.onnx|kReliefNormalModelDigest|fc91ce30e48deaf5847ed19342bd1fc7a8ffc11a2ec94f26c4d6bcbe63df4b33"
-             "pbrify-height-int8.onnx|kReliefHeightModelDigest|01f251dc40e79fa7ef5348b51f538de5a14bc6113c8ea3173ba78ce0b648c409")
+             "pbrify-height-int8.onnx|kReliefHeightModelDigest|01f251dc40e79fa7ef5348b51f538de5a14bc6113c8ea3173ba78ce0b648c409"
+             "pbrify-roughness-int8.onnx|kReliefRoughnessModelDigest|860845c92142b7d1bd89ac514ae58206d431fd2c899e955dd492348389c5f00b")
     string(REPLACE "|" ";" fields "${pair}")
     list(GET fields 0 file)
     list(GET fields 1 constant)
@@ -59,7 +60,7 @@ if(ANDROID)
 endif()
 set_target_properties(storm_relief_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
-# What the app packages next to libengine.so (which links onnxruntime): onnxruntime and the two models (assets), in
+# What the app packages next to libengine.so (which links onnxruntime): onnxruntime and the three models (assets), in
 # <build>/game.
 if(ANDROID)
     add_custom_target(storm_relief_package
@@ -67,6 +68,7 @@ if(ANDROID)
         COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${onnxruntime_library}" "${CMAKE_BINARY_DIR}/game/libonnxruntime.so"
         COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${STORM_RELIEF_MODELS}/pbrify-normal-int8.onnx" "${CMAKE_BINARY_DIR}/game/assets/pbrify-normal-int8.onnx"
         COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${STORM_RELIEF_MODELS}/pbrify-height-int8.onnx" "${CMAKE_BINARY_DIR}/game/assets/pbrify-height-int8.onnx"
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${STORM_RELIEF_MODELS}/pbrify-roughness-int8.onnx" "${CMAKE_BINARY_DIR}/game/assets/pbrify-roughness-int8.onnx"
         VERBATIM)
 endif()
 # The same job from a shell: host checks, and timing on a device or emulator (adb push with libonnxruntime.so).
