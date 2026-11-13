@@ -25,10 +25,12 @@ struct PerfCounters
     uint64_t state_changes = 0;    // draws whose blend/depth/cull/primitive/stencil state differs
     uint64_t uniform_updates = 0;  // bgfx::setUniform calls (values that really changed)
     uint64_t uniform_bytes = 0;
-    uint64_t uniform_draws = 0;    // draws with at least one uniform update (the GL backend then
-                                   // re-uploads every uniform of the program)
-    uint64_t uniform_commit_bytes = 0; // bytes the GL backend re-uploads: all uniforms of the program
-                                       // for every draw with a uniform update or a program change
+    uint64_t uniform_draws = 0;    // draws with at least one uniform update
+    // glUniform* calls of the GL backend and their bytes, every client (patches/bgfx-gl-uniform-commit.patch:
+    // a program gets only the uniforms whose value differs from what it holds). With bgfx's render thread
+    // they trail the game thread's frames by up to one frame.
+    uint64_t gl_uniform_calls = 0;
+    uint64_t gl_uniform_bytes = 0;
     uint64_t texture_binds = 0;    // bgfx::setTexture calls
     uint64_t texture_changes = 0;  // binds of a different texture or sampler state than the unit had
     uint64_t transient_vb_bytes = 0;
@@ -42,6 +44,8 @@ struct PerfCounters
     // Time, milliseconds.
     double shim_ms = 0;     // game thread inside the shim's draw path (D3D9 -> bgfx translation)
     double backend_ms = 0;  // bgfx::frame() of presented frames: the GL backend, driver and swap
+    double submit_ms = 0;   // the GL backend's submit of the frame's draws on bgfx's render thread (bgfx::Stats
+                            // cpuTimeBegin..End: commands, uniforms, draw calls; no swap)
     double gpu_ms = 0;      // GPU time of the frames bgfx measured with timer queries (0 when unsupported)
     uint64_t gpu_frames = 0; // frames that had a GPU time
     // Current values (not totals) as of the last presented frame.
@@ -57,8 +61,8 @@ struct PerfCounters
     // The totals of this window minus those of `start`; current values are this window's.
     PerfCounters Since(const PerfCounters &start) const;
     // Per-frame means of a window as space-separated key=value pairs (empty without frames):
-    // draws skipped views programs states uniforms uniform_kb uniform_draws commit_kb tex_binds tex_changes
-    // tvb_kb tib_kb fans buf_uploads buf_kb tex_uploads tex_kb shim_ms backend_ms gpu_ms tex_mb rt_mb
+    // draws skipped views programs states uniforms uniform_kb uniform_draws gl_uniforms gl_uniform_kb tex_binds tex_changes
+    // tvb_kb tib_kb fans buf_uploads buf_kb tex_uploads tex_kb shim_ms backend_ms submit_ms gpu_ms tex_mb rt_mb
     // tex_shadow_mb buf_shadow_mb buf_gpu_mb tvb_max_kb tib_max_kb.
     std::string Summary() const;
 };

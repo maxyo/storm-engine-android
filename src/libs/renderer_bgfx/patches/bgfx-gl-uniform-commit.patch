@@ -1,0 +1,229 @@
+GL: upload only the uniforms whose value changed for the program (perf audit finding 13).
+bgfx's GL backend re-uploaded every uniform of a program (commit of ProgramGL::m_constantBuffer) whenever any
+uniform of a draw changed or the program changed: 75-150 KB of glUniform* per frame for ~70 committing draws, of
+which the shim really changed ~17 KB. A GL program object keeps its uniform values, so each ProgramGL now keeps a
+shadow of the values it holds and commit() uploads only the uniforms that differ from it; a program switch uploads
+nothing the program already has. The shadow lives and dies with the GL program (init / destroy), starts invalid
+(GL zeroes a linked or binary-loaded program's uniforms) and is cleared by the one upload outside commit() (the
+blitter's sampler). All of it runs on the render thread, so bgfx's multithreaded mode needs nothing more.
+Upstream has a per-(GL program id, location) hash-map cache for the same purpose (BGFX_GL_CONFIG_UNIFORM_CACHE,
+Emscripten only): a map lookup per vec4 register, never reset when GL reuses a deleted program's id. Not taken.
+bgfx::gl::g_stormUniformUploadCalls / Bytes count every glUniform* the backend issues (engine render metrics).
+
+diff --git a/src/renderer_gl.cpp b/src/renderer_gl.cpp
+index 15f7053..935bd24 100644
+--- a/src/renderer_gl.cpp
++++ b/src/renderer_gl.cpp
+@@ -11,9 +11,21 @@
+ #	include <bx/timer.h>
+ #	include <bx/scanner.h>
+ #	include "emscripten.h"
++#	include <atomic>
+ 
+ namespace bgfx { namespace gl
+ {
++	// storm (bgfx-gl-uniform-commit.patch): glUniform* calls of this backend and the bytes they upload, since
++	// start-up. Written by the render thread, read by the engine's render metrics on the game thread.
++	std::atomic<uint64_t> g_stormUniformUploadCalls{0};
++	std::atomic<uint64_t> g_stormUniformUploadBytes{0};
++
++	static void stormCountUniformUpload(uint32_t _bytes)
++	{
++		g_stormUniformUploadCalls.fetch_add(1, std::memory_order_relaxed);
++		g_stormUniformUploadBytes.fetch_add(_bytes, std::memory_order_relaxed);
++	}
++
+ 	// storm: anisotropy level cap applied at the next reset (see updateResolution).
+ 	float g_stormMaxAnisotropy = 0.0f;
+ 
+@@ -4134,6 +4146,7 @@ namespace bgfx { namespace gl
+ 			ProgramGL& program = m_program[_blitter.m_program.idx];
+ 			setProgram(program.m_id);
+ 			setUniform1i(program.m_sampler[0], 0);
++			program.m_uniformShadowValid = false; // storm (bgfx-gl-uniform-commit.patch): uploaded outside commit()
+ 
+ 			float proj[16];
+ 			bx::mtxOrtho(proj, 0.0f, (float)width, (float)height, 0.0f, 0.0f, 1000.0f, 0.0f, g_caps.homogeneousDepth);
+@@ -4936,9 +4949,16 @@ namespace bgfx { namespace gl
+ 			}
+ 		}
+ 
+-		void commit(UniformBuffer& _uniformBuffer)
++		// storm (bgfx-gl-uniform-commit.patch): bgfx re-uploaded every uniform of the program whenever any
++		// uniform of the draw changed or the program changed. A GL program object keeps its uniform values, so
++		// only the uniforms whose value differs from what this program last got are uploaded
++		// (ProgramGL::m_uniformShadow); a program switch alone uploads nothing that program already holds.
++		void commit(ProgramGL& _program)
+ 		{
++			UniformBuffer& _uniformBuffer = *_program.m_constantBuffer;
+ 			_uniformBuffer.reset();
++			uint8_t* shadow = _program.m_uniformShadow;
++			const bool shadowValid = _program.m_uniformShadowValid;
+ 
+ 			for (;;)
+ 			{
+@@ -4969,6 +4989,17 @@ namespace bgfx { namespace gl
+ 
+ 				uint32_t loc = _uniformBuffer.read();
+ 
++				const uint32_t size = g_uniformTypeSize[type]*num;
++				BX_ASSERT(shadow + size <= _program.m_uniformShadow + _program.m_uniformShadowSize, "Uniform shadow overrun.");
++				if (shadowValid
++				&&  0 == bx::memCmp(shadow, data, size) )
++				{
++					shadow += size;
++					continue;
++				}
++				bx::memCopy(shadow, data, size);
++				shadow += size;
++
+ 				switch (type)
+ 				{
+ #if BX_PLATFORM_EMSCRIPTEN
+@@ -5023,6 +5054,8 @@ namespace bgfx { namespace gl
+ 					break;
+ 				}
+ 			}
++
++			_program.m_uniformShadowValid = true;
+ 		}
+ 
+ 		void clearQuad(const ClearQuad& _clearQuad, const Rect& _rect, const Clear& _clear, uint32_t _height, const float _palette[][4])
+@@ -5428,7 +5461,7 @@ namespace bgfx { namespace gl
+ 
+ 				if (NULL != program.m_constantBuffer)
+ 				{
+-					commit(*program.m_constantBuffer);
++					commit(program);
+ 				}
+ 
+ 				const uint8_t skipMask = _clear.getColorSkipMask(numMrt);
+@@ -5477,6 +5510,7 @@ namespace bgfx { namespace gl
+ 			if (m_uniformStateCache.updateUniformCache(loc, value) )
+ 			{
+ 				GL_CHECK(glUniform1i(loc, value) );
++				stormCountUniformUpload(sizeof(int) );
+ 			}
+ 		}
+ 
+@@ -5493,6 +5527,7 @@ namespace bgfx { namespace gl
+ 			if (changed)
+ 			{
+ 				GL_CHECK(glUniform1iv(loc, num, data) );
++				stormCountUniformUpload(num*sizeof(int) );
+ 			}
+ 		}
+ 
+@@ -5502,6 +5537,7 @@ namespace bgfx { namespace gl
+ 			if (m_uniformStateCache.updateUniformCache(loc, f) )
+ 			{
+ 				GL_CHECK(glUniform4f(loc, x, y, z, w) );
++				stormCountUniformUpload(4*sizeof(float) );
+ 			}
+ 		}
+ 
+@@ -5518,6 +5554,7 @@ namespace bgfx { namespace gl
+ 			if (changed)
+ 			{
+ 				GL_CHECK(glUniform4fv(loc, num, data) );
++				stormCountUniformUpload(num*4*sizeof(float) );
+ 			}
+ 		}
+ 
+@@ -5534,6 +5571,7 @@ namespace bgfx { namespace gl
+ 			if (changed)
+ 			{
+ 				GL_CHECK(glUniformMatrix3fv(loc, num, transpose, data) );
++				stormCountUniformUpload(num*9*sizeof(float) );
+ 			}
+ 		}
+ 
+@@ -5550,6 +5588,7 @@ namespace bgfx { namespace gl
+ 			if (changed)
+ 			{
+ 				GL_CHECK(glUniformMatrix4fv(loc, num, transpose, data) );
++				stormCountUniformUpload(num*16*sizeof(float) );
+ 			}
+ 		}
+ 
+@@ -5974,6 +6013,12 @@ namespace bgfx { namespace gl
+ 		}
+ 		m_numPredefined = 0;
+ 
++		// storm (bgfx-gl-uniform-commit.patch): the values belonged to the deleted GL program.
++		bx::free(g_allocator, m_uniformShadow);
++		m_uniformShadow = NULL;
++		m_uniformShadowSize = 0;
++		m_uniformShadowValid = false;
++
+ 		if (0 != m_id)
+ 		{
+ 			s_renderGL->setProgram(0);
+@@ -6211,6 +6256,7 @@ namespace bgfx { namespace gl
+ 					UniformType::Enum type = convertGlType(gltype);
+ 					m_constantBuffer->writeUniformHandle(uint8_t(type), 0, info->m_handle, uint16_t(num) );
+ 					m_constantBuffer->write(loc);
++					m_uniformShadowSize += g_uniformTypeSize[type]*uint16_t(num); // storm (bgfx-gl-uniform-commit.patch)
+ 
+ 					const GLenum target = samplerTarget(gltype);
+ 					if (GL_ZERO != target
+@@ -6238,6 +6284,11 @@ namespace bgfx { namespace gl
+ 		if (NULL != m_constantBuffer)
+ 		{
+ 			m_constantBuffer->finish();
++
++			// storm (bgfx-gl-uniform-commit.patch): filled by the first commit().
++			BX_ASSERT(NULL == m_uniformShadow, "Program uniform shadow already allocated.");
++			m_uniformShadow = (uint8_t*)bx::alloc(g_allocator, m_uniformShadowSize);
++			m_uniformShadowValid = false;
+ 		}
+ 
+ 		if (piqSupported)
+@@ -10000,7 +10051,7 @@ namespace bgfx { namespace gl
+ 							if (constantsChanged
+ 							&&  NULL != program.m_constantBuffer)
+ 							{
+-								commit(*program.m_constantBuffer);
++								commit(program);
+ 							}
+ 
+ 							viewState.setPredefined<1>(this, view, *renderView, program, _render, compute);
+@@ -10538,7 +10589,7 @@ namespace bgfx { namespace gl
+ 					if (constantsChanged
+ 					&&  NULL != program.m_constantBuffer)
+ 					{
+-						commit(*program.m_constantBuffer);
++						commit(program);
+ 					}
+ 
+ 					viewState.setPredefined<1>(this, view, *renderView, program, _render, draw);
+diff --git a/src/renderer_gl.h b/src/renderer_gl.h
+index ca605fe..7b7823e 100644
+--- a/src/renderer_gl.h
++++ b/src/renderer_gl.h
+@@ -1695,6 +1695,9 @@ namespace bgfx { namespace gl
+ 			, m_numSamplerTargets(0)
+ 			, m_constantBuffer(NULL)
+ 			, m_numPredefined(0)
++			, m_uniformShadow(NULL)
++			, m_uniformShadowSize(0)
++			, m_uniformShadowValid(false)
+ 		{
+ 			m_instanceData[0] = -1;
+ 		}
+@@ -1735,6 +1738,15 @@ namespace bgfx { namespace gl
+ 		UniformBuffer* m_constantBuffer;
+ 		PredefinedUniform m_predefined[PredefinedUniform::Count];
+ 		uint8_t m_numPredefined;
++
++		// storm (bgfx-gl-uniform-commit.patch): the values this GL program object holds for the uniforms of
++		// m_constantBuffer, in its order (g_uniformTypeSize * count bytes each). A GL program keeps its uniform
++		// values, so commit() uploads only the uniforms whose value differs from what this program last got.
++		// Not valid until the first commit after linking (GL starts a program's uniforms at zero); any upload
++		// to this program outside commit() must clear m_uniformShadowValid.
++		uint8_t* m_uniformShadow;
++		uint32_t m_uniformShadowSize;
++		bool m_uniformShadowValid;
+ 	};
+ 
+ 	struct TimerQueryGL

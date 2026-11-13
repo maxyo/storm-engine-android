@@ -374,7 +374,6 @@ struct Device final : Object
     std::map<FbKey, bgfx::FrameBufferHandle> framebuffers;
     std::unordered_map<uint64_t, std::unique_ptr<LayoutInfo>> fvf_layouts;
     std::map<std::pair<uint32_t, uint32_t>, bgfx::ProgramHandle> programs;
-    std::unordered_map<uint16_t, uint32_t> program_uniform_bytes; // by program handle: user uniforms of both shaders
     std::vector<bgfx::ShaderHandle> shaders; // index = shader id
 
     // uniform handles + last value sent (uniforms are sticky in submission order)

@@ -385,7 +385,6 @@ const Expected kExpected[] = {
     {"uniform_updates", &render::PerfCounters::uniform_updates, 82},
     {"uniform_bytes", &render::PerfCounters::uniform_bytes, 6784},
     {"uniform_draws", &render::PerfCounters::uniform_draws, 46},
-    {"uniform_commit_bytes", &render::PerfCounters::uniform_commit_bytes, 75360},
     {"texture_binds", &render::PerfCounters::texture_binds, 182},
     {"texture_changes", &render::PerfCounters::texture_changes, 122},
     {"transient_vb_bytes", &render::PerfCounters::transient_vb_bytes, 144192},

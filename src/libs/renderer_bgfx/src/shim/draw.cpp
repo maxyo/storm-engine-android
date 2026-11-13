@@ -880,28 +880,6 @@ bgfx::ProgramHandle Device::program(uint32_t vs_id, uint32_t fs_id)
             if (!bgfx::isValid(shaders[id]))
                 shaders[id] = create_embedded_shader(id);
         handle = bgfx::createProgram(shaders[vs_id], shaders[fs_id], false);
-        if (bgfx::isValid(handle))
-        {
-            uint32_t bytes = 0;
-            for (const uint32_t id : {vs_id, fs_id})
-            {
-                bgfx::UniformHandle list[64];
-                const uint16_t count = bgfx::getShaderUniforms(shaders[id], list, 64);
-                for (uint16_t i = 0; i < std::min<uint16_t>(count, 64); ++i)
-                {
-                    bgfx::UniformInfo info;
-                    bgfx::getUniformInfo(list[i], info);
-                    const uint32_t size = info.type == bgfx::UniformType::Vec4   ? 16
-                                          : info.type == bgfx::UniformType::Mat3 ? 48
-                                          : info.type == bgfx::UniformType::Mat4 ? 64
-                                                                                 : 0; // samplers
-                    // u_vsc is created for 96 registers; a port program declares (and uploads) fewer.
-                    const uint32_t vsc = list[i].idx == uniforms[U_VSC].handle.idx ? port_vsc_count(id) : 0;
-                    bytes += size * (vsc ? vsc : info.num);
-                }
-            }
-            program_uniform_bytes[handle.idx] = bytes;
-        }
     }
     if (!bgfx::isValid(handle))
         logf("program creation failed (vs=%u fs=%u)", vs_id, fs_id);
@@ -1537,8 +1515,6 @@ HRESULT Device::draw(const DrawCall &call)
     const bool program_changed = last_draw.program != handle.idx;
     if (program_changed)
         ++counters.program_changes, last_draw.program = handle.idx;
-    if (uniforms_changed || program_changed)
-        counters.uniform_commit_bytes += program_uniform_bytes[handle.idx];
     const uint32_t stencil_bits = stencil ? fstencil : 0;
     if (last_draw.state != bits || last_draw.stencil != stencil_bits || last_draw.factor != factor)
     {

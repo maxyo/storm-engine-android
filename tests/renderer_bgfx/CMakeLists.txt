@@ -38,6 +38,14 @@ target_compile_definitions(skinning_check PRIVATE NOMINMAX)
 target_compile_options(skinning_check PRIVATE -fsigned-char)
 target_link_libraries(skinning_check PRIVATE storm_bgfx storm_check_sdl)
 
+# uniform_commit_check: the GL backend uploads only the uniforms a program does not hold yet
+# (patches/bgfx-gl-uniform-commit.patch), on OpenGL ES (an X display, like skinning_check).
+add_executable(uniform_commit_check uniform_commit_check.cpp)
+target_include_directories(uniform_commit_check PRIVATE "${CMAKE_CURRENT_LIST_DIR}/../../src/libs/renderer_bgfx/src/shim")
+target_compile_definitions(uniform_commit_check PRIVATE NOMINMAX)
+target_compile_options(uniform_commit_check PRIVATE -fsigned-char)
+target_link_libraries(uniform_commit_check PRIVATE storm_bgfx storm_check_sdl)
+
 # preset_switch_check: a live graphics preset switch through the shim on OpenGL ES (an X display, like
 # skinning_check): the previous settings draw until the new ones are prepared, no black frame after it.
 add_executable(preset_switch_check preset_switch_check.cpp)

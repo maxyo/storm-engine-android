@@ -40,6 +40,11 @@ on Android and on the Linux development host alike.
   `bgfx-anisotropy-level.patch`: the GL backend applies one anisotropy level to every sampler, the device
   maximum; the patch caps it with `bgfx::gl::g_stormMaxAnisotropy` so the presets get 4x / 8x (set by
   `src/effects`). Upstream bgfx has no per-level API; keep it until it does.
+  `bgfx-gl-uniform-commit.patch`: the GL backend re-uploaded every uniform of a program whenever one uniform of a
+  draw or the program changed; each GL program now keeps a copy of the values it holds and gets only the ones that
+  differ (render thread only). Its counters `bgfx::gl::g_stormUniformUploadCalls/Bytes` are the `gl_uniforms` /
+  `gl_uniform_kb` of the render metrics; checked by `tests/renderer_bgfx/uniform_commit_check`. Upstream's
+  `BGFX_GL_CONFIG_UNIFORM_CACHE` (Emscripten only) is a hash map per register keyed by the reusable GL program id.
   `bgfx-swap-present-hook.patch`: `bgfx::setEglPresent` replaces `eglSwapBuffers` for the window surface of
   the context bgfx created, so the shim presents with Android Frame Pacing (`src/shim/frame_pacing.hpp`,
   Swappy GL from `cmake/swappy.cmake`; tools/android/README.md, "Frame pacing"). Upstream bgfx has no
