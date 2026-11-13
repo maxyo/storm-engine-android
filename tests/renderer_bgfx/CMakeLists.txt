@@ -127,3 +127,11 @@ target_include_directories(buffer_pool_check PRIVATE "${CMAKE_CURRENT_LIST_DIR}/
 target_compile_definitions(buffer_pool_check PRIVATE NOMINMAX)
 target_compile_options(buffer_pool_check PRIVATE -fsigned-char)
 target_link_libraries(buffer_pool_check PRIVATE storm_bgfx storm_check_sdl)
+
+# thumbnail_check: the save thumbnail of a background autosave (no surface): the back buffer is read from the copy of
+# the last presented frame (src/shim/device.cpp copy_frame), on OpenGL ES (an X display, like skinning_check) and Vulkan.
+add_executable(thumbnail_check thumbnail_check.cpp)
+target_include_directories(thumbnail_check PRIVATE "${CMAKE_CURRENT_LIST_DIR}/../../src/libs/renderer_bgfx/src/shim")
+target_compile_definitions(thumbnail_check PRIVATE NOMINMAX)
+target_compile_options(thumbnail_check PRIVATE -fsigned-char)
+target_link_libraries(thumbnail_check PRIVATE storm_bgfx storm_check_sdl)

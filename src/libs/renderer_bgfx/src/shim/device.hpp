@@ -434,6 +434,20 @@ struct Device final : Object
     TexStorePtr paused_picture;
     uint32_t frame_surface_generation = 0; // the surface generation when the previous frame was presented
     bool backbuffer_recreated = false;     // create_backbuffer ran since the previous Present
+    // A small copy of the presented frame every kFrameCopySeconds, read back without waiting (Present): what
+    // GetRenderTargetData returns for the game's back buffer while there is no surface (a save made as the app goes
+    // to the background: its thumbnail), as the read-back would without a surface to render on.
+    struct FrameCopy
+    {
+        TexStorePtr target;                      // up to kFrameCopyWidth wide, the frame's aspect
+        bgfx::TextureHandle staging = BGFX_INVALID_HANDLE;
+        std::vector<uint8_t> reading, pixels;    // RGBA8: the read in flight, the last one finished
+        uint32_t width = 0, height = 0, ready_frame = 0;
+        bool pending = false;
+        std::chrono::steady_clock::time_point taken{}, finished{};
+    } frame_copy;
+    void copy_frame(const TexStorePtr &shown);
+    bool read_frame_copy(Surface *to);
     void keep_paused_picture();
     void release_paused_picture();
     bool scaled_next = false;          // the next frame starts on the scaled stores (this one had a 3D scene)

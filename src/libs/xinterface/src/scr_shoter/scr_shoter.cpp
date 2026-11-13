@@ -107,9 +107,11 @@ bool SCRSHOTER::MakeScreenShot()
     const int32_t frame = rs->GetRenderTargetAsTexture();
     if (frame < 0)
     {
-        // No picture to copy: the surface is gone (an autosave while the app goes to the
-        // background). The save is written without a thumbnail (SFLB_DoSaveFileData), and the
-        // save list shows the record without a picture.
+        // No picture to copy. Without a surface (an autosave while the app goes to the background)
+        // the renderer reads the back buffer from its copy of the last presented frame; this is
+        // left for a renderer that has neither (no frame presented yet). The save is written
+        // without a thumbnail (SFLB_DoSaveFileData), and the save list shows the record without a
+        // picture.
         spdlog::warn("Screenshot for the save not taken: the render target cannot be read; the save gets no thumbnail");
         return false;
     }

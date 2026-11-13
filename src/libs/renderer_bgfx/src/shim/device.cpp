@@ -164,6 +164,9 @@ Device::~Device()
     for (auto &[key, handle] : framebuffers)
         bgfx::destroy(handle);
     framebuffers.clear();
+    if (bgfx::isValid(frame_copy.staging) && Context::instance().initialised())
+        bgfx::destroy(frame_copy.staging);
+    frame_copy.target.reset();
     post_color.reset();
     single_depth.reset();
     scaled_color.reset();
@@ -517,7 +520,10 @@ HRESULT Device::Present()
     if (paused_picture && (!context.picture_held() || paused_picture->width != back_color->store->width ||
                            paused_picture->height != back_color->store->height))
         release_paused_picture();
-    const TexStore &shown = paused_picture ? *paused_picture : *back_color->store;
+    const TexStorePtr &shown_store = paused_picture ? paused_picture : back_color->store;
+    const TexStore &shown = *shown_store;
+    if (context.ready())
+        copy_frame(shown_store);
     const uint32_t presented = context.last_frame();
     context.present(shown.handle, shown.width, shown.height);
     // A frame in which the surface or the back buffer changed is not kept: drawn across a surface re-creation or a
@@ -1086,7 +1092,13 @@ HRESULT Device::GetRenderTargetData(Surface *target, Surface *dest)
     if (!from || !to || !from->store->render_target)
         return D3DERR_INVALIDCALL;
     if (!Context::instance().ready())
-        return D3DERR_DEVICELOST; // no read-back without a surface (the caller keeps its previous data)
+    {
+        // No read-back without a surface to render on. The game's back buffer still holds the last frame presented:
+        // its copy (copy_frame) stands in for it, logged; any other target keeps the caller's previous data.
+        if (from == back_color && read_frame_copy(to))
+            return D3D_OK;
+        return D3DERR_DEVICELOST;
+    }
     if (from->store->game_width)
     {
         // The scaled scene store: read at the size the game addresses (its GetDesc), scaled up like the post chain's
@@ -1145,6 +1157,94 @@ HRESULT Device::GetRenderTargetData(Surface *target, Surface *dest)
                                pixels.data() + static_cast<size_t>(y) * w * 4, bimg::TextureFormat::RGBA8, w, 1, 1);
     to->store->unlock(to->face, to->level);
     return D3D_OK;
+}
+
+namespace
+{
+constexpr uint32_t kFrameCopyWidth = 512;
+constexpr auto kFrameCopySeconds = std::chrono::seconds(2);
+} // namespace
+
+void Device::copy_frame(const TexStorePtr &shown)
+{
+    auto &context = Context::instance();
+    FrameCopy &copy = frame_copy;
+    const auto now = std::chrono::steady_clock::now();
+    if (copy.pending && context.last_frame() >= copy.ready_frame)
+    {
+        copy.pixels.swap(copy.reading); // the render thread wrote `reading` in a frame that has finished
+        copy.pending = false;
+        copy.finished = copy.taken;
+    }
+    if (copy.pending || (copy.taken != std::chrono::steady_clock::time_point{} && now - copy.taken < kFrameCopySeconds))
+        return;
+    if (!shown || !bgfx::isValid(shown->handle) || shown->width == 0 || shown->height == 0)
+        return;
+    const uint32_t w = std::min(kFrameCopyWidth, shown->width);
+    const uint32_t h = std::max<uint32_t>(1, w * shown->height / shown->width);
+    if (!copy.target || copy.width != w || copy.height != h)
+    {
+        if (bgfx::isValid(copy.staging))
+            bgfx::destroy(copy.staging);
+        copy.target = make_store(this, TexKind::Tex2D, w, h, 1, 1, D3DUSAGE_RENDERTARGET, D3DFMT_A8R8G8B8, D3DPOOL_DEFAULT);
+        copy.staging = bgfx::createTexture2D(static_cast<uint16_t>(w), static_cast<uint16_t>(h), false, 1,
+                                             bgfx::TextureFormat::RGBA8,
+                                             BGFX_TEXTURE_BLIT_DST | BGFX_TEXTURE_READ_BACK | BGFX_SAMPLER_U_CLAMP |
+                                                 BGFX_SAMPLER_V_CLAMP);
+        copy.width = w;
+        copy.height = h;
+        copy.pixels.clear();
+    }
+    if (!bgfx::isValid(copy.staging))
+        return;
+    Surface from(shown, 0, 0), to(copy.target, 0, 0);
+    if (StretchRect(&from, nullptr, &to, nullptr, D3DTEXF_LINEAR) != D3D_OK)
+        return;
+    copy.target->sync();
+    view_dirty = true;
+    const uint16_t id = ensure_view();
+    bgfx::TextureRegion source, destination, read_region;
+    source.init(copy.target->handle);
+    destination.init(copy.staging);
+    bgfx::blit(id, destination, source);
+    view_has_content = true;
+    view_dirty = true;
+    copy.reading.resize(static_cast<size_t>(copy.width) * copy.height * 4);
+    read_region.init(copy.staging);
+    // Finished once bgfx::frame() has returned this number (see GetRenderTargetData); `reading` is not touched before.
+    copy.ready_frame = bgfx::read(read_region, copy.reading.data());
+    copy.pending = true;
+    copy.taken = now;
+}
+
+bool Device::read_frame_copy(Surface *to)
+{
+    const FrameCopy &copy = frame_copy;
+    if (copy.pixels.empty())
+        return false;
+    const uint32_t w = to->store->level_width(to->level), h = to->store->level_height(to->level);
+    static bx::DefaultAllocator allocator;
+    const auto texels = texture::d3d_format(static_cast<uint32_t>(to->store->format)).format;
+    if (bimg::isCompressed(texels) || texels == bimg::TextureFormat::Unknown || w == 0 || h == 0)
+        return false;
+    const double age = std::chrono::duration<double>(std::chrono::steady_clock::now() - copy.finished).count();
+    logf("GetRenderTargetData: no surface (the app is in the background): the back buffer is read from the copy of "
+         "the frame presented %.1f s ago (%ux%u for %ux%u)",
+         age, copy.width, copy.height, w, h);
+    uint32_t pitch = 0;
+    uint8_t *out = to->store->lock(to->face, to->level, &pitch, nullptr, false);
+    std::vector<uint8_t> row(static_cast<size_t>(w) * 4);
+    for (uint32_t y = 0; y < h; ++y)
+    {
+        // The copy's rows top first, like the read-back's (GetRenderTargetData): nearest texel
+        const uint8_t *src = copy.pixels.data() + static_cast<size_t>(y * copy.height / h) * copy.width * 4;
+        for (uint32_t x = 0; x < w; ++x)
+            std::memcpy(&row[x * 4], src + static_cast<size_t>(x * copy.width / w) * 4, 4);
+        bimg::imageConvert(&allocator, out + static_cast<size_t>(y) * pitch, texels, row.data(),
+                           bimg::TextureFormat::RGBA8, w, 1, 1);
+    }
+    to->store->unlock(to->face, to->level);
+    return true;
 }
 
 // ---------------------------------------------------------------------------

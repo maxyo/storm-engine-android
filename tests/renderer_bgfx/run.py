@@ -51,7 +51,7 @@ subprocess.run(['cmake', '--build', str(build), '--target', 'storm_bgfx', 'storm
                 'preset_switch_check', 'sea_edge_check', 'program_cache_check', 'render_thread_check',
                 'storm_fx_core_check', 'ao_volume_check',
                 'storm_relief_check', 'cutout_caster_check', 'relief_switch_check', 'texture_format_check', 'backend_select_check',
-                'buffer_pool_check'], check=True)
+                'buffer_pool_check', 'thumbnail_check'], check=True)
 subprocess.run([str(warmth), 'end', str(build)], check=True)
 subprocess.run([str(build / 'renderer_bgfx' / 'storm_texture_tests')], check=True)
 subprocess.run([str(build / 'perf_check')], check=True)
@@ -61,7 +61,8 @@ subprocess.run([str(build / 'relief_switch_check')], check=True)
 subprocess.run([str(build / 'relief' / 'storm_relief_check'), (build / 'deepbump_model_path.txt').read_text()], check=True)
 # The checks that draw, on OpenGL ES.
 gpu_checks = ['skinning_check', 'uniform_commit_check', 'preset_switch_check', 'sea_edge_check', 'program_cache_check',
-              'render_thread_check', 'ao_volume_check', 'cutout_caster_check', 'texture_format_check', 'buffer_pool_check']
+              'render_thread_check', 'ao_volume_check', 'cutout_caster_check', 'texture_format_check', 'buffer_pool_check',
+              'thumbnail_check']
 for name in gpu_checks:
     subprocess.run([str(build / name)], check=True)
 # The same checks on Vulkan (STORM_CHECK_BACKEND, check_backend.hpp), where the host has a Vulkan device (CI: Mesa's
