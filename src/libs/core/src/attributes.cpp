@@ -5,13 +5,39 @@
 #include "platform/platform.hpp"
 
 #include <atomic>
+#include <unordered_set>
 
 namespace storm
 {
 namespace
 {
 std::atomic<uint64_t> scriptStateGeneration{0};
+std::unordered_set<const ATTRIBUTES *> watchedTrees; // ScriptStateReads; empty with watchAll
+bool watchAll = true;
+std::unordered_set<const ATTRIBUTES *> *readTrees = nullptr; // an open ScriptStateReads
+
+const ATTRIBUTES *TreeOf(const ATTRIBUTES *attribute)
+{
+    while (const ATTRIBUTES *parent = attribute->GetParent())
+        attribute = parent;
+    return attribute;
 }
+
+// An attribute of `attribute`'s tree changed.
+void TreeChanged(const ATTRIBUTES *attribute)
+{
+    if (readTrees)
+        return; // an adapter's own output
+    if (watchAll || watchedTrees.count(TreeOf(attribute)))
+        ScriptStateChanged();
+}
+
+void TreeRead(const ATTRIBUTES *attribute)
+{
+    if (readTrees)
+        readTrees->insert(TreeOf(attribute));
+}
+} // namespace
 
 uint64_t ScriptStateGeneration() noexcept
 {
@@ -21,6 +47,25 @@ uint64_t ScriptStateGeneration() noexcept
 void ScriptStateChanged() noexcept
 {
     scriptStateGeneration.fetch_add(1, std::memory_order_relaxed);
+}
+
+ScriptStateReads::ScriptStateReads()
+{
+    Assert(readTrees == nullptr);
+    readTrees = new std::unordered_set<const ATTRIBUTES *>;
+}
+
+ScriptStateReads::~ScriptStateReads()
+{
+    watchedTrees.insert(readTrees->begin(), readTrees->end());
+    watchAll = false;
+    delete readTrees;
+    readTrees = nullptr;
+}
+
+void ScriptStateForget()
+{
+    watchedTrees.clear();
 }
 } // namespace storm
 
@@ -44,12 +89,20 @@ ATTRIBUTES & ATTRIBUTES::operator=(ATTRIBUTES &&other) noexcept
     // Do not update parent
     // parent_ = other.parent_;
     break_ = other.break_;
-    storm::ScriptStateChanged();
+    storm::TreeChanged(this);
     return *this;
 }
 
 ATTRIBUTES::~ATTRIBUTES()
 {
+    // A watched tree going away is a change; its address may be reused by a tree nobody read.
+    if (!parent_)
+    {
+        if (storm::readTrees)
+            storm::readTrees->erase(this); // a script's local object: gone when the adapter ends
+        if (storm::watchedTrees.erase(this) && !storm::readTrees)
+            storm::ScriptStateChanged();
+    }
     Release();
 }
 
@@ -65,6 +118,7 @@ ATTRIBUTES *ATTRIBUTES::GetParent() const
 
 bool ATTRIBUTES::operator==(const char *str) const
 {
+    storm::TreeRead(this);
     if (!str || !str[0])
         return false;
     return storm::iEquals(stringCodec_.Convert(nameCode_), str);
@@ -72,21 +126,25 @@ bool ATTRIBUTES::operator==(const char *str) const
 
 const char *ATTRIBUTES::GetThisName() const
 {
+    storm::TreeRead(this);
     return stringCodec_.Convert(nameCode_);
 }
 
 bool ATTRIBUTES::HasValue() const noexcept
 {
+    storm::TreeRead(this);
     return value_.has_value();
 }
 
 const std::string & ATTRIBUTES::GetValue() const
 {
+    storm::TreeRead(this);
     return *value_;
 }
 
 ATTRIBUTES::LegacyProxy ATTRIBUTES::GetThisAttr() const
 {
+    storm::TreeRead(this);
     return value_;
 
 }
@@ -94,7 +152,7 @@ ATTRIBUTES::LegacyProxy ATTRIBUTES::GetThisAttr() const
 void ATTRIBUTES::SetName(const std::string_view &new_name)
 {
     nameCode_ = stringCodec_.Convert(new_name.data());
-    storm::ScriptStateChanged();
+    storm::TreeChanged(this);
 }
 
 void ATTRIBUTES::SetValue(const char *new_value)
@@ -102,12 +160,12 @@ void ATTRIBUTES::SetValue(const char *new_value)
     if (new_value == nullptr)
     {
         if (value_)
-            storm::ScriptStateChanged();
+            storm::TreeChanged(this);
         value_.reset();
     }
     else {
         if (!value_ || *value_ != new_value)
-            storm::ScriptStateChanged();
+            storm::TreeChanged(this);
         value_ = new_value;
     }
 
@@ -118,7 +176,7 @@ void ATTRIBUTES::SetValue(const char *new_value)
 void ATTRIBUTES::SetValue(const std::string_view &new_value)
 {
     if (!value_ || *value_ != new_value)
-        storm::ScriptStateChanged();
+        storm::TreeChanged(this);
     value_ = new_value;
 
     if (break_)
@@ -127,11 +185,13 @@ void ATTRIBUTES::SetValue(const std::string_view &new_value)
 
 size_t ATTRIBUTES::GetAttributesNum() const
 {
+    storm::TreeRead(this);
     return attributes_.size();
 }
 
 ATTRIBUTES * ATTRIBUTES::GetAttributeClass(const std::string_view &name) const
 {
+    storm::TreeRead(this);
     for (const auto &attribute : attributes_)
         if (storm::iEquals(name, attribute->GetThisName()))
             return attribute.get();
@@ -140,17 +200,20 @@ ATTRIBUTES * ATTRIBUTES::GetAttributeClass(const std::string_view &name) const
 
 ATTRIBUTES * ATTRIBUTES::GetAttributeClass(uint32_t n) const
 {
+    storm::TreeRead(this);
     return n >= attributes_.size() ? nullptr : attributes_[n].get();
 }
 
 ATTRIBUTES *ATTRIBUTES::VerifyAttributeClass(const std::string_view &name)
 {
+    storm::TreeRead(this);
     auto *const pTemp = GetAttributeClass(name);
     return (pTemp) ? pTemp : CreateAttribute(name, "");
 }
 
 const char *ATTRIBUTES::GetAttributeName(size_t n) const
 {
+    storm::TreeRead(this);
     if (n < attributes_.size())
     {
         return attributes_[n]->GetThisName();
@@ -163,6 +226,7 @@ const char *ATTRIBUTES::GetAttributeName(size_t n) const
 
 ATTRIBUTES::LegacyProxy ATTRIBUTES::GetAttribute(size_t n) const
 {
+    storm::TreeRead(this);
     if (n < attributes_.size()) {
         return attributes_[n]->value_;
     }
@@ -174,6 +238,7 @@ ATTRIBUTES::LegacyProxy ATTRIBUTES::GetAttribute(size_t n) const
 
 ATTRIBUTES::LegacyProxy ATTRIBUTES::GetAttribute(const std::string_view &name) const
 {
+    storm::TreeRead(this);
     for (const auto &attribute : attributes_)
         if (storm::iEquals(name, attribute->GetThisName())) {
             return attribute->value_;
@@ -183,6 +248,7 @@ ATTRIBUTES::LegacyProxy ATTRIBUTES::GetAttribute(const std::string_view &name) c
 
 uint32_t ATTRIBUTES::GetAttributeAsDword(const char *name, uint32_t def) const
 {
+    storm::TreeRead(this);
     uint32_t vDword = def;
     if (name)
     {
@@ -199,6 +265,7 @@ uint32_t ATTRIBUTES::GetAttributeAsDword(const char *name, uint32_t def) const
 
 uintptr_t ATTRIBUTES::GetAttributeAsPointer(const char *name, uintptr_t def) const
 {
+    storm::TreeRead(this);
     uintptr_t ptr = def;
     if (name)
     {
@@ -215,6 +282,7 @@ uintptr_t ATTRIBUTES::GetAttributeAsPointer(const char *name, uintptr_t def) con
 
 float ATTRIBUTES::GetAttributeAsFloat(const char *name, float def) const
 {
+    storm::TreeRead(this);
     float vFloat = def;
     if (name)
     {
@@ -251,14 +319,14 @@ bool ATTRIBUTES::SetAttributeUseFloat(const char *name, float val)
 
 ATTRIBUTES & ATTRIBUTES::CreateAttribute(const std::string_view &name)
 {
-    storm::ScriptStateChanged();
+    storm::TreeChanged(this);
     const auto &attr = attributes_.emplace_back(new ATTRIBUTES(stringCodec_, this, name));
     return *attr;
 }
 
 ATTRIBUTES * ATTRIBUTES::CreateAttribute(const std::string_view &name, const char *attribute)
 {
-    storm::ScriptStateChanged();
+    storm::TreeChanged(this);
     const auto &attr = attributes_.emplace_back(new ATTRIBUTES(stringCodec_, this, name));
 
     if (attribute)
@@ -286,7 +354,7 @@ bool ATTRIBUTES::DeleteAttributeClassX(ATTRIBUTES *pA)
     if (pA == this)
     {
         if (!attributes_.empty())
-            storm::ScriptStateChanged();
+            storm::TreeChanged(this);
         attributes_.clear();
     }
     else
@@ -304,7 +372,7 @@ bool ATTRIBUTES::DeleteAttributeClassX(ATTRIBUTES *pA)
                     attributes_[i] = std::move(attributes_[i + 1]);
 
                 attributes_.pop_back();
-                storm::ScriptStateChanged();
+                storm::TreeChanged(this);
                 return true;
             }
             if (attributes_[n]->DeleteAttributeClassX(pA))
@@ -350,6 +418,8 @@ ATTRIBUTES * ATTRIBUTES::CreateSubAClass(ATTRIBUTES *pRoot, const char *access_s
 
 ATTRIBUTES * ATTRIBUTES::FindAClass(ATTRIBUTES *pRoot, const char *access_string)
 {
+    if (pRoot)
+        storm::TreeRead(pRoot);
     uint32_t n = 0;
     ATTRIBUTES *pResult = nullptr;
     ATTRIBUTES *pTemp = nullptr;
@@ -381,6 +451,7 @@ ATTRIBUTES * ATTRIBUTES::FindAClass(ATTRIBUTES *pRoot, const char *access_string
 
 ATTRIBUTES * ATTRIBUTES::GetAttributeClassByCode(uint32_t name_code) const
 {
+    storm::TreeRead(this);
     for (const auto &attribute : attributes_)
         if (name_code == attribute->nameCode_)
             return attribute.get();
@@ -389,6 +460,7 @@ ATTRIBUTES * ATTRIBUTES::GetAttributeClassByCode(uint32_t name_code) const
 
 ATTRIBUTES * ATTRIBUTES::VerifyAttributeClassByCode(uint32_t name_code)
 {
+    storm::TreeRead(this);
     ATTRIBUTES *pTemp = GetAttributeClassByCode(name_code);
     if (pTemp)
         return pTemp;
@@ -397,7 +469,7 @@ ATTRIBUTES * ATTRIBUTES::VerifyAttributeClassByCode(uint32_t name_code)
 
 ATTRIBUTES * ATTRIBUTES::CreateAttribute(uint32_t name_code, const char *attribute)
 {
-    storm::ScriptStateChanged();
+    storm::TreeChanged(this);
     const auto &attr = attributes_.emplace_back(new ATTRIBUTES(stringCodec_, this, name_code));
 
     if (attribute)
@@ -417,7 +489,7 @@ size_t ATTRIBUTES::SetAttribute(uint32_t name_code, const char *attribute)
         {
             auto &value = attributes_[n]->value_;
             if (attribute ? !value || *value != attribute : value.has_value())
-                storm::ScriptStateChanged();
+                storm::TreeChanged(this);
             if (attribute)
             {
                 value = attribute;
@@ -430,7 +502,7 @@ size_t ATTRIBUTES::SetAttribute(uint32_t name_code, const char *attribute)
         }
     }
 
-    storm::ScriptStateChanged();
+    storm::TreeChanged(this);
     auto &attr = attributes_.emplace_back(new ATTRIBUTES(stringCodec_, this, name_code));
 
     if (attribute)
@@ -453,13 +525,13 @@ size_t ATTRIBUTES::SetAttribute(uint32_t name_code, const std::string_view &attr
         {
             auto &value = attributes_[n]->value_;
             if (!value || *value != attribute)
-                storm::ScriptStateChanged();
+                storm::TreeChanged(this);
             value = attribute;
             return n;
         }
     }
 
-    storm::ScriptStateChanged();
+    storm::TreeChanged(this);
     auto &attr = attributes_.emplace_back(new ATTRIBUTES(stringCodec_, this, name_code));
 
     attributes_[n]->value_ = attribute;
@@ -469,13 +541,14 @@ size_t ATTRIBUTES::SetAttribute(uint32_t name_code, const std::string_view &attr
 
 uint32_t ATTRIBUTES::GetThisNameCode() const noexcept
 {
+    storm::TreeRead(this);
     return nameCode_;
 }
 
 void ATTRIBUTES::SetNameCode(uint32_t n) noexcept
 {
     if (nameCode_ != n)
-        storm::ScriptStateChanged();
+        storm::TreeChanged(this);
     nameCode_ = n;
 }
 
@@ -486,7 +559,7 @@ VSTRING_CODEC & ATTRIBUTES::GetStringCodec() const noexcept
 
 ATTRIBUTES * ATTRIBUTES::CreateNewAttribute(uint32_t name_code)
 {
-    storm::ScriptStateChanged();
+    storm::TreeChanged(this);
     const std::unique_ptr<ATTRIBUTES> &attr = attributes_.emplace_back(new ATTRIBUTES(stringCodec_, this, name_code));
     return attr.get();
 }

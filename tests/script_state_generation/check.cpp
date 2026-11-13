@@ -97,6 +97,49 @@ int main()
         *chr = std::move(other);
     });
 
+    // Only the trees read under ScriptStateReads count from then on.
+    ATTRIBUTES weather(codec);
+    weather.CreateSubAClass(&weather, "Wind.Angle");
+    {
+        const storm::ScriptStateReads reads;
+        (void)root.FindAClass(&root, "chr.vessel");
+    }
+    Expect(false, "a tree nobody read (the weather each frame)", [&] { weather.SetAttribute("Speed", "4.2"); });
+    Expect(false, "the same, deep", [&] { weather.FindAClass(&weather, "Wind.Angle")->SetValue(std::string_view("0.5")); });
+    Expect(true, "a read tree, deep", [&] { root.FindAClass(&root, "chr")->SetAttribute("money", "7"); });
+    {
+        const storm::ScriptStateReads reads;
+        (void)weather.GetAttribute("Speed");
+        (void)root.GetAttributesNum();
+    }
+    Expect(true, "a tree read in the last scope", [&] { weather.SetAttribute("Speed", "5"); });
+    Expect(true, "a watched tree destroyed", [&] {
+        ATTRIBUTES *temp = nullptr;
+        {
+            auto *object = new ATTRIBUTES(codec);
+            temp = object;
+            const storm::ScriptStateReads reads;
+            (void)root.GetAttributesNum();
+            (void)temp->GetAttributesNum();
+        }
+        delete temp;
+    });
+    Expect(false, "an unread tree destroyed", [&] { delete new ATTRIBUTES(codec); });
+    Expect(false, "an adapter's own writes (inside ScriptStateReads)", [&] {
+        const storm::ScriptStateReads reads;
+        root.SetAttribute("AndroidFacts", "new rows");
+        ATTRIBUTES local(codec); // a script's local object, read and gone within the adapter
+        local.SetAttribute("x", "1");
+        (void)local.GetAttribute("x");
+    });
+    Expect(true, "earlier reads still count (one set per opening)", [&] { weather.SetAttribute("Speed", "6"); });
+    storm::ScriptStateForget();
+    Expect(false, "after ScriptStateForget nothing read counts", [&] { weather.SetAttribute("Speed", "7"); root.SetAttribute("m", "1"); });
+    {
+        const storm::ScriptStateReads reads;
+        (void)root.GetAttributesNum();
+    }
+
     // The facts cache: the same key finds the facts, any part of the key changing recollects.
     storm::mobile::FactsCache<std::vector<std::string>> cache;
     using Key = decltype(cache)::Key;

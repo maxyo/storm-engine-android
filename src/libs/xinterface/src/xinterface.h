@@ -352,6 +352,7 @@ class XINTERFACE : public XINTERFACE_BASE
         bool left = false; // mobileLeft_ as of the collection
     };
     storm::mobile::FactsCache<MobileFacts> mobileFacts_;
+    mutable storm::mobile::FactsCache<std::string> mobileNationFlags_; // MobileNationFlags
     std::pair<uint64_t, std::string> mobileFactsOpening_; // the opening and its screen (diagnostics)
     uint64_t mobileFactsFrames_ = 0; // interface frames of that opening
     void MobileCollectShipyard(std::vector<MobileWidget> &widgets);

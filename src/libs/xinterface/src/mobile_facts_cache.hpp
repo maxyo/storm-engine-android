@@ -16,12 +16,14 @@ namespace storm::mobile
 // - the opening (a new interface, or the same one opened again),
 // - the character the interface shows (xi_refCharacter),
 // - the game language,
-// - script state: storm::ScriptStateGeneration (core attributes.h) counts every attribute write
-//   that changes something and every segment load or unload, whoever does it (an event handler,
-//   a message to the interface, the player's input reaching a script, the interface's own
-//   "frame" handler, a node writing GameInterface.<node>.current).
-// The generation is taken after the adapter ran, so its own writes (GameInterface.AndroidFacts)
-// do not count as a change.
+// - script state: storm::ScriptStateGeneration (core script_state.hpp) counts every attribute
+//   write that changes something in a tree (a script object: a character, an item,
+//   GameInterface) the adapter read when it last ran, and every segment load or unload, whoever
+//   does it (an event handler, a message to the interface, the player's input reaching a script,
+//   the interface's own "frame" handler, a node writing GameInterface.<node>.current). Trees the
+//   adapter does not read (the weather, rewritten every frame) do not count.
+// The adapter's own writes (GameInterface.AndroidFacts) are not counted (ScriptStateReads).
+// The nations screen's AndroidNationFlags is cached the same way (MobileNationFlags).
 template <typename Facts> class FactsCache
 {
   public:

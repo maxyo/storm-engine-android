@@ -477,15 +477,23 @@ std::string XINTERFACE::MobileNationScore(const std::string &nation) const
 
 // The flags the ship may raise now, "England=1,France=0,…", from the interface adapter
 // android_nation_flags.c (event AndroidNationFlags); empty when the adapter is not loaded.
+// Asked again only when the script state it reads changed (mobile_facts_cache.hpp).
 std::string XINTERFACE::MobileNationFlags() const
 {
-    core.Event("AndroidNationFlags");
+    decltype(mobileNationFlags_)::Key key{storm::android::mobileScreenRevision,-1,"",storm::ScriptStateGeneration()};
+    if(const std::string *flags=mobileNationFlags_.Find(key))return *flags;
+    STORM_PROFILE_ZONE("UI model: adapter nation flags");
+    {
+        const storm::ScriptStateReads reads;
+        core.Event("AndroidNationFlags");
+    }
     auto *flags=core.Entity_GetAttributeClass(g_idInterface,"AndroidFlags");
     std::string out;
     for(size_t i=0;flags&&i<flags->GetAttributesNum();++i)
         if(auto *flag=flags->GetAttributeClass(i))
             out+=(out.empty()?"":",")+std::string(flag->GetThisName())+"="+(flag->GetThisAttr()?flag->GetThisAttr():"0");
-    return out;
+    key.state=storm::ScriptStateGeneration();
+    return mobileNationFlags_.Store(std::move(key),std::move(out));
 }
 
 void XINTERFACE::MobileNationPickFailed(const std::string &target) const
@@ -992,6 +1000,7 @@ uint64_t XINTERFACE::ProcessMessage(MESSAGE &message)
         storm::android::showMobileScreen(param, std::chrono::duration<double, std::milli>(released - started).count(),
                                          std::chrono::duration<double, std::milli>(loaded - released).count());
         storm::android::tutorialSkip.reset(storm::android::mobileScreenRevision);
+        storm::ScriptStateForget(); // the new interface's adapters say what they read
         inventoryEquipCapability.invalidate();
         storm::mobile::ResetImages();
 #endif

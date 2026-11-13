@@ -44,7 +44,11 @@ void XINTERFACE::MobileCollectFacts(std::vector<MobileWidget> &widgets)
     if(!facts) {
         STORM_PROFILE_ZONE("UI model: adapter facts");
         MobileFacts fresh;
-        core.Event("AndroidInterfaceFacts","sl",storm::android::mobileScreen.c_str(),subject);
+        {
+            // The trees the adapter reads are the ones whose changes recollect (script_state.hpp).
+            const storm::ScriptStateReads reads;
+            core.Event("AndroidInterfaceFacts","sl",storm::android::mobileScreen.c_str(),subject);
+        }
         // The adapter's word on the open interface's script (mobile_interface_leaving.hpp): "1" loaded,
         // "0" unloaded, anything else unknown.
         {
@@ -81,7 +85,6 @@ void XINTERFACE::MobileCollectFacts(std::vector<MobileWidget> &widgets)
                 fresh.widgets.push_back(std::move(fact));
             }
         }
-        // The adapter's own writes are not a change of its input.
         key.state=storm::ScriptStateGeneration();
         facts=&mobileFacts_.Store(std::move(key),std::move(fresh));
         STORM_PROFILE_PLOT("UI model: adapter facts collections",static_cast<int64_t>(mobileFacts_.Collections()));
