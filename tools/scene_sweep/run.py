@@ -63,11 +63,12 @@ KNOWN_DEFECTS = json.loads((HERE / 'known_defects.json').read_text(encoding='utf
 
 
 def classify(scene, reasons):
-    """Splits a scene's reasons into (failing, known): a reason is known when an entry for this scene matches it."""
+    """Splits a scene's reasons into (failing, known): a reason is known when an entry for this scene (or for
+    any scene, "*": a defect of the game's timed scripts shows wherever the sweep happens to be) matches it."""
     failing, known = [], []
     for reason in reasons:
         match = next((defect for defect in KNOWN_DEFECTS
-                      if defect['scene'] == scene and defect['error'] in reason), None)
+                      if defect['scene'] in (scene, '*') and defect['error'] in reason), None)
         (known if match else failing).append(f"{reason} [known: {match['file']}]" if match else reason)
     return failing, known
 

@@ -513,6 +513,13 @@ void SceneSweep_StartLocation(int hour)
 	}
 	else
 	{
+		// A deck one only reaches from the deck before it in a boarding (the gun deck): it has
+		// no hero locator of its own and no doors; the fighters' places ("rld") are its walk points.
+		if(CheckAttribute(&Locations[n], "boarding") && !CheckAttribute(&Locations[n], "reload"))
+		{
+			group = "rld";
+			locator = "loc0";
+		}
 		if(CheckAttribute(&Locations[n], "reload"))
 		{
 			makearef(reloads, Locations[n].reload);
