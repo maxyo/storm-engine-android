@@ -7,8 +7,8 @@ $output v_color0, v_color1, v_texcoord0, v_texcoord1, v_texcoord2, v_texcoord3, 
 // still decides per block (the indices of Grass::DrawRuns).
 //
 // Vertex: four 16-bit integers (Grass::GpuVertex, 8 bytes):
-//   x, z: the blade's place on the minimap in 1/32 of a block (block * 32 + the step in the block, as the .grs file
-//         keeps it), the corner's x / z offset in the sign bit;
+//   x, z: the blade's place in the buffer's window of blocks (Grass::UpdateWindow) in 1/32 of a block (block * 32 +
+//         the step in the block, as the .grs file keeps it), the corner's x / z offset in the sign bit;
 //   y: the blade's base height in 16383 steps between the lowest and the highest blade of the map, times 4, plus the
 //      highest LOD that still draws the blade;
 //   w: the blade's frame, height, width and angle, 4 bits each (the 0..15 of the .grs file).
@@ -21,7 +21,7 @@ $output v_color0, v_color1, v_texcoord0, v_texcoord1, v_texcoord2, v_texcoord3, 
 //   c44 phase 0, 3, 4, cos-phase 1     c45 sin-phase 2, 5, 6, wind power
 //   c46 force^10 term, amplitude factor, quality (0..2), number of characters
 //   c47 map start x, z, camera x, z    c48 min / max visible distance, min LOD, the lowest blade height
-//   c49 the height step
+//   c49 the height step, the window's first block x, z on the minimap
 //   c50 + 2i, c51 + 2i: character i position, its inertial position (GRASS_CHARACTERS, as in grass.cpp): the
 //   characters touching a drawn blade
 #define PORT_VSC_COUNT 82 // registers c0..c81 (the GL program uploads exactly these)
@@ -35,8 +35,10 @@ void main()
     float cornerZ = a_position.y < 0.0 ? 1.0 : 0.0;
     float xq = a_position.x + cornerX * 32768.0;
     float zq = a_position.y + cornerZ * 32768.0;
-    float mx = floor(xq / 32.0);
-    float mz = floor(zq / 32.0);
+    float wx = floor(xq / 32.0); // the block in the window
+    float wz = floor(zq / 32.0);
+    float mx = wx + u_vsc[49].y; // the block on the minimap
+    float mz = wz + u_vsc[49].z;
     float hq = a_position.z + 32768.0;
     float hs = floor(hq / 4.0);
     int maxLod = int(hq - hs * 4.0);
@@ -46,8 +48,8 @@ void main()
     float nib2 = mod(floor(packed / 256.0), 16.0);
     float nib3 = floor(packed / 4096.0);
     // The blade's base (GRSMapElementEx: the step times GRASS_STEP plus the block's corner)
-    vec4 v0 = vec4((xq - mx * 32.0) * (1.0 / 32.0) + (u_vsc[47].x + mx), u_vsc[48].w + hs * u_vsc[49].x,
-                   (zq - mz * 32.0) * (1.0 / 32.0) + (u_vsc[47].y + mz), 1.0);
+    vec4 v0 = vec4((xq - wx * 32.0) * (1.0 / 32.0) + (u_vsc[47].x + mx), u_vsc[48].w + hs * u_vsc[49].x,
+                   (zq - wz * 32.0) * (1.0 / 32.0) + (u_vsc[47].y + mz), 1.0);
     // GRSMapElementEx::data (frame, h, w, ang bytes of 17 * the 0..15 values) as COLOR0 gave it to grass_main
     vec4 v1 = vec4(nib2, nib1, nib0, nib3) * (17.0 / 255.0);
     // The corner as grass_main's COLOR1

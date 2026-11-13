@@ -248,40 +248,82 @@ bool Grass::LoadData(const char *patchName)
         block = nullptr;
     }
     delete load;
-    CreateBuffer();
+    PrepareHeights();
     return true;
 }
 
-void Grass::CreateBuffer()
+void Grass::PrepareHeights()
 {
     if (vb >= 0)
         rs->ReleaseVertexBuffer(vb);
     vb = -1;
+    vbBlades = 0;
+    window = {};
     if (!block || numElements <= 0)
         return;
-    if (miniX * GRASS_BLK_SIZE > 32767 || miniZ * GRASS_BLK_SIZE > 32767)
-        throw std::runtime_error("Grass: a minimap over 1023 blocks does not fit the 16-bit blade places");
-    vb = rs->CreateVertexBuffer(0, static_cast<size_t>(numElements) * 4 * sizeof(Vertex), D3DUSAGE_WRITEONLY);
-    auto *v = vb >= 0 ? static_cast<Vertex *>(rs->LockVertexBuffer(vb)) : nullptr;
-    if (!v)
-        throw std::runtime_error("Grass: no static vertex buffer for the blades");
     float low = block[0].y, high = block[0].y;
     for (int32_t i = 0; i < numElements; i++)
     {
         low = std::min(low, block[i].y);
         high = std::max(high, block[i].y);
     }
-    constexpr int32_t kHeightSteps = 16383;
     heightMin = low;
-    heightStep = high > low ? (high - low) / kHeightSteps : 1.0f;
-    const auto nibble = [](uint8_t value) { return static_cast<uint32_t>(value / 17); }; // LoadData: 17 * 0..15
-    // The blades in the order of block[]: a block's blade i is vertex 4 * (start + i)
-    for (int32_t mz = 0; mz < miniZ; mz++)
-        for (int32_t mx = 0; mx < miniX; mx++)
+    heightStep = high > low ? (high - low) / grass_pack::kHeightSteps : 1.0f;
+}
+
+void Grass::UpdateWindow(int32_t camx, int32_t camz)
+{
+    // The blocks Realize can draw: within GRASS_VEIW blocks of the camera's block, or within the visible distance
+    // (RenderBlock's test, in world units: the data scale shrinks the blocks)
+    int32_t reach = std::max<int32_t>(
+        GRASS_VEIW, static_cast<int32_t>(ceilf(m_fMaxVisibleDist / (m_fDataScale * GRASS_BLK_DST))) + 2);
+    // The window's 1/32-block places are 15 bits: 1023 blocks across
+    if (reach > grass_pack::kMaxReach)
+    {
+        if (!reachLogged)
+            core.Trace("ERROR: Grass: a visible distance of %.0f m at data scale %.2f is %d blocks; the grass is drawn "
+                       "up to %d blocks from the camera",
+                       m_fMaxVisibleDist, m_fDataScale, reach, grass_pack::kMaxReach);
+        reachLogged = true;
+        reach = grass_pack::kMaxReach;
+    }
+    const grass_pack::Window need = grass_pack::around(camx, camz, reach, 0, miniX, miniZ);
+    if (need.empty())
+        return; // the camera is too far from the map to draw any of it
+    if (vb >= 0 && window.contains(need))
+        return;
+    // Larger by kWindowMargin blocks each side: the camera moves that far before the next rebuild
+    window = grass_pack::around(camx, camz, reach, grass_pack::kWindowMargin, miniX, miniZ);
+    const int32_t width = window.width();
+    windowStart.assign(static_cast<size_t>(width) * (window.z1 - window.z0), 0);
+    int32_t blades = 0;
+    for (int32_t mz = window.z0; mz < window.z1; mz++)
+        for (int32_t mx = window.x0; mx < window.x1; mx++)
+            blades += miniMap[mz * miniX + mx].num[0];
+    if (blades > vbBlades || vb < 0)
+    {
+        if (vb >= 0)
+            rs->ReleaseVertexBuffer(vb);
+        vbBlades = std::max(blades, 1);
+        vb = rs->CreateVertexBuffer(0, static_cast<size_t>(vbBlades) * 4 * sizeof(Vertex),
+                                    D3DUSAGE_DYNAMIC | D3DUSAGE_WRITEONLY);
+    }
+    auto *v = vb >= 0 ? static_cast<Vertex *>(rs->LockVertexBuffer(vb, D3DLOCK_DISCARD)) : nullptr;
+    if (!v)
+    {
+        core.Trace("ERROR: Grass: no vertex buffer for %d blades; the grass is not drawn", blades);
+        vb = -1;
+        return;
+    }
+    // The window's blocks row by row: windowStart[block] is the first blade, vertex 4 * (start + i) its blade i
+    int32_t blade = 0;
+    for (int32_t mz = window.z0; mz < window.z1; mz++)
+        for (int32_t mx = window.x0; mx < window.x1; mx++)
         {
             const GRSMiniMapElement &mm = miniMap[mz * miniX + mx];
+            windowStart[(mz - window.z0) * width + (mx - window.x0)] = blade;
             const float cx = startX + mx * GRASS_BLK_DST, cz = startZ + mz * GRASS_BLK_DST;
-            for (int32_t i = 0; i < mm.num[0]; i++)
+            for (int32_t i = 0; i < mm.num[0]; i++, blade++)
             {
                 const GRSMapElementEx &el = block[mm.start + i];
                 // RenderBlock draws the first num[lod] blades of a block (num[] does not grow with the LOD)
@@ -289,17 +331,11 @@ void Grass::CreateBuffer()
                 for (int32_t lod = 1; lod < 4; lod++)
                     if (i < mm.num[lod])
                         maxLod = lod;
-                // The step in the block LoadData placed the blade at (el.x = step * GRASS_STEP + cx)
-                const int32_t sx = static_cast<int32_t>(lroundf((el.x - cx) / GRASS_STEP));
-                const int32_t sz = static_cast<int32_t>(lroundf((el.z - cz) / GRASS_STEP));
-                const int32_t xq = mx * GRASS_BLK_SIZE + sx, zq = mz * GRASS_BLK_SIZE + sz;
-                const int32_t step = std::clamp(static_cast<int32_t>(lroundf((el.y - low) / heightStep)), 0, kHeightSteps);
-                const auto height = static_cast<int16_t>(step * 4 + maxLod - 32768);
-                const auto data = static_cast<int16_t>(static_cast<uint16_t>(
-                    nibble(el.frame) | nibble(el.h) << 4 | nibble(el.w) << 8 | nibble(el.ang) << 12));
-                for (int32_t c = 0; c < 4; c++, v++)
-                    *v = {static_cast<int16_t>(c & 1 ? xq - 32768 : xq), static_cast<int16_t>(c & 2 ? zq - 32768 : zq),
-                          height, data};
+                const int32_t sx = grass_pack::step_in_block(el.x, cx), sz = grass_pack::step_in_block(el.z, cz);
+                const int32_t height = grass_pack::height_step(el.y, heightMin, heightStep);
+                const int16_t data = grass_pack::pack_data(el.frame, el.h, el.w, el.ang);
+                for (int32_t c = 0; c < 4; c++)
+                    *v++ = grass_pack::pack(window, mx, mz, sx, sz, height, maxLod, data, c);
             }
         }
     rs->UnLockVertexBuffer(vb);
@@ -617,6 +653,7 @@ void Grass::Realize(uint32_t delta_time)
     // Camera position on the map
     int32_t camx = static_cast<int32_t>((pos.x / m_fDataScale - startX) / GRASS_BLK_DST);
     int32_t camz = static_cast<int32_t>((pos.z / m_fDataScale - startZ) / GRASS_BLK_DST);
+    UpdateWindow(camx, camz);
     // The square that covers the area of view on the map
     int32_t left = camx - GRASS_VEIW, right = camx + GRASS_VEIW;
     int32_t top = camz - GRASS_VEIW, bottom = camz + GRASS_VEIW;
@@ -790,7 +827,18 @@ void Grass::QueueBlock(int32_t mx, int32_t mz, float kLod)
     Assert(lod >= 0 && lod < 4);
     // The block's first num[lod] blades, as RenderBlock draws them; DrawRuns writes their indices
     if (mm.num[lod] > 0)
-        runs.emplace_back(mm.start, mm.num[lod]);
+    {
+        // UpdateWindow keeps every block Realize can draw in the buffer
+        if (mx < window.x0 || mx >= window.x1 || mz < window.z0 || mz >= window.z1 || vb < 0)
+        {
+            if (!outsideLogged)
+                core.Trace("ERROR: Grass: block %d, %d drawn outside the buffer's window %d..%d x %d..%d; not drawn", mx,
+                           mz, window.x0, window.x1, window.z0, window.z1);
+            outsideLogged = true;
+            return;
+        }
+        runs.emplace_back(windowStart[(mz - window.z0) * window.width() + (mx - window.x0)], mm.num[lod]);
+    }
     if (blockChrs.empty() || quality > rq_middle)
         return;
     // The characters' grass contacts (Character::SetGrassSound), counted as RenderBlock counts them; the characters
@@ -832,7 +880,7 @@ void Grass::DrawRuns()
     rs->GetCamera(pos, ang, prs);
     c[5] = VSConstant(startX, startZ, pos.x, pos.z);
     c[6] = VSConstant(m_fMinVisibleDist, m_fMaxVisibleDist, m_fMinGrassLod, heightMin);
-    c[7] = VSConstant(heightStep, 0.0f, 0.0f, 0.0f);
+    c[7] = VSConstant(heightStep, static_cast<float>(window.x0), static_cast<float>(window.z0), 0.0f);
     int32_t count = 0;
     for (size_t i = 0; i < characters.size(); i++)
     {
@@ -863,7 +911,7 @@ void Grass::DrawRuns()
     const auto draw = [&] {
         rs->UnLockIndexBuffer(ib);
         index = nullptr;
-        rs->DrawBuffer(-1, sizeof(Vertex), ib, 0, static_cast<size_t>(numElements) * 4, 0, blades * 2, technique);
+        rs->DrawBuffer(-1, sizeof(Vertex), ib, 0, static_cast<size_t>(vbBlades) * 4, 0, blades * 2, technique);
         blades = 0;
     };
     for (const auto &[start, count] : runs)

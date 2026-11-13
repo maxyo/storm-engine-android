@@ -13,6 +13,7 @@
 #include "supervisor.h"
 #include "renderer.h"
 #include "grs.h"
+#include "grass_pack.hpp"
 #include "vma.hpp"
 
 #define MSG_GRASS_LOAD_DATA 40666
@@ -29,14 +30,7 @@ class Grass : public Entity
 
 #pragma pack(push, 1)
 
-    // A corner of a blade in the static buffer, 8 bytes (layout: vs_port_grass.sc); the vertex shader computes the
-    // wind, the bending around characters and the LOD blend the CPU once wrote into every vertex of every frame.
-    struct Vertex
-    {
-        int16_t x, z;      // place on the minimap in 1/32 blocks; the corner's offset in the sign bit
-        int16_t height;    // base height step * 4 + the highest LOD that still draws the blade, less 32768
-        int16_t data;      // frame, height, width, angle: 4 bits each
-    };
+    using Vertex = grass_pack::Vertex; // a corner of a blade in the buffer (grass_pack.hpp, vs_port_grass.sc)
 
     struct VSConstant
     {
@@ -149,8 +143,10 @@ class Grass : public Entity
     void QueueBlock(int32_t mx, int32_t mz, float kLod);
     // The per-frame constants c42.. and the draws of the queued blades
     void DrawRuns();
-    // The static buffer of all blades (LoadData)
-    void CreateBuffer();
+    // The base heights of a new map (LoadData); the buffer is filled by UpdateWindow
+    void PrepareHeights();
+    // The blades of the blocks around the camera's block into the buffer, when the camera left the current window
+    void UpdateWindow(int32_t camx, int32_t camz);
     // The visible blocks
     void DrawGrass(const glm::vec3 &pos, const PLANE *plane, int32_t numPlanes, int32_t left, int32_t right, int32_t top,
                    int32_t bottom);
@@ -162,8 +158,13 @@ class Grass : public Entity
   private:
     // Render service
     VRenderer *rs;
-    // Buffers: every blade, 4 vertices each, in the order of block[]; the indices of the blades drawn (DrawRuns)
+    // Buffers: the blades of a window of blocks around the camera, 4 vertices each (UpdateWindow); the indices of the
+    // blades drawn (DrawRuns)
     int32_t vb, ib;
+    int32_t vbBlades = 0;                                        // capacity of vb
+    grass_pack::Window window;                                   // the blocks in vb
+    std::vector<int32_t> windowStart;                            // first blade of each window block in vb
+    bool outsideLogged = false, reachLogged = false;
     // Texture
     int32_t texture;
 
