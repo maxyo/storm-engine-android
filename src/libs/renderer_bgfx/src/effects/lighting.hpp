@@ -120,6 +120,7 @@ struct FfDraw
     bool ao = false;               // samples the interior's AO volume (submit() binds it for `view`)
     bool lamps = false;            // lit by the place's lamps with their shadows (submit() binds them for `view`)
     bool room_light = false;       // its ambient is the room light of the interior
+    bool town_wall = false;        // a town's wall relit by our sun, sky and bounce (u_fxTownWall)
     bool sun_caster = false;       // caster: the sun shadow view
     bool lamp_caster = false;      // caster: the lamp faces its sphere reaches (characters)
     CasterMaterial caster_material{}; // caster: how its material casts (effects/casters.hpp)
@@ -182,7 +183,7 @@ class Lighting
     struct Counts
     {
         uint32_t lit = 0, baked = 0, coverage = 0, relief = 0, shadowed = 0, casters = 0, aerial = 0, ao = 0, lamp_lit = 0,
-                 lamp_casters = 0;
+                 lamp_casters = 0, town_walls = 0;
     };
     Counts last_frame() const { return last_frame_; }
 
@@ -216,7 +217,7 @@ class Lighting
 
     uint32_t vs_ff_ = 0, vs_lit_ = 0, vs_lit_skin_ = 0, fs_coverage_ = 0;
     uint32_t fs_lit_[2][2][2][3] = {}; // [specular][normal map][linear][shadow: none, one tap, soft]
-    uint32_t fs_baked_[2][2] = {};  // [normal map][linear]
+    uint32_t fs_baked_[2][2][3] = {};  // [normal map][linear][sun shadow: none, one tap, soft]
     NormalMaps normal_maps_;
     SunShadows shadows_;
     TownLight town_light_;
@@ -238,6 +239,9 @@ class Lighting
     bgfx::TextureHandle ao_open_ = BGFX_INVALID_HANDLE; // 1x1x1 RGBA8 = 255 for draws without the volume
     // Visibility volume (ff_fragment.sh ffVisibility): sampler stage kVisibilityStage, view -> volume uvw, x on
     void bind_visibility(const FfDraw &draw);
+    // The town walls' relight (ff_fragment.sh, u_fxTownWall[0].w = 0: off for this draw).
+    void bind_town_wall(const FfDraw &draw);
+    bgfx::UniformHandle u_town_wall_ = BGFX_INVALID_HANDLE;
     const Visibility::Bound *visibility_ = nullptr;
     bgfx::UniformHandle s_visibility_ = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle u_visibility_matrix_ = BGFX_INVALID_HANDLE;

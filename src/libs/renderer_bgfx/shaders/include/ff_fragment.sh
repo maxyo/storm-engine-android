@@ -85,6 +85,20 @@ vec2 ffVisibility(vec3 P, vec3 Ng)
 #endif
 }
 
+// The town walls' relight (src/effects/town_light.hpp, lighting.cpp bind_town_wall): [0] the lightmaps' tone a, b, c and
+// w 1 = on for this draw; [1] towards the live sun (view space), w its colour's luminance; [2] towards the sun the game
+// baked with; [3], [4] the game's sky per bin of ours (bin centres (i + 0.5) / 8).
+uniform vec4 u_fxTownWall[5];
+float ffWallSky(float k)
+{
+    float x = clamp(k * 8.0 - 0.5, 0.0, 7.0);
+    float i = min(floor(x), 6.0);
+    int at = int(i);
+    float lo = at < 4 ? u_fxTownWall[3][at] : u_fxTownWall[4][at - 4];
+    float hi = at + 1 < 4 ? u_fxTownWall[3][at + 1] : u_fxTownWall[4][at - 3];
+    return max(k, mix(lo, hi, x - i));
+}
+
 // One bounce of indirect light at P (src/effects/bounce.hpp, fx/bounce.hpp): the light the lit surfaces around reflect
 // onto a surface of world normal Nw, in the units the lights light with (a light's colour times its cosine), read one
 // cell off along Ng as ffVisibility. The bounce block holds sqrt(c / 2) and the direction's y, the volume's block B / A
@@ -570,6 +584,20 @@ void main()
 #else
     current.rgb *= aoVolume * (vec3_splat(baked) + gain * lampTone) / (baked + u_fxLamps[0].w * gain * lamps.a);
 #endif
+    if (u_fxTownWall[0].w > 0.5)
+    {
+        // A town's wall (src/effects/town_light.hpp TownWallTone): its baked colour carries the game's sun along the
+        // direction the game baked with and the game's sky, which takes no account of alleys and gaps between
+        // houses. Relit as our lightmaps are: a + b sun + c sky with our sun (its shadow, the openness to it), our
+        // sky and the sun's bounce (relative to the sun's own light) now, over the game's sun and sky then.
+        vec2 seen = ffVisibility(P, Ng);
+        float sunNow = max(0.0, dot(N, u_fxTownWall[1].xyz)) * fxSunShadow(P, Ng) * seen.y;
+        float sunThen = max(0.0, dot(N, u_fxTownWall[2].xyz));
+        vec3 bounceNow = bounce / u_fxTownWall[1].w;
+        vec3 now = vec3_splat(u_fxTownWall[0].x + u_fxTownWall[0].z * seen.x) + u_fxTownWall[0].y * (vec3_splat(sunNow) + bounceNow);
+        float then = u_fxTownWall[0].x + u_fxTownWall[0].y * sunThen + u_fxTownWall[0].z * ffWallSky(seen.x);
+        current.rgb *= clamp(now / max(then, 0.02), 0.33, 3.0);
+    }
     current.rgb = fxLit(current.rgb, tex0.rgb, fxPointDiffuse(N, P) + ffLampMoved, vec3_splat(0.0), vec3_splat(0.0));
 #endif
 #ifdef FX_FF_PIXEL_LIGHTING

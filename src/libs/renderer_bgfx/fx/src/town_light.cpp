@@ -335,6 +335,90 @@ float TownLightTone::GameSky(float k) const
     return std::max(k, game_sky[i] + (game_sky[i + 1] - game_sky[i]) * (x - static_cast<float>(i)));
 }
 
+TownWallTone CalibrateTownWalls(std::span<const Vec3> positions, std::span<const uint32_t> colors,
+                                std::span<const uint32_t> indices, std::span<const uint8_t> skip,
+                                const VisibilityVolume &volume, const TownLightTone &tone, const Vec3 &bake,
+                                const Occluders &occluders, unsigned threads)
+{
+    TownWallTone wall;
+    if (colors.size() != positions.size() || skip.size() != indices.size() / 3 || volume.Empty() || tone.c <= 0.02f)
+        return wall;
+    // Vertex normals of the walls' triangles (area weighted), and which vertices they use.
+    std::vector<Vec3> normal(positions.size(), Vec3{0.0f, 0.0f, 0.0f});
+    std::vector<uint8_t> used(positions.size(), 0);
+    for (size_t t = 0; t < skip.size(); ++t)
+    {
+        if (skip[t])
+            continue;
+        const uint32_t i[3] = {indices[3 * t], indices[3 * t + 1], indices[3 * t + 2]};
+        const Vec3 e1{positions[i[1]][0] - positions[i[0]][0], positions[i[1]][1] - positions[i[0]][1], positions[i[1]][2] - positions[i[0]][2]};
+        const Vec3 e2{positions[i[2]][0] - positions[i[0]][0], positions[i[2]][1] - positions[i[0]][1], positions[i[2]][2] - positions[i[0]][2]};
+        const Vec3 n{e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]};
+        for (const uint32_t v : i)
+        {
+            for (int k = 0; k < 3; ++k)
+                normal[v][k] += n[k];
+            used[v] = 1;
+        }
+    }
+    std::vector<float> lum(positions.size(), -1.0f), sky(positions.size(), 0.0f);
+    std::vector<uint8_t> shaded(positions.size(), 0);
+    ParallelRanges(positions.size(), threads, [&](size_t first, size_t last) {
+        Occluders::Scratch scratch;
+        for (size_t v = first; v < last; ++v)
+        {
+            if (!used[v])
+                continue;
+            const float l = std::sqrt(Dot(normal[v], normal[v]));
+            if (l < 1e-8f)
+                continue;
+            const Vec3 n{normal[v][0] / l, normal[v][1] / l, normal[v][2] / l};
+            const uint32_t c = colors[v];
+            lum[v] = (0.299f * ((c >> 16) & 255) + 0.587f * ((c >> 8) & 255) + 0.114f * (c & 255)) / 255.0f;
+            const float cell = volume.cell;
+            sky[v] = volume.Sample({positions[v][0] + n[0] * cell, positions[v][1] + n[1] * cell, positions[v][2] + n[2] * cell})[0];
+            // In the shade of the bake's sun: facing away, or its ray closed.
+            const Vec3 o{positions[v][0] + n[0] * kSurfaceOffset, positions[v][1] + n[1] * kSurfaceOffset,
+                         positions[v][2] + n[2] * kSurfaceOffset};
+            shaded[v] = Dot(n, bake) <= 0.05f || occluders.Occluded(o, bake, 300.0f, scratch) ? 1 : 0;
+        }
+    });
+    double open_sum = 0.0, open_sky = 0.0, bin_sum[TownWallTone::kSkyBins] = {};
+    size_t open_count = 0;
+    for (size_t v = 0; v < positions.size(); ++v)
+    {
+        if (lum[v] < 0.0f)
+            continue;
+        ++wall.vertices;
+        if (!shaded[v])
+            continue;
+        ++wall.shaded;
+        const int bin = std::min(TownWallTone::kSkyBins - 1, static_cast<int>(sky[v] * TownWallTone::kSkyBins));
+        bin_sum[bin] += lum[v];
+        ++wall.count[bin];
+        if (sky[v] >= 0.75f)
+        {
+            open_sum += lum[v];
+            open_sky += sky[v];
+            ++open_count;
+        }
+    }
+    if (open_count < 100 || open_sum <= 0.0)
+        return wall;
+    const double open_lum = open_sum / static_cast<double>(open_count), k_open = open_sky / static_cast<double>(open_count);
+    for (int bin = 0; bin < TownWallTone::kSkyBins; ++bin)
+    {
+        if (wall.count[bin] < 50)
+            continue;
+        const double r = bin_sum[bin] / static_cast<double>(wall.count[bin]) / open_lum;
+        wall.relative[bin] = static_cast<float>(r);
+        wall.game_sky[bin] = std::clamp(static_cast<float>((r * (tone.a + tone.c * k_open) - tone.a) / tone.c),
+                                        wall.game_sky[bin], 1.0f);
+    }
+    wall.valid = true;
+    return wall;
+}
+
 std::vector<uint8_t> TexelBounce(const LightmapTexels &texels, const BounceField &field, float offset, unsigned threads)
 {
     std::vector<uint8_t> out(texels.texel.size() * 3, 0);

@@ -393,6 +393,7 @@ void CheckSupport()
     unlit.shadows = ShadowQuality::Off;
     unlit.lamp_shadows = 0;
     unlit.town_light = false;
+    unlit.town_walls = false;
     unlit.bounce = false;
     changes.clear();
     CHECK(ConstrainSettings(unlit, all, changes).ao_volume == 0 && changes.size() == 1);
@@ -407,6 +408,7 @@ void CheckSupport()
     flat_town.lamp_shadows = 0;
     flat_town.ao_volume = 0;
     flat_town.bounce = false;
+    flat_town.town_walls = false;
     changes.clear();
     CHECK(!ConstrainSettings(flat_town, all, changes).town_light && changes.size() == 1);
     // So does the bounce.

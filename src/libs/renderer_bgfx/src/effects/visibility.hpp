@@ -57,6 +57,8 @@ class Visibility
     // Main thread, once per frame: starts the load or bake, uploads a finished one. The volume to bind, or nullptr.
     const Bound *update();
     State state() const { return state_; }
+    // The volume (CPU copy, its B / A the bounce's direction), null until it is ready.
+    const fx::VisibilityVolume *volume() const { return state_ == State::Ready ? &volume_ : nullptr; }
     // Whether the texture carries the bounce's block (Bounce on for this place); changing it uploads it again.
     // False when the doubled grid exceeds the 3D texture size every GLES 3.0 device has (logged once).
     bool set_stacked(bool stacked);

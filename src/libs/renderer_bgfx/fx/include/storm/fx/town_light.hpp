@@ -20,6 +20,7 @@
 
 #include "storm/fx/bounce.hpp"
 #include "storm/fx/sky_model.hpp"
+#include "storm/fx/visibility.hpp"
 #include "storm/fx/sun_fit.hpp"
 
 #include <array>
@@ -74,6 +75,30 @@ struct TownLightTone
 // it was baked with and its sky visibility.
 TownLightTone CalibrateTownLight(const LightmapTexels &texels, std::span<const uint8_t> rgba,
                                  std::span<const uint8_t> sun, std::span<const uint8_t> sky);
+
+// The town's walls and props without a lightmap (Средняя / Высокая): their baked vertex colours carry the game's own
+// sun (along the direction its lightmaps were baked with) and its ambient, which knows nothing of how closed a
+// place is (alleys, gaps between houses read as bright as the open street). They are relit per pixel like our
+// lightmaps (ff_fragment.sh, u_fxTownWall): our sun with its shadow, our sky from the visibility volume and the
+// bounce now, over the game's sun and the game's sky then, both with the lightmaps' tone (a + b sun + c sky).
+// The game's sky on the walls is measured here: over the vertices in the shade of the bake's sun, their mean
+// luminance per bin of our sky (read one cell off the surface, as the shader does) relative to the open ones,
+// turned into the sky the tone gives that luminance (at least ours: where the game's walls darken as much as our
+// sky closes, nothing changes).
+struct TownWallTone
+{
+    static constexpr int kSkyBins = TownLightTone::kSkyBins;
+    float game_sky[kSkyBins] = {0.0625f, 0.1875f, 0.3125f, 0.4375f, 0.5625f, 0.6875f, 0.8125f, 0.9375f};
+    float relative[kSkyBins] = {}; // the shaded vertices' luminance per bin over the open ones' (the log)
+    uint32_t count[kSkyBins] = {};
+    uint32_t vertices = 0, shaded = 0;
+    bool valid = false; // enough shaded open vertices to compare with
+};
+// `colors`: D3DCOLOR per position; `skip`: per triangle, 1 for those under a lightmap (relit as texels).
+TownWallTone CalibrateTownWalls(std::span<const Vec3> positions, std::span<const uint32_t> colors,
+                                std::span<const uint32_t> indices, std::span<const uint8_t> skip,
+                                const VisibilityVolume &volume, const TownLightTone &tone, const Vec3 &bake,
+                                const Occluders &occluders, unsigned threads = 1);
 
 // The bounce on the texels (fx/bounce.hpp): per texel RGB, the irradiance the field gives one cell (`offset` metres)
 // off the surface along its normal, relative to the sun's (a white sun of 1), 0..1 in 0..255.

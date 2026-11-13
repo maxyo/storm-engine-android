@@ -10,6 +10,7 @@
 #include <optional>
 #include <cstring>
 #include <thread>
+#include <unordered_set>
 
 namespace storm::effects
 {
@@ -103,6 +104,10 @@ void TownLight::set_lightmaps(std::string_view name, std::span<const std::array<
     ready_ = false;
     waiting_reported_ = false;
     sun_bounce_.reset();
+    wall_job_.reset();
+    wall_volume_.reset();
+    wall_ = {};
+    wall_ready_ = false;
     name_ = std::string(name);
     positions_.assign(positions.begin(), positions.end());
     uvs_.assign(uvs.begin(), uvs.end());
@@ -127,9 +132,10 @@ void TownLight::set_lightmaps(std::string_view name, std::span<const std::array<
 
 void TownLight::set_occluders(std::string_view name, std::span<const std::array<float, 3>> positions,
                               std::span<const std::array<float, 2>> uvs, std::span<const uint32_t> indices,
-                              std::vector<fx::Occluders::Cut> cut)
+                              std::vector<fx::Occluders::Cut> cut, std::span<const uint32_t> colors)
 {
     occluders_name_ = std::string(name);
+    occluder_colors_.assign(colors.begin(), colors.end());
     occluder_positions_.assign(positions.begin(), positions.end());
     occluder_indices_.assign(indices.begin(), indices.end());
     occluder_uvs_.assign(uvs.begin(), uvs.end());
@@ -340,8 +346,60 @@ void TownLight::start_sun(const std::array<float, 3> &sun)
     });
 }
 
-void TownLight::update(const std::array<float, 3> &sun, bool present, float seconds)
+void TownLight::set_volume(const fx::VisibilityVolume *volume)
 {
+    if (!volume || volume->Empty() || wall_volume_ || maps_.empty() || !occluders_ ||
+        occluder_colors_.size() != occluder_positions_.size())
+        return;
+    wall_volume_ = std::make_shared<const fx::VisibilityVolume>(*volume);
+    // The walls are the still geometry's triangles that are not under a lightmap (those are relit as texels):
+    // matched by their centroids, to the centimetre.
+    auto job = std::make_shared<WallJob>();
+    wall_job_ = job;
+    wall_light_ = maps_.front().tone;
+    texture::Service::instance().post([job, volume = wall_volume_, occluders = occluders_, positions = occluder_positions_,
+                                       indices = occluder_indices_, colors = occluder_colors_, lm_positions = positions_,
+                                       lm_indices = indices_, tone = maps_.front().tone, bake = bake_dir_] {
+        const auto started = std::chrono::steady_clock::now();
+        auto key = [](const fx::Vec3 &a, const fx::Vec3 &b, const fx::Vec3 &c) {
+            int64_t q[3];
+            for (int k = 0; k < 3; ++k)
+                q[k] = std::llround((a[k] + b[k] + c[k]) * (100.0f / 3.0f));
+            return (static_cast<uint64_t>(q[0]) * 73856093u) ^ (static_cast<uint64_t>(q[1]) * 19349663u) ^
+                   (static_cast<uint64_t>(q[2]) * 83492791u);
+        };
+        std::unordered_set<uint64_t> lit;
+        for (size_t t = 0; t + 2 < lm_indices.size(); t += 3)
+            lit.insert(key(lm_positions[lm_indices[t]], lm_positions[lm_indices[t + 1]], lm_positions[lm_indices[t + 2]]));
+        std::vector<uint8_t> skip(indices.size() / 3, 0);
+        for (size_t t = 0; t < skip.size(); ++t)
+            skip[t] = lit.count(key(positions[indices[3 * t]], positions[indices[3 * t + 1]], positions[indices[3 * t + 2]])) ? 1 : 0;
+        job->wall = fx::CalibrateTownWalls(positions, colors, indices, skip, *volume, tone, bake, *occluders, Threads());
+        job->ms = Since(started);
+        job->state = 1;
+    });
+}
+
+void TownLight::update(const std::array<float, 3> &sun, const std::array<float, 3> &sun_color, bool present, float seconds)
+{
+    sun_present_ = present;
+    live_sun_ = sun;
+    live_sun_luminance_ = std::max(0.299f * sun_color[0] + 0.587f * sun_color[1] + 0.114f * sun_color[2], 1e-3f);
+    if (wall_job_ && wall_job_->state.load() == 1)
+    {
+        wall_ = wall_job_->wall;
+        wall_ready_ = true;
+        const fx::TownWallTone &w = wall_;
+        shim::logf("effects: town light of %s: walls %s in %.0f ms: %u vertices, %u in the bake's shade; their light per "
+                   "bin of our sky over the open ones: %.2f %.2f %.2f %.2f %.2f %.2f %.2f %.2f (counts %u %u %u %u %u %u %u "
+                   "%u), the game's sky %.2f %.2f %.2f %.2f %.2f %.2f %.2f %.2f",
+                   name_.c_str(), w.valid ? "calibrated" : "NOT calibrated (too few shaded open vertices): not relit",
+                   wall_job_->ms, w.vertices, w.shaded, w.relative[0], w.relative[1], w.relative[2], w.relative[3],
+                   w.relative[4], w.relative[5], w.relative[6], w.relative[7], w.count[0], w.count[1], w.count[2],
+                   w.count[3], w.count[4], w.count[5], w.count[6], w.count[7], w.game_sky[0], w.game_sky[1],
+                   w.game_sky[2], w.game_sky[3], w.game_sky[4], w.game_sky[5], w.game_sky[6], w.game_sky[7]);
+        wall_job_.reset();
+    }
     if (place_job_ && place_job_->state.load() == 1)
     {
         maps_ = std::move(place_job_->maps);
@@ -547,6 +605,9 @@ void TownLight::shutdown()
 {
     destroy_textures();
     maps_.clear();
+    wall_job_.reset();
+    wall_volume_.reset();
+    wall_ready_ = false;
     place_job_.reset();
     sun_job_.reset();
     ready_ = false;

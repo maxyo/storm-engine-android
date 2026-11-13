@@ -75,8 +75,9 @@ include(cmake/storm_shaders.cmake)
 file(GLOB shader_sources CONFIGURE_DEPENDS shaders/*.sc shaders/ports/*.sc)
 list(FILTER shader_sources EXCLUDE REGEX "varying\\.def\\.sc$")
 # Graphics effects variants of the fixed-function emulator (src/effects/lighting.cpp picks them by name):
-# s = FX_LIGHT_SPECULAR, n = FX_LIGHT_NORMALMAP, l = FX_LIGHT_LINEAR, then for fs_ff_lit only the sun shadow:
-# h = FX_LIGHT_SHADOW (one tap), o = FX_LIGHT_SHADOW + FX_LIGHT_SHADOW_SOFT. The base sources fs_ff_lit.sc and
+# s = FX_LIGHT_SPECULAR, n = FX_LIGHT_NORMALMAP, l = FX_LIGHT_LINEAR, then the sun shadow:
+# h = FX_LIGHT_SHADOW (one tap), o = FX_LIGHT_SHADOW + FX_LIGHT_SHADOW_SOFT (fs_ff_baked: the town's walls, relit by
+# our sun, src/effects/town_light.hpp; it has no specular). The base sources fs_ff_lit.sc and
 # fs_ff_baked.sc are the variants without a suffix.
 set(ff_fx_variants)
 foreach(suffix _l _s _sl _n _nl _sn _snl _h _lh _sh _slh _nh _nlh _snh _snlh _o _lo _so _slo _no _nlo _sno _snlo)
@@ -98,7 +99,7 @@ foreach(suffix _l _s _sl _n _nl _sn _snl _h _lh _sh _slh _nh _nlh _snh _snlh _o 
     endif()
     list(JOIN defines "," defines)
     list(APPEND ff_fx_variants "fs_ff_lit${suffix}|${CMAKE_CURRENT_SOURCE_DIR}/shaders/fs_ff_lit.sc|${defines}")
-    if(NOT suffix MATCHES "[sho]")
+    if(NOT suffix MATCHES "s")
         list(APPEND ff_fx_variants "fs_ff_baked${suffix}|${CMAKE_CURRENT_SOURCE_DIR}/shaders/fs_ff_baked.sc|${defines}")
     endif()
 endforeach()

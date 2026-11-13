@@ -150,6 +150,9 @@ struct Settings
     // Towns light their lightmapped surfaces with our own bake for the live sun instead of the game's lightmaps
     // (needs kLightingPerPixel; src/effects/town_light.hpp).
     bool town_light = false;
+    // With town_light: the town's walls and props without a lightmap relit per pixel the same way (our sun with its
+    // shadow, our sky, the bounce over the game's baked sun and sky; src/effects/town_light.hpp TownWallTone).
+    bool town_walls = false;
     bool town_light_debug = false;
     // One bounce of indirect light (bounce.hpp, src/effects/bounce.hpp): the lit surfaces' light on what is around them,
     // in their colour (needs kLightingPerPixel).

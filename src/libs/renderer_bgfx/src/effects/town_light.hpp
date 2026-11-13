@@ -50,11 +50,21 @@ class TownLight
                        std::span<const uint32_t> triangle_lightmap, std::span<const render::EffectsLightmap> lightmaps);
     // The place's still geometry (outdoors): what casts the shadows and closes the sky.
     // `uvs` per position and `cut` per triangle: palm leaves and nets let the sun and the sky through their holes.
+    // `colors`: the baked colours per position (the walls' relight is calibrated on them).
     void set_occluders(std::string_view name, std::span<const std::array<float, 3>> positions,
                        std::span<const std::array<float, 2>> uvs, std::span<const uint32_t> indices,
-                       std::vector<fx::Occluders::Cut> cut);
+                       std::vector<fx::Occluders::Cut> cut, std::span<const uint32_t> colors);
+    // Main thread, every frame: the place's visibility volume (null: none yet); the walls are calibrated with it.
+    void set_volume(const fx::VisibilityVolume *volume);
+    // The walls' relight (Lighting, u_fxTownWall): on while the sun is up and the walls are calibrated.
+    bool walls_active() const { return active() && wall_ready_ && sun_present_ && wall_.valid; }
+    const fx::TownLightTone *wall_light() const { return wall_ready_ ? &wall_light_ : nullptr; }
+    const fx::TownWallTone *wall_tone() const { return &wall_; }
+    const std::array<float, 3> &live_sun() const { return live_sun_; }
+    float live_sun_luminance() const { return live_sun_luminance_; }
+    std::array<float, 3> bake_sun() const { return {bake_dir_[0], bake_dir_[1], bake_dir_[2]}; }
     // Once per frame, before the draws: `sun` the hour's direction towards the sun (world), `present` false at night.
-    void update(const std::array<float, 3> &sun, bool present, float seconds);
+    void update(const std::array<float, 3> &sun, const std::array<float, 3> &sun_color, bool present, float seconds);
     // Main thread, every frame: the place's bounce scene (null: none, or not ready).
     void set_bounce_scene(std::shared_ptr<const Bounce::Scene> scene);
     // The sun's bounce field of the last sun bake (white sun; null: none yet).
@@ -126,6 +136,21 @@ class TownLight
     std::vector<Map> maps_;
     std::array<float, 3> sun_baked_{0.0f, 0.0f, 0.0f}; // the direction sun_to was baked for
     std::shared_ptr<const Bounce::Scene> bounce_scene_;
+    std::vector<uint32_t> occluder_colors_;
+    struct WallJob
+    {
+        std::atomic<int> state{0};
+        fx::TownWallTone wall;
+        double ms = 0.0;
+    };
+    std::shared_ptr<WallJob> wall_job_;
+    std::shared_ptr<const fx::VisibilityVolume> wall_volume_; // a copy of the volume the walls are calibrated with
+    fx::TownWallTone wall_;
+    fx::TownLightTone wall_light_; // the tone of the first relit lightmap
+    bool wall_ready_ = false;
+    bool sun_present_ = false;
+    std::array<float, 3> live_sun_{0.0f, 1.0f, 0.0f};
+    float live_sun_luminance_ = 1.0f;
     std::shared_ptr<const fx::BounceField> sun_bounce_;
     fx::Vec3 bake_dir_{0.0f, 1.0f, 0.0f}; // the direction the game's lightmaps were baked with
     float blend_ = 1.0f;                               // sun_from -> sun_to

@@ -108,6 +108,8 @@ const Option kOptions[] = {
      [](fx::Settings &s, int v) { s.shadows = static_cast<fx::ShadowQuality>(std::clamp(v, 0, 2)); }},
     {"fx_town_light", "0 the game's town lightmaps, 1 our own for the live sun",
      [](fx::Settings &s, int v) { s.town_light = on(v); }},
+    {"fx_town_walls", "0 the game's baked walls in towns, 1 relit by our sun, sky and bounce (with fx_town_light)",
+     [](fx::Settings &s, int v) { s.town_walls = on(v); }},
     {"fx_bounce", "0 off, 1 one bounce of indirect light (lit surfaces light what is around them)",
      [](fx::Settings &s, int v) { s.bounce = on(v); }},
     {"fx_bounce_debug", "0 off, 1 lit and baked surfaces show the bounce's light over a dim grey picture",
@@ -573,7 +575,8 @@ void Host::end_frame(bool scene_frame, uint32_t frame)
                              : std::chrono::duration<float>(now - last_frame_end_).count();
         last_frame_end_ = now;
         // Our lightmaps for the hour's sun, for the next frame's draws.
-        lighting_.town_light().update(weather_.sun_dir, weather_last_frame_ && weather_.sun_present, std::min(dt, 0.25f));
+        lighting_.town_light().update(weather_.sun_dir, weather_.sun_color, weather_last_frame_ && weather_.sun_present,
+                                      std::min(dt, 0.25f));
     }
     ao_bound_ = ao_.update(settings_.ao_volume > 0); // for the next frame's draws
     lighting_.set_ao_volume(ao_bound_);
@@ -582,6 +585,7 @@ void Host::end_frame(bool scene_frame, uint32_t frame)
         const Visibility::Bound *volume = visibility_.update();
         TownLight &town = lighting_.town_light();
         town.set_bounce_scene(settings_.bounce ? bounce_.scene() : nullptr);
+        town.set_volume(visibility_.volume());
         Bounce::Light light;
         light.sun = weather_.sun_dir;
         light.sun_present = weather_last_frame_ && weather_.sun_present;
@@ -649,12 +653,12 @@ void Host::end_frame(bool scene_frame, uint32_t frame)
                          profile_sum_rcas_ / profile_gpu_frames_);
             const Lighting::Counts counts = lighting_.last_frame();
             shim::logf("effects profile: preset %d scene=%ux%u display=%ux%u %s cpu_frame_ms=%.2f draws=%.0f post_views=%u lit_draws=%u "
-                       "baked_draws=%u coverage_draws=%u relief_draws=%u aerial_draws=%u shadowed_draws=%u casters=%u ao_draws=%u lamp_draws=%u lamp_casters=%u lamp_slots=%d lamp_static_faces=%d sun_static_tiles=%u sun_static_triangles=%u lightmapped_draws=%u town_relit_draws=%u",
+                       "baked_draws=%u coverage_draws=%u relief_draws=%u aerial_draws=%u shadowed_draws=%u casters=%u ao_draws=%u lamp_draws=%u lamp_casters=%u lamp_slots=%d lamp_static_faces=%d sun_static_tiles=%u sun_static_triangles=%u lightmapped_draws=%u town_relit_draws=%u town_wall_draws=%u",
                        preset_, last_post_size_[0], last_post_size_[1], last_post_size_[2], last_post_size_[3], gpu,
                        profile_sum_cpu_ / kProfileFrames, static_cast<double>(profile_draws_) / kProfileFrames,
                        last_post_views_, counts.lit, counts.baked, counts.coverage, counts.relief, counts.aerial, counts.shadowed, counts.casters, counts.ao, counts.lamp_lit, counts.lamp_casters,
                        lighting_.lamp_shadows().last_slots(), lighting_.lamp_shadows().last_static_faces(),
-                       lighting_.shadows().last_static_casters()[0], lighting_.shadows().last_static_casters()[1], lighting_.town_light().last_counts()[0], lighting_.town_light().last_counts()[1]);
+                       lighting_.shadows().last_static_casters()[0], lighting_.shadows().last_static_casters()[1], lighting_.town_light().last_counts()[0], lighting_.town_light().last_counts()[1], counts.town_walls);
             profile_count_ = profile_gpu_frames_ = 0;
             profile_sum_frame_ = profile_sum_post_ = profile_sum_cpu_ = 0.0;
             profile_sum_smaa_ = profile_sum_easu_ = profile_sum_rcas_ = 0.0;
@@ -759,7 +763,7 @@ void SetEffectsLocationGeometry(const EffectsLocationGeometry &geometry)
     if (geometry.interior)
     {
         lighting.shadows().set_casters({});
-        lighting.town_light().set_occluders({}, {}, {}, {}, {});
+        lighting.town_light().set_occluders({}, {}, {}, {}, {}, {});
         // The AO volume of an interior, from pieces shrunk to points at the bake's occupancy cell size of 0.1 m (holes
         // narrower than a cell are below what the volume resolves).
         const bool room = geometry.room_hi[0] > geometry.room_lo[0] && geometry.room_hi[1] > geometry.room_lo[1] &&
@@ -783,7 +787,8 @@ void SetEffectsLocationGeometry(const EffectsLocationGeometry &geometry)
                 for (uint32_t t = surface.first_index / 3; t < (surface.first_index + surface.index_count) / 3; ++t)
                     cut[t] = {store->cutout, material.cut};
             }
-        lighting.town_light().set_occluders(geometry.name, geometry.positions, geometry.uvs, geometry.indices, std::move(cut));
+        lighting.town_light().set_occluders(geometry.name, geometry.positions, geometry.uvs, geometry.indices, std::move(cut),
+                                            geometry.colors);
     }
     effects::Host::instance().ao_volumes().set_geometry(std::string(geometry.name), std::move(points), std::move(triangles),
                                                         geometry.room_lo, geometry.room_hi,

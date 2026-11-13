@@ -56,6 +56,7 @@ Settings Settings::FromPreset(QualityPreset preset)
         s.normal_map_size = 256; // the prepared 512 maps from their second mip: a quarter of High's memory
         s.shadows = ShadowQuality::Low;
         s.town_light = true;
+        s.town_walls = true;
         s.bounce = true;
         s.ao_volume = 2;
         s.lamp_shadows = 8;
@@ -77,6 +78,7 @@ Settings Settings::FromPreset(QualityPreset preset)
     s.point_lights = 8;
     s.shadows = ShadowQuality::Soft;
     s.town_light = true;
+    s.town_walls = true;
     s.bounce = true;
     s.ao_volume = 2; // the owner: the strong look left the rooms too dark
     s.lamp_shadows = 16;
@@ -200,6 +202,8 @@ constexpr Rule kRules[] = {
      [](Settings &s) { s.shadows = ShadowQuality::Off; }, "sun shadows need per-pixel lighting: switched off"},
     {[](const Settings &s, const Support &) { return s.town_light && !(s.lighting_flags & kLightingPerPixel); },
      [](Settings &s) { s.town_light = false; }, "our own town light needs per-pixel lighting: switched off"},
+    {[](const Settings &s, const Support &) { return s.town_walls && !s.town_light; },
+     [](Settings &s) { s.town_walls = false; }, "the town walls' relight needs our own town light: switched off"},
     {[](const Settings &s, const Support &) { return s.bounce && !(s.lighting_flags & kLightingPerPixel); },
      [](Settings &s) { s.bounce = false; }, "the bounce light needs per-pixel lighting: switched off"},
     {[](const Settings &s, const Support &c) { return s.shadows != ShadowQuality::Off && !c.shadow_map; },

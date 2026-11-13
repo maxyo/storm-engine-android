@@ -102,7 +102,6 @@ void Lighting::find_shaders()
         vs_lit_ = shim::shader_id_by_name("vs_ff_lit");
         vs_lit_skin_ = shim::shader_id_by_name("vs_ff_lit_skin");
         fs_coverage_ = shim::shader_id_by_name("fs_ff_coverage");
-        static const char *const baked[2][2] = {{"fs_ff_baked", "fs_ff_baked_l"}, {"fs_ff_baked_n", "fs_ff_baked_nl"}};
         for (int s = 0; s < 2; ++s)
             for (int n = 0; n < 2; ++n)
                 for (int l = 0; l < 2; ++l)
@@ -118,7 +117,11 @@ void Lighting::find_shaders()
                     }
         for (int n = 0; n < 2; ++n)
             for (int l = 0; l < 2; ++l)
-                fs_baked_[n][l] = shim::shader_id_by_name(baked[n][l]);
+                for (int h = 0; h < 3; ++h)
+                {
+                    const std::string suffix = std::string(n ? "n" : "") + (l ? "l" : "") + (h == 1 ? "h" : h == 2 ? "o" : "");
+                    fs_baked_[n][l][h] = shim::shader_id_by_name(("fs_ff_baked" + (suffix.empty() ? "" : "_" + suffix)).c_str());
+                }
     }
 }
 
@@ -148,8 +151,10 @@ bool Lighting::prepare_programs(shim::Device &device, const fx::Settings &settin
                 if (n == 0 && !device.prepare_program(vs_lit_skin_, fs_lit_[specular][0][linear][h], budget))
                     return false;
             }
-            if (!device.prepare_program(vs_lit_, fs_baked_[n][linear], budget))
-                return false;
+            // The town's walls take the shadowed twin (settings.town_light).
+            for (const int h : {0, settings.town_walls ? shadow : 0})
+                if (!device.prepare_program(vs_lit_, fs_baked_[n][linear][h], budget))
+                    return false;
         }
     if (per_pixel && settings.lamp_shadows && !casters_.prepare_programs(device, Casters::Pass::Lamp, budget))
         return false;
@@ -264,6 +269,17 @@ void Lighting::prepare(const shim::Device &device, const shim::LayoutInfo &layou
     // the baked variant) and lit models (characters, props). Reflections and other targets keep their look.
     const bool ao = ao_volume_ && lighting_ && layout.has_normal && target && target == picture;
     baked |= !lit_state && ao;
+    // Under a location lightmap (ours in its place: the shim binds TownLight::replacement): no cascade, see below.
+    bool lightmapped = false;
+    for (int stage = 0; stage < 4 && !lightmapped; ++stage)
+        if (device.s.tss[stage][D3DTSS_COLOROP] != D3DTOP_DISABLE)
+            if (const shim::TexStore *store = shim::store_of(device.s.textures[stage]); store && store->lightmap)
+                lightmapped = true;
+    // A town's walls and props without a lightmap, drawn with the game's baked colours into the game picture: our
+    // sun, sky and bounce relight them as our lightmaps relight the ground (town_light.hpp TownWallTone).
+    const bool town_wall = per_pixel && lighting_ && layout.has_normal && !lit_state && !lightmapped && target &&
+                           target == picture && !lamps_.interior() && settings_.town_walls && town_light_.walls_active();
+    baked |= town_wall;
     if (!lit && !baked && !coverage)
         return;
     if (cube_variant != 0)
@@ -292,12 +308,6 @@ void Lighting::prepare(const shim::Device &device, const shim::LayoutInfo &layou
     }
     draw.lit = true;
     draw.vs_id = vs_lit_;
-    // Under a location lightmap (ours in its place: the shim binds TownLight::replacement): no cascade, see below.
-    bool lightmapped = false;
-    for (int stage = 0; stage < 4 && !lightmapped; ++stage)
-        if (device.s.tss[stage][D3DTSS_COLOROP] != D3DTOP_DISABLE)
-            if (const shim::TexStore *store = shim::store_of(device.s.textures[stage]); store && store->lightmap)
-                lightmapped = true;
     if (ao)
     {
         draw.ao = true;
@@ -483,7 +493,22 @@ void Lighting::prepare(const shim::Device &device, const shim::LayoutInfo &layou
     else
     {
         draw.points = fx::PackPointLights(baked_lights, input.view);
-        draw.fs_id = fs_baked_[relief][linear];
+        int shadow = 0;
+        if (town_wall)
+        {
+            draw.town_wall = true;
+            ++frame_.town_walls;
+            // They receive the cascade (the place's still geometry casts into it from its tiles).
+            if (settings_.shadows != fx::ShadowQuality::Off && sun_slot >= 0)
+            {
+                memcpy(draw.view.data(), &device.s.view.m[0][0], sizeof(float) * 16);
+                draw.shadow = shadows_.prepare(const_cast<shim::Device &>(device), draw.view, origin_, casters_);
+                shadow = draw.shadow ? (settings_.shadows == fx::ShadowQuality::Soft ? 2 : 1) : 0;
+            }
+            if (draw.view == std::array<float, 16>{})
+                memcpy(draw.view.data(), &device.s.view.m[0][0], sizeof(float) * 16);
+        }
+        draw.fs_id = fs_baked_[relief][linear][shadow];
         ++frame_.baked;
     }
 }
@@ -508,6 +533,7 @@ void Lighting::submit(const FfDraw &draw)
         shadows_.bind(draw.view);
     bind_ao_volume(draw);
     bind_visibility(draw);
+    bind_town_wall(draw);
     lamps_.bind(draw.lamps, draw.world_view, draw.room_light);
 }
 
@@ -609,6 +635,31 @@ void Lighting::bind_visibility(const FfDraw &draw)
     bgfx::setTexture(fx::kVisibilityStage, s_visibility_, visibility_->texture);
 }
 
+void Lighting::bind_town_wall(const FfDraw &draw)
+{
+    if (!bgfx::isValid(u_town_wall_))
+        u_town_wall_ = bgfx::createUniform("u_fxTownWall", bgfx::UniformType::Vec4, 5);
+    std::array<std::array<float, 4>, 5> u{};
+    const fx::TownLightTone *tone = town_light_.wall_light();
+    const fx::TownWallTone *wall = town_light_.wall_tone();
+    if (draw.town_wall && tone && wall)
+    {
+        // Directions into the draw's view space (the device view's rotation; directions are the same absolute or
+        // camera-relative).
+        auto to_view = [&](const std::array<float, 3> &d, std::array<float, 4> &out) {
+            for (int k = 0; k < 3; ++k)
+                out[k] = d[0] * draw.view[0 * 4 + k] + d[1] * draw.view[1 * 4 + k] + d[2] * draw.view[2 * 4 + k];
+        };
+        u[0] = {tone->a, tone->b, tone->c, 1.0f};
+        to_view(town_light_.live_sun(), u[1]);
+        u[1][3] = town_light_.live_sun_luminance();
+        to_view(town_light_.bake_sun(), u[2]);
+        for (int i = 0; i < fx::TownWallTone::kSkyBins; ++i)
+            u[3 + i / 4][i % 4] = wall->game_sky[i];
+    }
+    bgfx::setUniform(u_town_wall_, u.data(), 5);
+}
+
 bool Lighting::aerial_fog(const D3DMATRIX &view, bool vs_port, std::array<float, 2> &haze)
 {
     if (!(flags_ & fx::kLightingAerial) || !sky_)
@@ -660,7 +711,7 @@ void Lighting::shutdown()
     visibility_open_ = BGFX_INVALID_HANDLE;
     ao_open_ = BGFX_INVALID_HANDLE;
     for (bgfx::UniformHandle *u : {&u_coverage_, &u_ff_, &u_aerial_up_, &s_ao_volume_, &u_ao_matrix_, &u_ao_params_, &s_visibility_,
-                                   &u_visibility_matrix_, &u_visibility_params_})
+                                   &u_visibility_matrix_, &u_visibility_params_, &u_town_wall_})
     {
         if (bgfx::isValid(*u))
             bgfx::destroy(*u);
@@ -676,7 +727,7 @@ void Lighting::on_device_lost()
     lamps_.on_device_lost();
     casters_.on_device_lost();
     u_coverage_ = u_ff_ = u_aerial_up_ = s_ao_volume_ = u_ao_matrix_ = u_ao_params_ = BGFX_INVALID_HANDLE;
-    s_visibility_ = u_visibility_matrix_ = u_visibility_params_ = BGFX_INVALID_HANDLE;
+    s_visibility_ = u_visibility_matrix_ = u_visibility_params_ = u_town_wall_ = BGFX_INVALID_HANDLE;
     ao_view_ = {};
     ao_open_ = visibility_open_ = BGFX_INVALID_HANDLE;
 }
