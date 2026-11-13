@@ -19,11 +19,17 @@ enum class DxtFormat : uint8_t
     Bc3 = 3, // DXT4/DXT5
 };
 
-enum class EtcFormat : uint8_t
+// What the transcode workers make of a DXT texture (service.hpp): its mip chain rebuilt from the top level
+// (mips.hpp), encoded for the GPU's tier: ETC2, or the DXT format it came in on GPUs with S3TC.
+enum class GpuFormat : uint8_t
 {
-    Rgb8 = 1,  // ETC2 RGB8
-    Rgba8 = 2, // ETC2 RGBA8 (EAC alpha)
+    Etc2Rgb8 = 1,  // ETC2 RGB8
+    Etc2Rgba8 = 2, // ETC2 RGBA8 (EAC alpha)
+    Bc1 = 3,       // DXT1 (transparent texels, if any: punch-through, cut at kCutoutReference)
+    Bc2 = 4,       // DXT3
+    Bc3 = 5,       // DXT5
 };
+inline bool is_etc2(GpuFormat format) { return format == GpuFormat::Etc2Rgb8 || format == GpuFormat::Etc2Rgba8; }
 
 // Shape of a D3D texture: `faces` is 1 or 6; levels start at the full size.
 struct Layout
@@ -36,14 +42,14 @@ struct Layout
 
 inline uint32_t blocks_x(uint32_t width) { return (width + 3) / 4; }
 inline uint32_t dxt_block_bytes(DxtFormat format) { return format == DxtFormat::Bc1 ? 8 : 16; }
-inline uint32_t etc_block_bytes(EtcFormat format) { return format == EtcFormat::Rgb8 ? 8 : 16; }
+inline uint32_t gpu_block_bytes(GpuFormat format) { return format == GpuFormat::Etc2Rgb8 || format == GpuFormat::Bc1 ? 8 : 16; }
 inline size_t dxt_level_size(DxtFormat format, uint32_t w, uint32_t h)
 {
     return size_t(blocks_x(w)) * blocks_x(h) * dxt_block_bytes(format);
 }
-inline size_t etc_level_size(EtcFormat format, uint32_t w, uint32_t h)
+inline size_t gpu_level_size(GpuFormat format, uint32_t w, uint32_t h)
 {
-    return size_t(blocks_x(w)) * blocks_x(h) * etc_block_bytes(format);
+    return size_t(blocks_x(w)) * blocks_x(h) * gpu_block_bytes(format);
 }
 // Size of all levels and faces of the D3D payload.
 size_t dxt_payload_size(const Layout &layout);
@@ -57,9 +63,9 @@ bool bc1_has_transparency(const uint8_t *data, size_t size);
 // mode when color0 <= color1; the colour part of BC2/BC3 is always 4-colour.
 void decode_level(DxtFormat format, const uint8_t *src, uint32_t width, uint32_t height, uint8_t *rgba);
 
-// ETC2 format chosen for a DXT payload (punch-through BC1 needs alpha: bimg
-// has no RGB8A1 encoder, so such textures go to RGBA8/EAC).
-EtcFormat choose_etc_format(DxtFormat format, const uint8_t *payload, size_t size);
+// The format for a DXT payload on the ETC2 tier (`bc` false: punch-through BC1 needs alpha and bimg has no RGB8A1
+// encoder, so such textures go to RGBA8/EAC) or the BC tier (`bc` true: the DXT format it came in).
+GpuFormat choose_gpu_format(DxtFormat format, const uint8_t *payload, size_t size, bool bc);
 
 enum class EacFormat : uint8_t
 {
@@ -105,7 +111,8 @@ enum class TxFormat : uint32_t
 };
 bool tx_format_known(uint32_t format);
 
-// Encodes a block-aligned RGBA8 image (R first) of aligned_width x aligned_height texels.
-void encode_etc(EtcFormat format, const uint8_t *rgba, uint32_t aligned_width, uint32_t aligned_height, uint8_t *out);
+// Encodes a block-aligned RGBA8 image (R first) of aligned_width x aligned_height texels (bimg_encode: etcpak for
+// ETC2, libsquish for BC; BC1 makes texels with alpha below 128 transparent).
+void encode_gpu(GpuFormat format, const uint8_t *rgba, uint32_t aligned_width, uint32_t aligned_height, uint8_t *out);
 
 } // namespace storm::texture

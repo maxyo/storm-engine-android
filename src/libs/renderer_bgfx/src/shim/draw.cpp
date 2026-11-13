@@ -747,7 +747,7 @@ uint32_t Device::sampler_flags(uint32_t stage, const TexStore &store) const
         flags |= BGFX_SAMPLER_MAG_ANISOTROPIC;
     else if (sm[D3DSAMP_MAGFILTER] <= D3DTEXF_POINT)
         flags |= BGFX_SAMPLER_MAG_POINT;
-    if (sm[D3DSAMP_MIPFILTER] <= D3DTEXF_POINT || store.levels <= 1)
+    if (sm[D3DSAMP_MIPFILTER] <= D3DTEXF_POINT || (store.levels <= 1 && !store.full_chain))
         flags |= BGFX_SAMPLER_MIP_POINT;
     // Effects: anisotropic filtering of linearly filtered, mip-mapped world textures (render targets and mip-less
     // interface pictures and fonts keep their filter).
