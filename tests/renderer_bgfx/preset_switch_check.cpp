@@ -353,7 +353,7 @@ int main()
                 frames.render();
             }
             std::printf("     PowerVR profile active after %d frames\n", frame);
-            ok &= expect(frame < kMaxSwitchFrames && host.settings().msaa == 1 && !host.support().msaa,
+            ok &= expect(frame < kMaxSwitchFrames && host.settings().msaa == 1 && host.support().msaa_samples == 1,
                          "the narrower support and its settings become active");
             ok &= expect(consistent, "every frame of the switch draws settings valid for the support they are checked against");
 

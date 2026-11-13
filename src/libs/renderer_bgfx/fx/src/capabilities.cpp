@@ -15,7 +15,7 @@ Support DetectSupport(const RendererFacts &renderer)
     support.shadow_map = detail::SupportsShadowMap();
     support.normal_map = detail::SupportsNormalMap(bgfx::TextureFormat::EACRG11);
     support.ao_volume = detail::SupportsAoVolume();
-    support.msaa = detail::SupportsMsaa();
+    support.msaa_samples = detail::MsaaSamples();
     support.smaa = detail::SupportsSmaa();
     support.anisotropy = renderer.anisotropy;
     support.scene_depth = renderer.scene_depth;

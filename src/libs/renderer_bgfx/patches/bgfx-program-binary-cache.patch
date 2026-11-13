@@ -1,6 +1,8 @@
+diff --git a/src/renderer_gl.cpp b/src/renderer_gl.cpp
+index c2e81178..15f7053c 100644
 --- a/src/renderer_gl.cpp
 +++ b/src/renderer_gl.cpp
-@@ -4716,11 +4716,13 @@
+@@ -4871,11 +4871,13 @@ namespace bgfx { namespace gl
  			if (m_programBinarySupport)
  			{
  				uint32_t length = g_callback->cacheReadSize(_id);
@@ -16,7 +18,7 @@
  					if (g_callback->cacheRead(_id, data, length) )
  					{
  						bx::Error err;
-@@ -4729,7 +4731,19 @@
+@@ -4884,7 +4886,19 @@ namespace bgfx { namespace gl
  						GLenum format;
  						bx::read(&reader, format, &err);
  

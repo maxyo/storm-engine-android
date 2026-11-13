@@ -135,11 +135,13 @@ bool SupportsNormalMap(bgfx::TextureFormat::Enum format)
     return Format(format, BGFX_CAPS_FORMAT_TEXTURE_2D);
 }
 
-bool SupportsMsaa()
+uint8_t MsaaSamples()
 {
-    // The scene target is RGBA8 colour + D24S8 depth (src/shim): both must render multisampled.
-    return Format(bgfx::TextureFormat::RGBA8, BGFX_CAPS_FORMAT_TEXTURE_FRAMEBUFFER_MSAA) &&
-           Format(bgfx::TextureFormat::D24S8, BGFX_CAPS_FORMAT_TEXTURE_FRAMEBUFFER_MSAA);
+    // The scene target is RGBA8 colour + D24S8 depth (src/shim): both must render with the sample count.
+    const auto both = [](uint32_t flag) {
+        return Format(bgfx::TextureFormat::RGBA8, flag) && Format(bgfx::TextureFormat::D24S8, flag);
+    };
+    return both(BGFX_CAPS_FORMAT_TEXTURE_FRAMEBUFFER_MSAA_X4) ? 4 : both(BGFX_CAPS_FORMAT_TEXTURE_FRAMEBUFFER_MSAA_X2) ? 2 : 1;
 }
 
 bool SupportsSmaa()

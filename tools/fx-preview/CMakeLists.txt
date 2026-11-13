@@ -22,7 +22,7 @@ target_compile_options(bimg_encode PRIVATE -w)
 add_library(storm_bgfx_runtime INTERFACE)
 target_link_libraries(storm_bgfx_runtime INTERFACE bgfx bimg bx)
 
-set(STORM_FX_BGFX_SHADER_INCLUDE "${STORM_BGFX_SOURCE_DIR}/bgfx/src")
+set(STORM_FX_BGFX_SHADER_INCLUDE "${STORM_BGFX_SOURCE_DIR}/src")
 set(STORM_FX_SHADERC_COMMAND "${STORM_SHADERC_COMMAND}")
 set(STORM_FX_SHADERC_DEPENDS "${STORM_SHADERC_DEPENDS}")
 enable_testing()

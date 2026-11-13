@@ -183,7 +183,8 @@ struct Support
     bool shadow_map = false;    // D16 texture as a render target: Settings::shadows
     bool scene_depth = false;   // the scene's depth attachment can be sampled: Settings::ssao, Settings::sea_soft_edges
     bool normal_map = false;    // EAC RG11 textures (the derived maps): kLightingNormalMap
-    bool msaa = false;          // multisampled RGBA8 render targets: Settings::msaa
+    uint8_t msaa_samples = 1;   // the highest MSAA sample count (1 = none, 2 or 4) the scene target renders with,
+                                // RGBA8 colour and D24S8 depth both (per-format bgfx caps): Settings::msaa
     bool smaa = false;          // R8 and RG8 textures (the SMAA search and area tables): Settings::smaa
     bool msaa_depth = false;    // the scene depth can still be sampled when the scene target is multisampled
                                 // (renderer knowledge, like scene_depth): msaa together with ssao / sea soft edges

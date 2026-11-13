@@ -20,9 +20,39 @@ constexpr float kSunStepDegrees = 2.0f; // the sun's visibility is baked again w
 constexpr float kBlendSeconds = 3.0f;   // ... and the lightmap turns to it over this time
 constexpr float kUploadSeconds = 0.2f;  // a blending lightmap is composed and uploaded this often
 constexpr size_t kFitSamples = 1500;
-// A place's bake on disk: per lightmap the sky's visibility on its texels and its tone.
-constexpr texture::DerivedShape kPlaceShape{.magic = {'S', 'T', 'X', 'C', 'T', 'L', 'I', 'T'}, .version = 4};
+// A place's bake on disk, in two entries (the app's cache: an entry that is gone is baked again):
+//   * its geometry's: per lightmap the sky's visibility on its texels, keyed by the geometry alone (the heavy part,
+//     once per town);
+//   * its lightmap set's (the game swaps sets by the hour: morning, day1..4, evening): the direction the set was
+//     baked with, the sun's light on its texels from there and its tone, keyed by the geometry and the set.
+constexpr texture::DerivedShape kSkyShape{.magic = {'S', 'T', 'X', 'C', 'T', 'L', 'S', 'K'}, .version = 1};
+constexpr texture::DerivedShape kSetShape{.magic = {'S', 'T', 'X', 'C', 'T', 'L', 'S', 'T'}, .version = 1};
 constexpr size_t kMaxPlaceBytes = 64u << 20;
+
+// One cache entry read back in order, or written in order.
+struct Entry
+{
+    std::optional<texture::Blob> blob;
+    size_t cursor = 0;
+    std::vector<uint8_t> payload;
+    bool take(void *out, size_t size)
+    {
+        if (!blob || cursor + size > blob->size)
+            return false;
+        std::memcpy(out, blob->data.get() + cursor, size);
+        cursor += size;
+        return true;
+    }
+    void put(const void *in, size_t size)
+    {
+        payload.insert(payload.end(), static_cast<const uint8_t *>(in), static_cast<const uint8_t *>(in) + size);
+    }
+};
+
+double Since(std::chrono::steady_clock::time_point t)
+{
+    return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t).count();
+}
 
 uint64_t Hash(uint64_t h, const void *data, size_t size)
 {
@@ -121,23 +151,21 @@ void TownLight::start_place()
             key = Hash(key, &solid, 1);
         }
         for (const render::EffectsLightmap &lm : lightmaps)
-            key = Hash(key, lm.data.data(), lm.data.size());
-        std::optional<texture::Blob> cached;
+        {
+            const uint32_t size[2] = {lm.width, lm.height};
+            key = Hash(key, size, sizeof(size));
+        }
+        uint64_t set_key = key;
+        for (const render::EffectsLightmap &lm : lightmaps)
+            set_key = Hash(set_key, lm.data.data(), lm.data.size());
+        Entry sky_entry, set_entry;
         if (!directory.empty())
-            cached = texture::read_derived_file(directory, key, kPlaceShape, kMaxPlaceBytes);
-        size_t cursor = 0;
-        auto take = [&](void *out, size_t size) {
-            if (!cached || cursor + size > cached->size)
-                return false;
-            std::memcpy(out, cached->data.get() + cursor, size);
-            cursor += size;
-            return true;
-        };
-        std::vector<uint8_t> payload;
-        auto put = [&](const void *in, size_t size) {
-            payload.insert(payload.end(), static_cast<const uint8_t *>(in), static_cast<const uint8_t *>(in) + size);
-        };
-        bool from_cache = cached.has_value();
+        {
+            sky_entry.blob = texture::read_derived_file(directory, key, kSkyShape, kMaxPlaceBytes);
+            set_entry.blob = texture::read_derived_file(directory, set_key, kSetShape, kMaxPlaceBytes);
+        }
+        bool sky_cached = sky_entry.blob.has_value(), set_cached = set_entry.blob.has_value();
+        double sky_ms = 0.0, fit_ms = 0.0, sun_ms = 0.0;
         const fx::Occluders occluders(occ_positions, occ_indices, occ_uvs, occ_cut);
         const unsigned threads = Threads();
         std::vector<fx::SunFitSample> samples;
@@ -164,12 +192,15 @@ void TownLight::start_place()
                 continue;
             map.sky.resize(map.texels->texel.size());
             map.baked.resize(map.texels->texel.size());
-            if (!(from_cache && take(map.sky.data(), map.sky.size()) && take(map.baked.data(), map.baked.size()) &&
-                  take(&map.tone, sizeof(map.tone))))
+            if (!(sky_cached && sky_entry.take(map.sky.data(), map.sky.size())))
             {
-                from_cache = false;
+                sky_cached = false;
+                const auto t = std::chrono::steady_clock::now();
                 map.sky = fx::SkyVisibility(occluders, *map.texels, 10.0f, 32, threads);
+                sky_ms += Since(t);
             }
+            if (!(set_cached && set_entry.take(map.baked.data(), map.baked.size()) && set_entry.take(&map.tone, sizeof(map.tone))))
+                set_cached = false;
             // The ground's texels open to the sky, with the game's luminance over its neighbourhood's (the paint's
             // grass and sand are broad, the shadows' edges sharp): what the bake's sun is fitted to.
             const int w = map.texels->width, h = map.texels->height, r = 6;
@@ -207,29 +238,43 @@ void TownLight::start_place()
                 spread.push_back(samples[i * samples.size() / kFitSamples]);
             samples.swap(spread);
         }
-        if (from_cache && take(&job->bake, sizeof(job->bake)))
-            job->how = " (from the cache)";
-        else
+        auto store = [&](uint64_t entry_key, const texture::DerivedShape &shape, const Entry &entry) {
+            if (directory.empty())
+                return std::string(" (no cache directory: baked again next time)");
+            if (texture::write_derived_file(directory, entry_key, shape, entry.payload.data(), entry.payload.size()) == 0)
+                return std::string(" (ERROR: cache write failed: baked again next time)");
+            return std::string();
+        };
+        if (!sky_cached)
         {
+            for (const Map &map : job->maps)
+                sky_entry.put(map.sky.data(), map.sky.size());
+            job->how += store(key, kSkyShape, sky_entry);
+        }
+        if (!(set_cached && set_entry.take(&job->bake, sizeof(job->bake))))
+        {
+            set_cached = false;
+            auto t = std::chrono::steady_clock::now();
             job->bake = fx::FitBakedSun(occluders, samples, 200.0f, threads);
-            payload.clear();
+            fit_ms = Since(t);
+            t = std::chrono::steady_clock::now();
             for (Map &map : job->maps)
             {
                 map.baked = fx::SunVisibility(occluders, *map.texels, job->bake.dir, 0.3f, 4, threads);
                 map.tone = fx::CalibrateTownLight(*map.texels, map.game, map.baked, map.sky);
-                put(map.sky.data(), map.sky.size());
-                put(map.baked.data(), map.baked.size());
-                put(&map.tone, sizeof(map.tone));
+                set_entry.put(map.baked.data(), map.baked.size());
+                set_entry.put(&map.tone, sizeof(map.tone));
             }
-            put(&job->bake, sizeof(job->bake));
-            if (directory.empty())
-                job->how = " (no cache directory: baked again next time)";
-            else if (texture::write_derived_file(directory, key, kPlaceShape, payload.data(), payload.size()) == 0)
-                job->how = " (ERROR: cache write failed: baked again next time)";
+            sun_ms = Since(t);
+            set_entry.put(&job->bake, sizeof(job->bake));
+            job->how += store(set_key, kSetShape, set_entry);
         }
-        const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
-        char how[200];
-        std::snprintf(how, sizeof(how), "baked in %.0f ms on %u threads", ms, threads);
+        char how[300];
+        std::snprintf(how, sizeof(how),
+                      "ready in %.0f ms on %u threads: sky %s, lightmap set %s (fit %.0f ms, its sun %.0f ms)",
+                      Since(started), threads, sky_cached ? "from the cache" : (std::string("not in the cache: baked in ") +
+                                                                                 std::to_string(std::lround(sky_ms)) + " ms").c_str(),
+                      set_cached ? "from the cache" : "not in the cache: fitted", fit_ms, sun_ms);
         job->how = how + job->how;
         job->state = 1;
     });

@@ -321,7 +321,8 @@ void CheckSupport()
 {
     Support all;
     all.lut_3d = all.shadow_map = all.scene_depth = all.normal_map = true;
-    all.msaa = all.msaa_depth = all.anisotropy = all.ao_volume = all.smaa = true;
+    all.msaa_samples = 4;
+    all.msaa_depth = all.anisotropy = all.ao_volume = all.smaa = true;
     for (QualityPreset preset : {QualityPreset::Low, QualityPreset::Medium, QualityPreset::High})
     {
         const Settings settings = Settings::FromPreset(preset);
@@ -419,9 +420,17 @@ void CheckSupport()
     constrained = ConstrainSettings(high, no_msaa_depth, changes);
     CHECK(constrained.msaa == 4 && !constrained.ssao && !constrained.sea_soft_edges && constrained.render_height == 0 &&
           changes.size() == 3);
+    // Only 2x for the scene target formats (per-format caps): 4x is lowered to 2x, reported, alpha to coverage stays.
+    Support msaa_x2 = all;
+    msaa_x2.msaa_samples = 2;
+    changes.clear();
+    constrained = ConstrainSettings(high, msaa_x2, changes);
+    CHECK(constrained.msaa == 2 && constrained.alpha_to_coverage && !constrained.smaa && changes.size() == 1 &&
+          changes[0] == "MSAA 4x is not available for the scene target (RGBA8 + D24S8): 2x instead");
+    CHECK(ValidateSettings(constrained, msaa_x2).empty() && !ValidateSettings(high, msaa_x2).empty());
     // No MSAA at all: alpha to coverage goes with it, and then depth-based effects are fine again.
     Support no_msaa = no_msaa_depth;
-    no_msaa.msaa = false;
+    no_msaa.msaa_samples = 1;
     changes.clear();
     constrained = ConstrainSettings(high, no_msaa, changes);
     CHECK(constrained.msaa == 1 && !constrained.alpha_to_coverage && constrained.ssao && constrained.sea_soft_edges);
@@ -1180,7 +1189,8 @@ void CheckCapsProfiles()
 {
     Support all;
     all.lut_3d = all.shadow_map = all.scene_depth = all.normal_map = true;
-    all.msaa = all.msaa_depth = all.anisotropy = all.smaa = true;
+    all.msaa_samples = 4;
+    all.msaa_depth = all.anisotropy = all.smaa = true;
     for (int p = 0; p < static_cast<int>(CapsProfile::Count); ++p)
     {
         const auto profile = static_cast<CapsProfile>(p);
@@ -1195,15 +1205,15 @@ void CheckCapsProfiles()
             CHECK(changes.empty() == (constrained == requested));
             if (preset == QualityPreset::Low)
                 CHECK(changes.empty());
-            if (!support.msaa)
+            if (support.msaa_samples < 2)
                 CHECK(constrained.msaa == 1 && !constrained.alpha_to_coverage);
             // Every phone without MSAA still gets anti-aliasing on Средняя / Высокая: SMAA in its place.
             if (preset != QualityPreset::Low)
-                CHECK(constrained.smaa == !support.msaa);
+                CHECK(constrained.smaa == (support.msaa_samples < 2));
         }
     }
     // A profile only removes.
-    CHECK(RestrictSupport(Support{}, CapsProfile::Xclipse).msaa == false);
+    CHECK(RestrictSupport(Support{}, CapsProfile::Xclipse).msaa_samples == 1);
 }
 
 // Axis-aligned box as 12 triangles (the AO bake only needs surfaces).

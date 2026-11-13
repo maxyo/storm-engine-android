@@ -7,10 +7,10 @@ Framebuffer discard (BGFX_CLEAR_DISCARD_*) on GL, three bugs that made it never 
 The engine sets the flags only on views after which the attachments are not read again (shim scene_complete).
 
 diff --git a/src/renderer_gl.cpp b/src/renderer_gl.cpp
-index 165ef14..6f15243 100644
+index 8b589037..6c0863cf 100644
 --- a/src/renderer_gl.cpp
 +++ b/src/renderer_gl.cpp
-@@ -2271,7 +2271,6 @@ namespace bgfx { namespace gl
+@@ -2281,7 +2281,6 @@ namespace bgfx { namespace gl
  		RendererContextGL()
  			: m_numWindows(1)
  			, m_rtMsaa(false)
@@ -18,7 +18,7 @@ index 165ef14..6f15243 100644
  			, m_capture(NULL)
  			, m_captureSize(0)
  			, m_maxAnisotropy(0.0f)
-@@ -4158,10 +4157,13 @@ namespace bgfx { namespace gl
+@@ -4313,10 +4312,13 @@ namespace bgfx { namespace gl
  			{
  				FrameBufferGL& frameBuffer = m_frameBuffers[m_fbh.idx];
  
@@ -35,7 +35,7 @@ index 165ef14..6f15243 100644
  				}
  			}
  
-@@ -4232,7 +4234,6 @@ namespace bgfx { namespace gl
+@@ -4387,7 +4389,6 @@ namespace bgfx { namespace gl
  			GL_CHECK(glBindFramebuffer(GL_FRAMEBUFFER, m_currentFbo) );
  
  			m_fbh       = _fbh;
@@ -43,7 +43,7 @@ index 165ef14..6f15243 100644
  			m_rtMsaa    = _msaa;
  
  			return _height;
-@@ -5421,7 +5422,6 @@ namespace bgfx { namespace gl
+@@ -5562,7 +5563,6 @@ namespace bgfx { namespace gl
  		bool m_rtMsaa;
  
  		FrameBufferHandle m_fbh;
@@ -51,7 +51,7 @@ index 165ef14..6f15243 100644
  
  		SwapChain m_mainSwapChain;
  		uint32_t  m_reset;
-@@ -8316,8 +8316,9 @@ namespace bgfx { namespace gl
+@@ -8665,8 +8665,9 @@ namespace bgfx { namespace gl
  		uint32_t dsFlags = _flags & (BGFX_CLEAR_DISCARD_DEPTH|BGFX_CLEAR_DISCARD_STENCIL);
  		if (BGFX_CLEAR_NONE != dsFlags)
  		{
@@ -63,7 +63,7 @@ index 165ef14..6f15243 100644
  			{
  				buffers[idx++] = GL_DEPTH_STENCIL_ATTACHMENT;
  			}
-@@ -8331,7 +8332,13 @@ namespace bgfx { namespace gl
+@@ -8680,7 +8681,13 @@ namespace bgfx { namespace gl
  			}
  		}
  

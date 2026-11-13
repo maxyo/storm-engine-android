@@ -1186,9 +1186,18 @@ bool BgfxBackendImpl::CreateGpu()
     uniforms_.mask = bgfx::createUniform("s_ui_mask", T::Sampler);
 
     const bgfx::Caps *caps = bgfx::getCaps();
-    const bool msaa_ok = (caps->formats[bgfx::TextureFormat::RGBA8] & BGFX_CAPS_FORMAT_TEXTURE_FRAMEBUFFER_MSAA) &&
-                         (caps->formats[bgfx::TextureFormat::D24S8] & BGFX_CAPS_FORMAT_TEXTURE_FRAMEBUFFER_MSAA);
-    msaa_ = msaa_ok ? options_.msaa_samples : 0;
+    // The layers are RGBA8 colour + D24S8 depth/stencil: both must render with the sample count (per-format caps).
+    const auto layer_msaa = [caps](int samples) {
+        const uint32_t flag = samples >= 4 ? BGFX_CAPS_FORMAT_TEXTURE_FRAMEBUFFER_MSAA_X4 : BGFX_CAPS_FORMAT_TEXTURE_FRAMEBUFFER_MSAA_X2;
+        return (caps->formats[bgfx::TextureFormat::RGBA8] & flag) && (caps->formats[bgfx::TextureFormat::D24S8] & flag);
+    };
+    msaa_ = 0;
+    for (int samples = options_.msaa_samples; samples >= 2 && msaa_ == 0; samples /= 2)
+        if (layer_msaa(samples))
+            msaa_ = samples;
+    if (msaa_ != options_.msaa_samples)
+        Rml::Log::Message(Rml::Log::LT_WARNING, "UI layers: MSAA %dx is not available for RGBA8 + D24S8 targets: %s", options_.msaa_samples,
+                          msaa_ ? "2x instead" : "no multisampling");
     for (const bgfx::ProgramHandle handle : programs_)
         if (!bgfx::isValid(handle))
             return false;
