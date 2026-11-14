@@ -1,6 +1,7 @@
 #include "device.hpp"
 #include "effects/effects.hpp"
 #include "perf.hpp"
+#include "pipeline_sets.hpp"
 #include "util.hpp"
 #include "../texture/core/formats.hpp"
 
@@ -535,6 +536,7 @@ HRESULT Device::Present()
     frame_surface_generation = context.Surface().generation;
     backbuffer_recreated = false;
     effects.end_frame(scene_frame, context.last_frame());
+    PipelineSets::instance().frame(*this, context.last_frame(), scene_frame);
     // The render scale applies to 3D frames: the next frame starts on the scaled scene stores after a 3D frame, on the
     // display-size picture otherwise (menus, loading screens).
     scaled_next = scene_frame;

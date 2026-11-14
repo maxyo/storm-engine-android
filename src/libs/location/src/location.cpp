@@ -25,6 +25,7 @@
 
 #include "shared/messages.h"
 #include "storm/render/effects.hpp"
+#include "storm/render/pipelines.hpp"
 #include "string_compare.hpp"
 
 float fCausticScale, fCausticDelta, fFogDensity, fCausticDistance;
@@ -376,6 +377,11 @@ bool Location::Init()
 
     lighter = core.CreateEntity("Lighter");
     // cubeShotMaker = core.CreateEntity("CubeShotMakerCam");
+    // The location's recorded Vulkan pipelines are created while it loads (storm/render/pipelines.hpp).
+    const char *id = AttributesPointer ? AttributesPointer->GetAttribute("id") : nullptr;
+    if (!id)
+        core.Trace("Location::Init: the location has no id: its pipelines are recorded as location/?");
+    storm::render::BeginScenePipelines(("location/" + std::string(id ? id : "?")).c_str());
     return true;
 }
 

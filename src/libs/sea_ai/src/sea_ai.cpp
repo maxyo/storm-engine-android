@@ -1,6 +1,7 @@
 #include "sea_ai.h"
 #include "ai_group.h"
 #include "shared/messages.h"
+#include "storm/render/pipelines.hpp"
 
 CREATE_CLASS(SEA_AI)
 
@@ -24,6 +25,8 @@ SEA_AI::~SEA_AI()
 
 bool SEA_AI::Init()
 {
+    // The sea scene (sea login; not a town's sea): its recorded Vulkan pipelines are created while it loads.
+    storm::render::BeginScenePipelines("sea");
     Helper.SetDevice();
     return true;
 }

@@ -12,6 +12,7 @@
 #include "core.h"
 #include "entity.h"
 #include "shared/messages.h"
+#include "storm/render/pipelines.hpp"
 
 // ============================================================================================
 // Construction, destruction
@@ -369,8 +370,9 @@ void Fader::Realize(uint32_t delta_time)
         }
     }
 
-    // Increase alpha
-    if (!endFade)
+    // Increase alpha. A fade-in stays closed (bounded) while the scene behind it still waits for Vulkan pipelines
+    // (storm/render/pipelines.hpp): it opens on a complete picture.
+    if (!endFade && !(fadeIn && storm::render::HoldSceneReveal()))
     {
         if (fadeSpeed > 0.0f)
             alpha += delta_time * 0.001f * fadeSpeed;

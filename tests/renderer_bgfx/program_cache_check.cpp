@@ -188,7 +188,7 @@ std::vector<fs::path> entries(const fs::path &root)
 {
     std::vector<fs::path> files;
     for (const auto &item : fs::recursive_directory_iterator(root))
-        if (item.is_regular_file())
+        if (item.is_regular_file() && item.path().filename() != "pipelines.bin") // Vulkan: pipeline_prewarm_check
             files.push_back(item.path());
     std::sort(files.begin(), files.end(),
               [](const fs::path &a, const fs::path &b) { return fs::last_write_time(a) > fs::last_write_time(b); });

@@ -27,6 +27,7 @@
 #include "wdm_warring_ship.h"
 #include "wdm_wind_ui.h"
 #include "entity.h"
+#include "storm/render/pipelines.hpp"
 #include "math_inlines.h"
 #include "string_compare.hpp"
 
@@ -101,6 +102,7 @@ WorldMap::~WorldMap()
 // Initialization
 bool WorldMap::Init()
 {
+    storm::render::BeginScenePipelines("worldmap"); // its recorded Vulkan pipelines are created while it loads
     // GUARD(LocationCamera::Init())
     // Layers
     // core.LayerCreate("execute", true, false);

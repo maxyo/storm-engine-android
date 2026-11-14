@@ -1,5 +1,6 @@
 #include "shim/program_cache.hpp"
 
+#include "shim/pipeline_sets.hpp"
 #include "shim/shim.hpp"
 #include "texture/core/cache.hpp"
 
@@ -16,21 +17,14 @@
 #include <tracy/TracyC.h>
 #endif
 
-// patches/bgfx-vulkan-pipeline-cache.patch (src/renderer_vk.cpp) defines these two.
-namespace bgfx
-{
-typedef void (*VkPipelineCreatedFn)(const char *_vs, const char *_fs, uint64_t _state, double _ms, bool _async);
-void setVkPipelineCreated(VkPipelineCreatedFn _created);
-} // namespace bgfx
-
 namespace storm::shim
 {
 
 namespace
 {
 namespace fs = std::filesystem;
-// A pipeline creation this long holds the render thread over a 60 Hz frame: logged with its program and state.
-constexpr double kSlowPipelineMs = 16.0;
+// The recorded pipelines of the scenes (pipeline_sets.hpp), next to the pipeline cache in the device's directory.
+constexpr char kPipelineSetsFile[] = "pipelines.bin";
 
 constexpr char kMagic[8] = {'S', 'T', 'P', 'R', 'O', 'G', 'B', 'N'};
 constexpr uint32_t kVersion = 1;
@@ -73,9 +67,6 @@ void ProgramCache::attach_device(const std::string &device, bool vulkan)
     served_.clear();
     served_checksums_.clear();
     vulkan_ = vulkan;
-    pipelines_ = slow_pipelines_ = async_pipelines_ = 0;
-    pipelines_ms_ = async_pipelines_ms_ = 0.0;
-    bgfx::setVkPipelineCreated(vulkan ? &ProgramCache::pipeline_created : nullptr);
     device_dir_.clear();
     if (!configured_)
     {
@@ -83,6 +74,7 @@ void ProgramCache::attach_device(const std::string &device, bool vulkan)
             logf("program cache: no directory configured (render::ConfigureProgramCache): every program is linked "
                  "at every start");
         unconfigured_logged_ = true;
+        PipelineSets::instance().attach({}, vulkan);
         return;
     }
     key_ = checksum(device.data(), device.size());
@@ -94,6 +86,7 @@ void ProgramCache::attach_device(const std::string &device, bool vulkan)
     {
         logf("ERROR: program cache: cannot create %s (%s): every program is linked at every start",
              (config_.directory / name).string().c_str(), error.message().c_str());
+        PipelineSets::instance().attach({}, vulkan);
         return;
     }
     device_dir_ = config_.directory / name;
@@ -108,6 +101,8 @@ void ProgramCache::attach_device(const std::string &device, bool vulkan)
     for (const auto &item : fs::directory_iterator(device_dir_, error))
     {
         const std::string file = item.path().filename().string();
+        if (vulkan && file == kPipelineSetsFile)
+            continue;
         uint64_t id = 0;
         char rest = 0;
         if (!item.is_regular_file() || std::sscanf(file.c_str(), "%" SCNx64 ".bi%c", &id, &rest) != 2 || rest != 'n')
@@ -126,31 +121,7 @@ void ProgramCache::attach_device(const std::string &device, bool vulkan)
     logf("program cache: %s, %zu binaries (%.1f MB of %.0f MB) for %s", device_dir_.string().c_str(), entries_.size(),
          total_bytes_ / 1048576.0, config_.max_bytes / 1048576.0, device.c_str());
     evict();
-}
-
-void ProgramCache::pipeline_created(const char *vs, const char *fs, uint64_t state, double ms, bool async)
-{
-    ProgramCache &cache = instance();
-    std::lock_guard lock(cache.mutex_);
-    ++cache.pipelines_;
-    if (async)
-    {
-        // Created on bgfx's pipeline thread while its draw was left out: no frame waited for it.
-        ++cache.async_pipelines_;
-        cache.async_pipelines_ms_ += ms;
-        if (ms >= kSlowPipelineMs)
-            logf("pipeline: %.1f ms off the render thread for %s + %s, state 0x%016" PRIx64 " (its draw appeared that much "
-                 "later)",
-                 ms, vs, fs, state);
-        return;
-    }
-    cache.pipelines_ms_ += ms;
-    if (ms < kSlowPipelineMs)
-        return;
-    ++cache.slow_pipelines_;
-    logf("pipeline: %.1f ms on the render thread for %s + %s, state 0x%016" PRIx64 " (pipeline %u of this start, %u of "
-         "them slow on the render thread, %.0f ms there in all)",
-         ms, vs, fs, state, cache.pipelines_, cache.slow_pipelines_, cache.pipelines_ms_);
+    PipelineSets::instance().attach(vulkan ? device_dir_ : fs::path{}, vulkan);
 }
 
 void ProgramCache::detach_device()
@@ -158,12 +129,7 @@ void ProgramCache::detach_device()
     std::lock_guard lock(mutex_);
     if (writer_.joinable())
         writer_.join();
-    if (vulkan_ && pipelines_)
-        logf("pipelines: %u created by this device: %u on the render thread (%u of them over %.0f ms, %.0f ms in all), %u "
-             "off it while their draws waited (%.0f ms in all)",
-             pipelines_, pipelines_ - async_pipelines_, slow_pipelines_, kSlowPipelineMs, pipelines_ms_, async_pipelines_,
-             async_pipelines_ms_);
-    bgfx::setVkPipelineCreated(nullptr);
+    PipelineSets::instance().detach();
     device_dir_.clear();
     entries_.clear();
     pending_.clear();
@@ -314,6 +280,7 @@ void ProgramCache::cacheWrite(uint64_t id, const void *data, uint32_t size)
     }
     if (vulkan_)
     {
+        PipelineSets::instance().save(); // the scenes' recorded pipelines go with the pipeline cache
         // The device's pipeline cache, saved again: unchanged when nothing new was compiled since it was loaded.
         // (The file may be gone meanwhile, the app cache cleared: then it is written again.)
         const auto served = served_checksums_.find(id);

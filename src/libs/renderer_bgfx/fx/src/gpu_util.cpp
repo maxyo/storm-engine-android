@@ -1,5 +1,6 @@
 #include "gpu_util.hpp"
 #include "storm/fx/log.hpp"
+#include "storm/fx/programs.hpp"
 #include "storm/render/shader_blob.hpp"
 
 #include <cstring>
@@ -58,6 +59,24 @@ bgfx::ProgramHandle LoadProgram(const char *vertex, const char *fragment)
     return program;
 }
 
+} // namespace storm::fx::detail
+
+namespace storm::fx
+{
+bgfx::ProgramHandle FindProgram(const char *vertex, const char *fragment)
+{
+    const auto known = [](const char *name) {
+        for (const detail::Blob &blob : detail::kBlobs)
+            if (std::strcmp(blob.name, name) == 0)
+                return true;
+        return false;
+    };
+    return known(vertex) && known(fragment) ? detail::LoadProgram(vertex, fragment) : bgfx::ProgramHandle BGFX_INVALID_HANDLE;
+}
+} // namespace storm::fx
+
+namespace storm::fx::detail
+{
 void SubmitScreenTriangle(bgfx::ViewId view, bgfx::ProgramHandle program, uint64_t state, bool flip_v,
                           const std::array<std::array<float, 3>, 3> *corner_data)
 {
