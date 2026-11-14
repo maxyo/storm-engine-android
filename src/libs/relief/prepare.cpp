@@ -1028,6 +1028,8 @@ Result Prepare(const Job &job, const std::function<bool(const Progress &)> &prog
     result.infer_seconds = session->stats().infer_seconds;
     result.max_texture_ms = session->stats().max_texture_ms;
     result.peak_rss_kb = PeakRssKb();
+    session.reset();
+    ReleaseGpu(); // closed here, not by ncnn's exit handler after the driver's own (a crash at exit)
     Log("relief preparation %s: %d textures, %d prepared, %d already there, %d without relief, %d failed, %d stale maps "
         "removed; %.1f s (%.1f s inference, slowest texture %.0f ms), peak RSS %lld MB",
         result.status == 1 ? "cancelled" : "done", result.total, result.prepared, result.existing, result.skipped,

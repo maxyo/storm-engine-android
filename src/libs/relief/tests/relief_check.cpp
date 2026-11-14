@@ -80,7 +80,9 @@ int main(int argc, char **argv)
     for (const char *name : relief::kModelFiles)
         files.push_back(read(name));
     const std::vector<uint8_t> &normal = files[0], &height = files[1], &roughness = files[2], &upscale = files[9];
-    const std::filesystem::path root = std::filesystem::temp_directory_path() / "storm_relief_check";
+    // Its own folder: gates of several worktrees run this check at once.
+    const std::filesystem::path root =
+        std::filesystem::temp_directory_path() / ("storm_relief_check-" + std::to_string(getpid()));
     std::filesystem::remove_all(root);
     const std::filesystem::path textures = root / "RESOURCE/Textures", output = root / "relief";
     const std::vector<uint8_t> probe = WriteTx(textures / "Locations/StoneWall.tga.tx", 128);
@@ -352,6 +354,8 @@ int main(int argc, char **argv)
         }
     }
     std::filesystem::remove_all(root);
+    // Every network is gone: the Vulkan instance closes now, before the exit handlers (the driver's own run first).
+    relief::ReleaseGpu();
     if (failures)
     {
         std::printf("%d relief check(s) failed\n", failures);

@@ -82,6 +82,9 @@ void ReliefGenerator::shutdown()
         worker_.join();
     running_ = nullptr;
     session_.reset();
+    // The Vulkan instance closes with the generator, not in ncnn's exit handler: by then the driver's own exit
+    // handlers have run and the process crashed in it.
+    relief::ReleaseGpu();
     for (std::vector<uint8_t> &bytes : models_)
         bytes = {};
 }

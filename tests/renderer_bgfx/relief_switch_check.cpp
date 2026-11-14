@@ -30,6 +30,8 @@
 #include <thread>
 #include <vector>
 
+#include <unistd.h>
+
 using namespace storm;
 
 namespace
@@ -123,7 +125,9 @@ effects::NormalMaps::Stats Settle(effects::NormalMaps &maps, const std::vector<s
 
 int main()
 {
-    const std::filesystem::path root = std::filesystem::temp_directory_path() / "storm_relief_switch_check";
+    // Its own folder: gates of several worktrees run this check at once.
+    const std::filesystem::path root =
+        std::filesystem::temp_directory_path() / ("storm_relief_switch_check-" + std::to_string(getpid()));
     std::filesystem::remove_all(root);
     const std::filesystem::path textures = root / "game" / "RESOURCE" / "Textures", relief = root / "relief";
     const auto colour = Levels(false), height = Levels(true);

@@ -49,8 +49,9 @@ struct GpuDevice
     std::string why;          // when not available
 };
 const GpuDevice &Gpu();
-// Closes the Vulkan instance when no GPU network is alive (the generator's idle release, the system's low memory);
-// the next Gpu() opens it again. True when it was closed now.
+// Closes the Vulkan instance when no GPU network is alive (the generator's idle release and shutdown, the system's
+// low memory, the end of Prepare); the next Gpu() opens it again. True when it was closed now. It must be closed
+// before the process exits: ncnn's own exit handler closes it after the driver's exit handlers have run, and crashes.
 bool ReleaseGpu();
 
 // An ncnn graph (.ncnn.param text, .ncnn.bin weights; both must outlive the network) on the GPU. The image is run in
