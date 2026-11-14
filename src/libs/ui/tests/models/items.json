@@ -466,7 +466,8 @@
     "action": "equip",
     "attack": "60.0",
     "balance": "1.4",
-    "weight": "2.4"
+    "weight": "2.4",
+    "itemId": "fixture-item-tr1"
    }
   },
   {
@@ -488,7 +489,8 @@
     "action": "equip",
     "attack": "34.5",
     "balance": "2.0",
-    "weight": "1.5"
+    "weight": "1.5",
+    "itemId": "fixture-item-tr2"
    }
   },
   {
@@ -507,7 +509,8 @@
     "worn": "0",
     "quest": "0",
     "map": "0",
-    "action": ""
+    "action": "",
+    "itemId": "fixture-item-tr3"
    }
   },
   {
@@ -527,7 +530,8 @@
     "image": "itm1",
     "attack": "60.0",
     "balance": "1.4",
-    "weight": "2.4"
+    "weight": "2.4",
+    "itemId": "fixture-item-tr1"
    }
   },
   {

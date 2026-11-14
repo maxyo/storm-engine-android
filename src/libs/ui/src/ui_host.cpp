@@ -691,6 +691,8 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
         const double routing = std::min(router_->Tick(), hud_->Tick());
 
         UpdateContext();
+        if (RevealInventorySelection())
+            UpdateContext();
         // Scroll edges move only with a layout, a touch or a scroll in motion: the walk over
         // every element is skipped on frames without any of them.
         const bool moved = changed_ || counters_.laid_out > 0 || context_->GetNextUpdateDelay() <= 0.0;
@@ -1550,6 +1552,27 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
     }
 
   private:
+    // Inventory models may open on an item below the compact list viewport. Reveal it once when
+    // its stable row changes, after layout; subsequent manual scrolling is left alone.
+    bool RevealInventorySelection()
+    {
+        Rml::Element *row = document_ ? document_->QuerySelector("s-items .ig-row.sel") : nullptr;
+        const std::string key = row ? row->GetAttribute<Rml::String>("data-item-id", "") : "";
+        if (!row || key.empty())
+        {
+            inventory_selection_.clear();
+            inventory_selection_row_ = {};
+            return false;
+        }
+        if (inventory_selection_ == key && inventory_selection_row_.get() == row)
+            return false;
+        inventory_selection_ = key;
+        inventory_selection_row_ = row->GetObserverPtr();
+        row->ScrollIntoView(Rml::ScrollIntoViewOptions(Rml::ScrollAlignment::Start));
+        changed_ = true;
+        return true;
+    }
+
     // Where a pointer going down belongs to the UI; read by the thread that gets touches.
     struct TouchMap
     {
@@ -2169,6 +2192,8 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
     std::vector<Toast_> toasts_;
     int scroll_pointer_ = -1; // the pointer that drags lists (one at a time)
     TouchScroll scroll_;
+    std::string inventory_selection_;
+    Rml::ObserverPtr<Rml::Element> inventory_selection_row_;
     bool initialised_ = false;
 };
 

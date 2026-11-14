@@ -166,7 +166,7 @@ class ItemsScreen final : public Screen
             slots.push_back(std::move(tile));
             const std::string id = slot.id;
             // A slot that holds an item selects that item's row: the parchment and its action are the slot's.
-            const std::string held = item ? item->label : std::string();
+            const std::string held = Field(item, "itemId");
             bindings.On("slot-" + id, "", [this, &bindings, id, held](const Event &) {
                 filter_ = filter_ == id ? std::string() : id;
                 if (!filter_.empty() && !held.empty())
@@ -200,6 +200,8 @@ class ItemsScreen final : public Screen
             if (!button || button->value == "1")
                 return;
             sent_revision_ = 0;
+            filter_.clear(); // a game category replaces the equipment-slot filter
+            intent_ = {};
             Step(bindings, button, "press");
         });
 
@@ -217,7 +219,7 @@ class ItemsScreen final : public Screen
             // A worn amulet belongs to one particular slot, not to every slot of the category.
             // The other slots offer only items that can go on there, never another slot's delete action.
             if (filter_slot == "amulet" && Field(fact, "worn") == "1" &&
-                (!worn.count(filter_) || worn[filter_]->label != Trim(row->CellText(0))))
+                (!worn.count(filter_) || Field(worn[filter_], "itemId").empty() || Field(worn[filter_], "itemId") != Field(fact, "itemId")))
                 continue;
             Json name{{"text", Trim(row->CellText(0))}};
             name["image"] = PictureOf(row->cells.empty() || row->cells[0].images.empty() ? nullptr : &row->cells[0].images[0]);
@@ -226,7 +228,7 @@ class ItemsScreen final : public Screen
             else if (Field(fact, "quest") == "1")
                 name["badge"] = "seal";
             const int count = Number(row->CellText(2));
-            rows.push_back(Json{{"cells", Json::array({name, count > 1 ? "\xC3\x97" + std::to_string(count) : std::string(), Decimal(Trim(row->CellText(3)), admitted.model->language)})},
+            rows.push_back(Json{{"id", row->row_id}, {"cells", Json::array({name, count > 1 ? "\xC3\x97" + std::to_string(count) : std::string(), Decimal(Trim(row->CellText(3)), admitted.model->language)})},
                                 {"selected", row->value == "1"}});
             shown.push_back(row);
         }
@@ -253,7 +255,8 @@ class ItemsScreen final : public Screen
         {
             const bool listed = std::find(shown.begin(), shown.end(), selected) != shown.end();
             const Widget *fact = facts.count(selected->index) ? facts[selected->index] : nullptr;
-            const bool held = worn.count(filter_) && worn[filter_]->label == Trim(selected->CellText(0));
+            const bool held = worn.count(filter_) && !Field(fact, "itemId").empty() &&
+                              Field(worn[filter_], "itemId") == Field(fact, "itemId");
             if (!listed || (Field(fact, "worn") == "1" && !held))
                 selected = nullptr;
         }
@@ -329,12 +332,16 @@ class ItemsScreen final : public Screen
         return true;
     }
 
-    // The worn row of the item a slot holds (by the name ANDROID_SLOTS gives it).
-    const Widget *WornRow(const std::string &name) const
+    // Generated weapons can share their displayed name. Match the script item ID, never its label.
+    const Widget *WornRow(const std::string &item_id) const
     {
-        for (const Widget *row : a_->All("TABLE_ITEMS"))
-            if (Trim(row->CellText(0)) == name && Worn(*row))
-                return row;
+        if (item_id.empty())
+            return nullptr;
+        for (const Widget *fact : a_->All("ANDROID_ITEMS"))
+            if (Field(fact, "itemId") == item_id && Field(fact, "worn") == "1")
+                for (const Widget *row : a_->All("TABLE_ITEMS"))
+                    if (row->index == std::atoi(fact->row_id.c_str() + 2) - 1)
+                        return row;
         return nullptr;
     }
 
@@ -523,6 +530,8 @@ class ItemsScreen final : public Screen
         else if (kind == "amulet" && worn)
         {
             destroys = !Field(fact, "days").empty();
+            if (destroys)
+                label = bindings.Text("items.delete_hold");
             if (!destroys) // an artefact without a term stays in the bag (the game still writes «Удалить»)
                 label = bindings.Text("items.take_off");
         }

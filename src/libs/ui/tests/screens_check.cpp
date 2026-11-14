@@ -2183,6 +2183,8 @@ static void Items(const std::string &models)
 
     router.OnEvent({"item-tabs", "select", "3"});
     ExpectEqual(surface.Last(), "widget:items\tTABBTN_3\t-1\tpress", "a game tab");
+    Expect(surface.props["slots"][0]["selected"] == false && surface.props["rows"].size() == 3,
+           "a game category clears the previous blade-slot filter while its response is pending");
     router.OnEvent({"header", "subject-next", ""});
     ExpectEqual(surface.Last(), "widget:items\tCHARACTERS_SCROLL\t1\tselect@5:1:1", "the next officer's items");
     router.OnEvent({"header", "subject-list", ""});
@@ -2228,7 +2230,7 @@ static void ItemCategories(const std::string &models)
         {"a weapon in the bag", {{"slot", "blade"}, {"worn", "0"}, {"action", "equip"}}, "Equip", true,
          {{"label", "Equip"}, {"variant", "primary"}, {"hold", false}, {"disabled", false}}},
         {"a worn timed artefact: taking it off uses it up, held to confirm", {{"slot", "amulet"}, {"worn", "1"}, {"action", "amulet"}, {"days", "70"}, {"remain", "64"}},
-         "Delete", true, {{"label", "Delete"}, {"variant", "danger"}, {"hold", true}, {"disabled", false}}},
+         "Delete", true, {{"label", "<items.delete_hold>"}, {"variant", "danger"}, {"hold", true}, {"disabled", false}}},
         {"a worn artefact without a term stays in the bag: taken off", {{"slot", "amulet"}, {"worn", "1"}, {"action", "amulet"}}, "Delete", true,
          {{"label", "<items.take_off>"}, {"variant", "primary"}, {"hold", false}, {"disabled", false}}},
         {"an artefact in the bag goes on", {{"slot", "amulet"}, {"worn", "0"}, {"action", "amulet"}, {"days", "70"}}, "Equip", true,
@@ -2329,9 +2331,10 @@ static void ItemCategories(const std::string &models)
         InterfaceModel model = Load(models, "items.json");
         for (Widget &widget : model.widgets)
             if (widget.node == "ANDROID_ITEMS" && widget.row_id == "tr1")
-                widget.context = {{"slot", "amulet"}, {"worn", "1"}, {"action", "amulet"}, {"days", "70"}};
+                widget.context = {{"slot", "amulet"}, {"worn", "1"}, {"action", "amulet"}, {"days", "70"}, {"itemId", "fixture-item-tr1"}};
         Widget slot = Make("ANDROID_SLOTS", "fact", "Rapier");
         slot.row_id = "slot1";
+        slot.context["itemId"] = "fixture-item-tr1";
         model.widgets.push_back(slot);
         router.SetInterface(model);
         Expect(surface.props["detail"]["action"]["hold"] == true, "timed amulet starts held to confirm");
@@ -2345,6 +2348,27 @@ static void ItemCategories(const std::string &models)
         router.OnEvent({"slot-slot1", "click", ""});
         Expect(surface.props["detail"]["title"] == "Rapier" && surface.props["detail"]["action"]["hold"] == true,
                "the occupied amulet slot exposes only its own held action");
+    }
+    {
+        FakeSurface surface;
+        Router router(surface);
+        InterfaceModel model = Load(models, "items.json");
+        for (Widget &widget : model.widgets)
+        {
+            if (widget.node == "TABLE_ITEMS")
+            {
+                widget.cells[0].text = "Same display name";
+                widget.value = widget.index == 2 ? "1" : "0";
+            }
+            if (widget.node == "ANDROID_ITEMS" && widget.row_id == "tr2")
+                widget.context["worn"] = "1";
+            if (widget.node == "ANDROID_SLOTS")
+                widget.label = "Same display name", widget.context["itemId"] = "fixture-item-tr2";
+        }
+        router.SetInterface(model);
+        router.OnEvent({"slot-blade", "click", ""});
+        ExpectEqual(surface.Last(), "widget:items\tTABLE_ITEMS\t1\tselect@5:inventory:9:character:1:role:0",
+                    "identical display names select the slot's stable item ID, not the first worn row");
     }
     {
         FakeSurface surface;

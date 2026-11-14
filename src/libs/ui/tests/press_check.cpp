@@ -206,6 +206,13 @@ static fs::path MakePack(const fs::path &base, const fs::path &font)
     for (int i = 0; i < 8; ++i)
         story += greeting + " ";
     Write(pack / "grow-long.rml", with(story));
+    std::string inventory = "<rml><head><style>body { font-family: LatoLatin; width: 800dp; height: 400dp; } s-items { display: block; }"
+                            " #inventory-list { display: block; width: 300dp; height: 120dp; overflow-y: auto; }"
+                            " .ig-row { display: block; height: 40dp; }</style></head><body><s-items><div id=\"inventory-list\">";
+    for (int i = 0; i < 8; ++i)
+        inventory += "<div id=\"inventory-row-" + std::to_string(i) + "\" class=\"ig-row" + (i == 7 ? " sel" : "") +
+                     "\" data-item-id=\"stable-" + std::to_string(i) + "\">Item</div>";
+    Write(pack / "inventory-reveal.rml", inventory + "</div></s-items></body></rml>");
     return pack;
 }
 
@@ -855,6 +862,45 @@ int main(int argc, char **argv)
         Expect(near(top, 820.0f), "the last row opens: the list goes to its end, no fade to clear (" + std::to_string(top) + ", want 820)");
         top = open(0);
         Expect(near(top, 0.0f), "a row above the view opens: its top comes to the top edge (" + std::to_string(top) + ")");
+    }
+
+    Expect(host->LoadDocument("inventory-reveal.rml"), "the compact inventory list loads");
+    frames(0.1);
+    {
+        const auto find = [](const char *id) -> Rml::Element * {
+            Rml::Context *context = Rml::GetContext("storm-ui");
+            for (int i = 0; context && i < context->GetNumDocuments(); ++i)
+                if (Rml::Element *element = context->GetDocument(i)->GetElementById(id))
+                    return element;
+            return nullptr;
+        };
+        Rml::Element *list = find("inventory-list");
+        Rml::Element *last = find("inventory-row-7");
+        Rml::Element *previous = find("inventory-row-6");
+        Expect(list && last && previous, "inventory reveal fixture is laid out");
+        if (list && last && previous)
+        {
+            const auto visible = [list](Rml::Element *row) {
+                const float top = row->GetAbsoluteOffset(Rml::BoxArea::Border).y;
+                const float list_top = list->GetAbsoluteOffset(Rml::BoxArea::Content).y;
+                return top >= list_top - 0.1f && top + row->GetBox().GetSize(Rml::BoxArea::Border).y <=
+                           list_top + list->GetBox().GetSize(Rml::BoxArea::Content).y + 0.1f;
+            };
+            Expect(list->GetScrollTop() > 0 && visible(last), "initial last inventory row is wholly revealed; scroll=" + std::to_string(list->GetScrollTop()) + " rowY=" + std::to_string(last->GetAbsoluteOffset(Rml::BoxArea::Border).y) + " listH=" + std::to_string(list->GetBox().GetSize(Rml::BoxArea::Content).y));
+            list->SetScrollTop(0);
+            frames(0.1);
+            Expect(list->GetScrollTop() == 0, "manual scrolling is preserved while selection stays the same");
+            last->SetClass("sel", false);
+            previous->SetClass("sel", true);
+            frames(0.1);
+            Expect(list->GetScrollTop() > 0 && visible(previous), "a newly selected inventory row is wholly revealed");
+            previous->SetClass("sel", false);
+            frames(0.1);
+            list->SetScrollTop(0);
+            previous->SetClass("sel", true);
+            frames(0.1);
+            Expect(list->GetScrollTop() > 0 && visible(previous), "returning from a slot filter reveals the selected item again");
+        }
     }
 
     host.reset();
