@@ -427,19 +427,21 @@ void NormalMaps::end_frame()
                             now.gloss_missing == logged_.gloss_missing;
     if (gloss_same && now.resident == logged_.resident && now.materials == logged_.materials && now.bytes == logged_.bytes && now.waiting == logged_.waiting &&
         now.missing == logged_.missing && now.unqueued == logged_.unqueued && now.derived == logged_.derived && rest == logged_rest_ &&
-        generator.made == logged_made_)
+        generator.made == logged_made_ && generator.device == logged_device_)
         return;
     logged_ = now;
     logged_rest_ = rest;
     logged_made_ = generator.made;
+    logged_device_ = generator.device;
     shim::logf("effects relief: %u normal maps resident (%.1f MB, max %d px; %u with a material texture (height, gloss), %.1f MB of "
                "it); %u loaded textures waiting for their map, "
                "%u more of the game to make in the background%s; %u maps made (%.0f ms, slowest %.0f ms); %u without "
-               "a map (generation unavailable); %u height maps derived (%.0f ms); %u loaded while relief was off",
+               "a map (generation unavailable); %u height maps derived (%.0f ms); %u loaded while relief was off; models on %s",
                now.resident, static_cast<double>(now.bytes) / 1048576.0, max_size_, now.materials,
                static_cast<double>(now.material_bytes) / 1048576.0, now.waiting, rest,
                generator.hot ? " (paused: the device is hot)" : "", generator.made, generator.made_ms,
-               generator.slowest_ms, now.missing, now.derived, now.derive_ms, now.unqueued);
+               generator.slowest_ms, now.missing, now.derived, now.derive_ms, now.unqueued,
+               generator.device.empty() ? "(not loaded)" : generator.device.c_str());
     if (!gloss_same)
         shim::logf("effects gloss: %u gloss maps resident (%.1f MB, max %d px); %u loaded textures waiting for their map; "
                    "%u without a map (generation unavailable); %u loaded while gloss was off",

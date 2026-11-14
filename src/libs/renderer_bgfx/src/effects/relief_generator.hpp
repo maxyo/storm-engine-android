@@ -71,6 +71,7 @@ class ReliefGenerator
         double made_ms = 0.0;      // their worker time
         double slowest_ms = 0.0;   // the slowest of them
         bool hot = false;          // paused by the thermal status
+        std::string device;        // where the networks run (relief::Session's provider), once loaded
     };
     Stats stats();
 

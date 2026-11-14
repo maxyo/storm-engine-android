@@ -324,10 +324,87 @@ const char *DeviceName(Device device)
     return device == Device::Gpu ? "GPU" : "CPU";
 }
 
+namespace
+{
+std::filesystem::path MarkerFile(const std::filesystem::path &cache)
+{
+    return cache / "relief-gpu-running.txt";
+}
+std::filesystem::path CrashFile(const std::filesystem::path &cache)
+{
+    return cache / "relief-gpu-crashed.txt";
+}
+} // namespace
+
+std::string GpuLabel(const GpuDevice &gpu)
+{
+    return gpu.name + ", driver " + gpu.driver;
+}
+
+void MarkGpuRunning(const std::filesystem::path &cache, const std::string &what)
+{
+    std::error_code ignored;
+    std::filesystem::create_directories(cache, ignored);
+    // Written through before the GPU work starts: a crash inside the driver leaves it behind.
+    std::ofstream out(MarkerFile(cache), std::ios::trunc);
+    out << what << "\n" << std::flush;
+}
+
+void ClearGpuRunning(const std::filesystem::path &cache)
+{
+    std::error_code ignored;
+    std::filesystem::remove(MarkerFile(cache), ignored);
+}
+
+std::string GpuCrash(const std::filesystem::path &cache)
+{
+    std::ifstream in(CrashFile(cache));
+    std::string line;
+    std::getline(in, line);
+    return line;
+}
+
 Device ChooseDevice(const std::filesystem::path &cache, Network &cpu, std::span<const uint8_t> gpu_param,
                     std::span<const uint8_t> gpu_bin, int halo, int threads)
 {
+    // The crash guard: the marker of GPU work (MarkGpuRunning) left from the last run means the process died in it.
+    // That GPU and driver take the CPU from then on (relief-gpu-crashed.txt; «Очистить кэш» clears it); a crash before
+    // the GPU was known keeps Vulkan closed altogether.
+    std::error_code ignored;
+    {
+        std::ifstream in(MarkerFile(cache));
+        std::string what;
+        if (std::getline(in, what))
+        {
+            in.close();
+            if (what == kGpuOpening)
+                Log("ERROR: relief GPU inference crashed the previous run while Vulkan opened: using the CPU");
+            else
+                Log("ERROR: relief GPU inference crashed the previous run on %s: using the CPU", what.c_str());
+            std::filesystem::create_directories(cache, ignored);
+            std::ofstream(CrashFile(cache), std::ios::trunc) << what << "\n";
+            ClearGpuRunning(cache);
+        }
+    }
+    const std::string crash = GpuCrash(cache);
+    if (crash == kGpuOpening)
+    {
+        Log("relief device: CPU (Vulkan crashed a previous run while it opened)");
+        return Device::Cpu;
+    }
+    MarkGpuRunning(cache, kGpuOpening);
     const GpuDevice &gpu = Gpu();
+    ClearGpuRunning(cache);
+    if (!crash.empty())
+    {
+        if (crash == GpuLabel(gpu))
+        {
+            Log("relief device: CPU (GPU inference crashed a previous run on %s)", crash.c_str());
+            return Device::Cpu;
+        }
+        // Another GPU or driver since: measured again.
+        std::filesystem::remove(CrashFile(cache), ignored);
+    }
     if (!gpu.available)
     {
         Log("relief device: CPU (%s)", gpu.why.c_str());
@@ -362,10 +439,13 @@ Device ChooseDevice(const std::filesystem::path &cache, Network &cpu, std::span<
         return true;
     };
     double cpu_ms = 0.0, gpu_ms = 0.0;
+    MarkGpuRunning(cache, GpuLabel(gpu));
     const Clock::time_point warm = Clock::now();
     std::unique_ptr<Network> probe = LoadGpuNetwork(gpu_param, gpu_bin, halo, 1, error);
     const bool gpu_ok = probe && time(*probe, gpu_ms);
     const double gpu_first_ms = Ms(warm) - gpu_ms;
+    probe.reset();
+    ClearGpuRunning(cache);
     if (!gpu_ok)
     {
         Log("relief device: CPU (the GPU %s failed the probe: %s)", gpu.name.c_str(), error.c_str());
@@ -382,7 +462,6 @@ Device ChooseDevice(const std::filesystem::path &cache, Network &cpu, std::span<
                   size, size, gpu_ms, gpu_first_ms, cpu_ms, threads);
     Log("relief device: %s (measured now on %s, driver %s: %s)", DeviceName(device), gpu.name.c_str(), gpu.driver.c_str(),
         numbers);
-    std::error_code ignored;
     std::filesystem::create_directories(cache, ignored);
     std::ofstream(file, std::ios::trunc) << key << "\n" << DeviceName(device) << "\n" << numbers << "\n";
     return device;

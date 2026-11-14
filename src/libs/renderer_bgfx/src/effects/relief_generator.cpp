@@ -250,9 +250,14 @@ bool ReliefGenerator::open_session()
         bytes += model.size();
     shim::logf("effects: relief generation: PBRify models loaded (%.1f MB) on %s in %.0f ms",
                static_cast<double>(bytes) / 1048576.0, session->stats().provider.c_str(), Ms(start));
+    // Into the game's log (and so the diagnostics): the library's own log reaches only logcat.
+    if (!session->stats().gpu_crash.empty())
+        shim::logf("ERROR: effects: relief GPU inference crashed the previous run on %s: using the CPU",
+                   session->stats().gpu_crash.c_str());
     std::lock_guard lock(mutex_);
     if (stopping_)
         return false;
+    stats_.device = session->stats().provider;
     session_ = std::move(session);
     running_ = session_.get();
     return true;

@@ -9,6 +9,7 @@
 #include "storm/fx/height_map.hpp"
 #include "storm/fx/relief_store.hpp"
 
+#include <unistd.h>
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -178,6 +179,52 @@ int main(int argc, char **argv)
     }
     else
         std::printf("no GPU check: %s\n", relief::Gpu().why.c_str());
+    // The crash guard (backend.hpp MarkGpuRunning): a marker left behind by a run that died in the GPU's driver.
+    {
+        const relief::Models all{files[0], files[1], files[2], files[3], files[4], files[5], files[6], files[7], files[8]};
+        const std::filesystem::path cache = root / "crash";
+        std::string error;
+        std::string logged; // what the library logged (stderr) during open()
+        const auto open = [&] {
+            std::fflush(stderr);
+            const int saved = dup(2);
+            const std::filesystem::path log = root / "stderr.txt";
+            std::freopen(log.string().c_str(), "w", stderr);
+            const auto session = relief::Session::Open(all, 2, cache, error);
+            std::string provider = session ? session->stats().provider : std::string("failed: ") + error;
+            std::fflush(stderr);
+            dup2(saved, 2);
+            close(saved);
+            std::ifstream in(log);
+            logged.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+            return provider;
+        };
+        const auto running = [&] { return std::filesystem::exists(cache / "relief-gpu-running.txt"); };
+        // Died while Vulkan opened: the CPU, Vulkan never touched again (until «Очистить кэш»).
+        relief::MarkGpuRunning(cache, relief::kGpuOpening);
+        std::string provider = open();
+        CHECK(provider.rfind("CPU", 0) == 0 && relief::GpuCrash(cache) == relief::kGpuOpening && !running());
+        CHECK(logged.find("ERROR: relief GPU inference crashed the previous run") != std::string::npos);
+        CHECK(open().rfind("CPU", 0) == 0);
+        std::filesystem::remove_all(cache);
+        if (relief::Gpu().available)
+        {
+            const std::string gpu = relief::GpuLabel(relief::Gpu());
+            // Died in this GPU's inference: the CPU for this GPU and driver, from then on.
+            relief::MarkGpuRunning(cache, gpu);
+            provider = open();
+            std::printf("after a crash on %s: %s\n", gpu.c_str(), provider.c_str());
+            CHECK(provider.rfind("CPU", 0) == 0 && relief::GpuCrash(cache) == gpu && !running());
+            CHECK(logged.find("ERROR: relief GPU inference crashed the previous run on " + gpu + ": using the CPU") !=
+                  std::string::npos);
+            CHECK(open().rfind("CPU", 0) == 0);
+            // Another driver since: measured again, and no marker is left by a clean run.
+            std::ofstream(cache / "relief-gpu-crashed.txt", std::ios::trunc) << "Other GPU, driver 1.0.0\n";
+            provider = open();
+            CHECK(relief::GpuCrash(cache).empty() && !running());
+            std::printf("after another GPU's crash: %s\n", provider.c_str());
+        }
+    }
     std::filesystem::remove_all(root);
     if (failures)
     {

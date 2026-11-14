@@ -42,7 +42,7 @@ void Log(const char *format, ...)
     std::vsnprintf(buffer, sizeof(buffer), format, args);
     va_end(args);
 #ifdef __ANDROID__
-    __android_log_print(ANDROID_LOG_INFO, "storm-relief", "%s", buffer);
+    __android_log_print(std::strncmp(buffer, "ERROR", 5) == 0 ? ANDROID_LOG_ERROR : ANDROID_LOG_INFO, "storm-relief", "%s", buffer);
 #endif
     std::fprintf(stderr, "[storm-relief] %s\n", buffer); // the shell tool on a device too (nowhere in the app)
 }
@@ -345,7 +345,15 @@ struct Session::Impl
 {
     std::unique_ptr<CpuRuntime> runtime;                // before the networks: released after them
     std::unique_ptr<Network> normal, height, roughness; // PBRify's three networks, on the chosen device
+    std::filesystem::path cache;
+    bool gpu_unproven = false; // on the GPU, before its first texture: the crash guard's marker is written around it
     Stats stats;
+    ~Impl()
+    {
+        // Closed before the GPU's first texture (no work came): nothing crashed.
+        if (gpu_unproven)
+            ClearGpuRunning(cache);
+    }
     std::atomic<bool> cancelled{false};
 };
 
@@ -374,8 +382,12 @@ std::unique_ptr<Session> Session::Open(const Models &models, int threads, const 
                                      : Device::Cpu;
     if (!gpu_models)
         Log("relief device: CPU (no ncnn graphs given)");
+    impl->cache = cache;
+    impl->gpu_unproven = device == Device::Gpu;
     if (device == Device::Gpu)
     {
+        // The networks' pipelines are made on the GPU now: the crash guard's marker stays until the first texture.
+        MarkGpuRunning(cache, GpuLabel(Gpu()));
         impl->normal = LoadGpuNetwork(models.normal_param, models.normal_bin, fx::kReliefModelPad, 1, error);
         if (impl->normal)
             impl->height = LoadGpuNetwork(models.height_param, models.height_bin, fx::kReliefModelPad, 1, error);
@@ -394,6 +406,7 @@ std::unique_ptr<Session> Session::Open(const Models &models, int threads, const 
         return nullptr;
     }
     impl->stats.provider = impl->normal->Describe();
+    impl->stats.gpu_crash = GpuCrash(cache);
     return std::unique_ptr<Session>(new Session(std::move(impl)));
 }
 
@@ -485,6 +498,9 @@ Outcome Session::PrepareFile(const std::filesystem::path &textures, const std::f
             return ok;
         });
     };
+    // The crash guard around the GPU's first texture (backend.hpp MarkGpuRunning).
+    if (impl_->gpu_unproven)
+        MarkGpuRunning(impl_->cache, GpuLabel(Gpu()));
     const bool height_class = key && fx::ReliefHasHeight(relief);
     const bool gloss_wanted = candidate->gloss != fx::GlossClass::None && (height_class || gloss_key);
     bool failed = false;
@@ -518,6 +534,11 @@ Outcome Session::PrepareFile(const std::filesystem::path &textures, const std::f
         }
     }
     impl_->stats.infer_seconds += infer_ms / 1000.0;
+    if (impl_->gpu_unproven && !failed)
+    {
+        ClearGpuRunning(impl_->cache);
+        impl_->gpu_unproven = false;
+    }
     const double model_ms = lap(); // the inputs, padding and crops around the inferences, and the inferences
     if (impl_->cancelled)
     {

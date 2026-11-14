@@ -68,4 +68,14 @@ const char *DeviceName(Device device);
 Device ChooseDevice(const std::filesystem::path &cache, Network &cpu, std::span<const uint8_t> gpu_param,
                     std::span<const uint8_t> gpu_bin, int halo, int threads);
 
+// The crash guard of the GPU work (ChooseDevice): `cache`'s marker holds GpuLabel of the GPU (kGpuOpening while Vulkan
+// opens), written before GPU work starts and cleared after it succeeded. One left behind at the next start means the
+// process died in the driver: logged at error, that GPU and driver take the CPU («Очистить кэш» clears it).
+inline constexpr const char *kGpuOpening = "opening Vulkan";
+std::string GpuLabel(const GpuDevice &gpu); // "<name>, driver <version>"
+void MarkGpuRunning(const std::filesystem::path &cache, const std::string &what);
+void ClearGpuRunning(const std::filesystem::path &cache);
+// The GPU (GpuLabel) or kGpuOpening that crashed a previous run, or empty.
+std::string GpuCrash(const std::filesystem::path &cache);
+
 } // namespace storm::relief

@@ -167,6 +167,7 @@ class NormalMaps
     std::chrono::steady_clock::time_point now_ = std::chrono::steady_clock::now(); // this frame's, for the fade
     Stats logged_{};
     uint32_t logged_rest_ = 0, logged_made_ = 0;
+    std::string logged_device_;
     struct Counters
     {
         std::atomic<uint32_t> derived{0};
