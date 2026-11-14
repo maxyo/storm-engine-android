@@ -1128,6 +1128,20 @@ static void Transfer(const std::string &models)
         back_surface.commands.clear();
         back_router.OnEvent({"primary", "click", ""});
         Expect(back_surface.commands == std::vector<std::string>(3, prefix + "B_RIGHT\t-1\tpress"), "three packs given: " + Json(back_surface.commands).dump());
+        {
+            // Back from the crew window the game hides both arrows (its focus is off the table): the row is selected
+            // again once, and not on every build while they stay hidden.
+            InterfaceModel hidden = Load(models, "transfer-loot-row.json");
+            hidden.widgets.erase(std::remove_if(hidden.widgets.begin(), hidden.widgets.end(), [](const Widget &w) { return w.node == "B_LEFT" || w.node == "B_RIGHT"; }),
+                                 hidden.widgets.end());
+            FakeSurface hidden_surface;
+            Router hidden_router(hidden_surface);
+            hidden_router.SetInterface(hidden);
+            hidden.revision += 1;
+            hidden_router.SetInterface(hidden);
+            const auto selects = std::count(hidden_surface.commands.begin(), hidden_surface.commands.end(), prefix + "TABLE_LIST\t0\tselect");
+            Expect(selects == 1, "arrows hidden: the selected row is selected again once: " + Json(hidden_surface.commands).dump());
+        }
         Expect(back_surface.props["list"]["rows"][0]["facts"][0]["icon"] == "weight" && back_surface.props["list"]["rows"][0]["facts"][1]["v"] == "<trade.per_units>",
                "the dock says what a pack weighs and how many pieces it is");
     }
@@ -1206,7 +1220,7 @@ static void Transfer(const std::string &models)
         // Owner 2026-11-14: the slider marks the least crew each ship sails with (MinCrew): ours where our crew is
         // 9, theirs where what we leave them is their 21 (96 + 58 - 21 = 133).
         const Json &marks = surface.props["crew"]["rows"][0]["q"]["marks"];
-        Expect(marks.size() == 2 && marks[0]["at"] == 9 && marks[1]["at"] == 133 && marks[0]["label"] == "<transfer.min_mark>",
+        Expect(marks.size() == 2 && marks[0]["at"] == 9 && marks[1]["at"] == 133 && marks[0]["label"] == "Корабль 1 <transfer.min_mark>" && marks[1]["label"] == "Корабль 2 <transfer.min_mark>",
                "crew: the two MinCrew marks on our crew's scale: " + marks.dump());
         const Json &cells = surface.props["crew"]["rows"][0]["cells"];
         Expect(cells[0]["text"] == "96" && cells[0]["sub"] == "<transfer.min_mark>" && cells[1]["text"] == "58" && cells[1]["sub"] == "<transfer.min_mark>",

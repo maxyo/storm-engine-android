@@ -575,9 +575,16 @@ class TransferScreen final : public Screen
             }
             row["facts"] = facts;
         }
-        // The game hides both arrows while its focus is off the table (ProcessFrame), as after the crew window: a tap
-        // on the selected row then selects it again, which brings the focus and the arrows back.
+        // The game hides both arrows while its focus is off the table (ProcessFrame), as after the crew window: the
+        // selected row is selected again once, which brings the focus and the arrows back (a tap on it does too).
         const bool arrowless = !take && !give;
+        if (!arrowless || !selected)
+            reselected_ = -1;
+        else if (reselected_ != selected->index && selected->Offers("select"))
+        {
+            reselected_ = selected->index;
+            bindings.Send(*selected, "select", selected->row_id);
+        }
         bindings.On("goods", "row", [this, &bindings, goods, selected, arrowless](const Event &event) {
             const size_t index = static_cast<size_t>(std::atoi(event.value.c_str()));
             quick_row_ = -1;
@@ -695,13 +702,25 @@ class TransferScreen final : public Screen
             give = std::min(give, free);
         limits.low = our - give;
         limits.high = our + take;
-        // Our MinCrew where our crew is that many; theirs where what we leave them is their MinCrew.
-        const auto mark = [&](int at, int minimum) {
-            if (minimum > 0 && at >= limits.low && at <= limits.high)
-                limits.marks.push_back(Json{{"at", at}, {"label", Fill(bindings.Text("transfer.min_mark"), {std::to_string(minimum)})}});
+        // Our MinCrew where our crew is that many; theirs where what we leave them is their MinCrew. Each mark names
+        // its ship (a long name cut to 12 letters): the scale is ours, so theirs would read as our number otherwise.
+        const auto mark = [&](int at, int minimum, const std::string &ship) {
+            if (minimum <= 0 || at < limits.low || at > limits.high)
+                return;
+            std::string name = ship;
+            if (Length(name) > 12)
+            {
+                size_t cut = 0;
+                for (size_t points = 0; cut < name.size() && points < 11; ++points)
+                    for (++cut; cut < name.size() && (static_cast<unsigned char>(name[cut]) & 0xC0) == 0x80; ++cut)
+                        ;
+                name = name.substr(0, cut) + "\xE2\x80\xA6";
+            }
+            const std::string minimum_text = Fill(bindings.Text("transfer.min_mark"), {std::to_string(minimum)});
+            limits.marks.push_back(Json{{"at", at}, {"label", name.empty() ? minimum_text : name + " " + minimum_text}});
         };
-        mark(limits.min_ours, limits.min_ours);
-        mark(our + their - limits.min_theirs, limits.min_theirs);
+        mark(limits.min_ours, limits.min_ours, Trim(admitted.Label("SHIP_NAME")));
+        mark(our + their - limits.min_theirs, limits.min_theirs, Trim(admitted.Label("SHIP_NAME2")));
         return limits;
     }
 
@@ -835,6 +854,7 @@ class TransferScreen final : public Screen
     uint64_t limits_reported_ = 0; // the opening whose missing crew limits were reported
     Amount hire_;              // the defectors' number: the game's own window holds it until its OK
     bool ships_open_ = false; // the «Корабли» tab of ours
+    int reselected_ = -1;   // the cargo row selected again to bring the game's arrows back (once while they are hidden)
     int quick_row_ = -1;    // the cargo row (the game's index: its rows carry no identity) whose whole stock is taken once the game selects it
     int hire_max_ = 0;
     bool hire_seen_ = false;
