@@ -575,10 +575,13 @@ class TransferScreen final : public Screen
             }
             row["facts"] = facts;
         }
-        bindings.On("goods", "row", [this, &bindings, goods, selected](const Event &event) {
+        // The game hides both arrows while its focus is off the table (ProcessFrame), as after the crew window: a tap
+        // on the selected row then selects it again, which brings the focus and the arrows back.
+        const bool arrowless = !take && !give;
+        bindings.On("goods", "row", [this, &bindings, goods, selected, arrowless](const Event &event) {
             const size_t index = static_cast<size_t>(std::atoi(event.value.c_str()));
             quick_row_ = -1;
-            if (index < goods.size() && goods[index] != selected && goods[index]->Offers("select"))
+            if (index < goods.size() && (goods[index] != selected || arrowless) && goods[index]->Offers("select"))
                 bindings.Send(*goods[index], "select", goods[index]->row_id);
         });
         bindings.On("goods", "quick", [this, &bindings, goods, selected](const Event &event) {
