@@ -1006,23 +1006,24 @@ Renderer::~Renderer()
     S_RELEASE(rectsVBuffer, 8);
     S_RELEASE(pDropConveyorVBuffer, 9);
 
-    delete progressImage;
+    delete[] progressImage;
     progressImage = nullptr;
-    delete progressBackImage;
+    delete[] progressBackImage;
     progressBackImage = nullptr;
-    delete progressTipsImage;
+    delete[] progressTipsImage;
     progressTipsImage = nullptr;
 
     for (int i = 0; i < nFontQuantity; i++)
     {
         delete FontList[i].font;
 
-        delete FontList[i].name;
+        delete[] FontList[i].name;
     }
     nFontQuantity = 0;
-    delete fontIniFileName;
+    delete[] fontIniFileName;
 
-    STORM_DELETE(sphereVertex);
+    delete[] sphereVertex;
+    sphereVertex = nullptr;
     ReleaseDevice();
     pRS = nullptr;
 }
@@ -1220,7 +1221,7 @@ bool Renderer::ReleaseDevice()
         {
             Textures[t].d3dtex->Release();
             Textures[t].ref = NULL;
-            delete Textures[t].name;
+            delete[] Textures[t].name;
         }
 
     if (d3d9 != nullptr)
@@ -1486,7 +1487,8 @@ int32_t Renderer::TextureCreate(const char *fname)
         if (TextureLoad(t))
             return t;
         Textures[t].ref--;
-        STORM_DELETE(Textures[t].name);
+        delete[] Textures[t].name;
+        Textures[t].name = nullptr;
     }
     return -1;
 }
@@ -1743,7 +1745,7 @@ bool Renderer::TextureLoad(int32_t t)
         {
             core.Trace("Can't load texture %s", fn);
         }
-        delete Textures[t].name;
+        delete[] Textures[t].name;
         Textures[t].name = nullptr;
         return false;
     }
@@ -1755,7 +1757,7 @@ bool Renderer::TextureLoad(int32_t t)
         {
             core.Trace("Can't load texture %s", fn);
         }
-        delete Textures[t].name;
+        delete[] Textures[t].name;
         Textures[t].name = nullptr;
         fio->_CloseFile(fileS);
         return false;
@@ -1776,7 +1778,7 @@ bool Renderer::TextureLoad(int32_t t)
         {
             core.Trace("Invalidate texture format %s, not loading it.", fn);
         }
-        delete Textures[t].name;
+        delete[] Textures[t].name;
         Textures[t].name = nullptr;
         fio->_CloseFile(fileS);
         return false;
@@ -1819,7 +1821,7 @@ bool Renderer::TextureLoad(int32_t t)
                     "Texture %s is not created (width: %i, height: %i, num mips: %i, format: %s), not loading it.", fn,
                     head.width, head.height, head.nmips, formatTxt);
             }
-            delete Textures[t].name;
+            delete[] Textures[t].name;
             Textures[t].name = nullptr;
             fio->_CloseFile(fileS);
             return false;
@@ -1855,7 +1857,7 @@ bool Renderer::TextureLoad(int32_t t)
                                "format: %s), not loading it.",
                                m, fn, head.width, head.height, head.nmips, formatTxt);
                 }
-                delete Textures[t].name;
+                delete[] Textures[t].name;
                 Textures[t].name = nullptr;
                 fio->_CloseFile(fileS);
                 tex->Release();
@@ -1880,7 +1882,7 @@ bool Renderer::TextureLoad(int32_t t)
             {
                 core.Trace("Cube map texture can't has not squared sides %s, not loading it.", fn);
             }
-            delete Textures[t].name;
+            delete[] Textures[t].name;
             Textures[t].name = nullptr;
             fio->_CloseFile(fileS);
             return false;
@@ -1894,7 +1896,7 @@ bool Renderer::TextureLoad(int32_t t)
                 core.Trace("Cube map texture %s is not created (size: %i, num mips: %i, format: %s), not loading it.",
                            fn, head.width, head.nmips, formatTxt);
             }
-            delete Textures[t].name;
+            delete[] Textures[t].name;
             Textures[t].name = nullptr;
             fio->_CloseFile(fileS);
             return false;
@@ -1914,7 +1916,7 @@ bool Renderer::TextureLoad(int32_t t)
                 core.Trace("Cube map texture %s is not created (size: %i, num mips: %i, format: %s), not loading it.",
                            fn, head.width, head.nmips, formatTxt);
             }
-            delete Textures[t].name;
+            delete[] Textures[t].name;
             Textures[t].name = nullptr;
             fio->_CloseFile(fileS);
             return false;
@@ -2011,7 +2013,7 @@ bool Renderer::TextureLoad(int32_t t)
                 core.Trace("Cube map texture %s can't loading (size: %i, num mips: %i, format: %s), not loading it.",
                            fn, head.width, head.nmips, formatTxt);
             }
-            delete Textures[t].name;
+            delete[] Textures[t].name;
             Textures[t].name = nullptr;
             fio->_CloseFile(fileS);
             tex->Release();
@@ -2222,7 +2224,7 @@ bool Renderer::TextureRelease(int32_t texid)
             fclose(flstat);*/
         }
 
-        delete Textures[texid].name;
+        delete[] Textures[texid].name;
         Textures[texid].name = nullptr;
     }
     if (Textures[texid].loaded == false)
@@ -3321,7 +3323,7 @@ bool Renderer::SetFontIniFileName(const char *iniName)
     if (fontIniFileName != nullptr && iniName != nullptr && storm::iEquals(fontIniFileName, iniName))
         return true;
 
-    delete fontIniFileName;
+    delete[] fontIniFileName;
     if (iniName == nullptr)
     {
         fontIniFileName = nullptr;
@@ -3980,7 +3982,7 @@ CVideoTexture *Renderer::GetVideoTexture(const char *sVideoName)
             }
             VideoTextureEntity *pVTmp = pVTLcur;
             pVTLcur = pVTLcur->next;
-            delete pVTmp->name;
+            delete[] pVTmp->name;
             delete pVTmp;
             continue;
         }
@@ -4042,7 +4044,7 @@ void Renderer::ReleaseVideoTexture(CVideoTexture *pVTexture)
                 else
                     prev->next = cur->next;
                 core.EraseEntity(cur->videoTexture_id);
-                delete cur->name;
+                delete[] cur->name;
                 delete cur;
                 break;
             }
@@ -4063,7 +4065,7 @@ void Renderer::PlayToTexture()
         else
         {
             core.Trace("ERROR: void Renderer::PlayToTexture()");
-            delete cur->name;
+            delete[] cur->name;
             VideoTextureEntity *pcur = cur;
             cur = cur->next;
             if (pVTL == pcur)
@@ -4172,7 +4174,7 @@ void Renderer::SetProgressImage(const char *image)
     if (s > progressImageSize)
     {
         progressImageSize = s;
-        delete progressImage;
+        delete[] progressImage;
         progressImage = new char[progressImageSize];
     }
     strcpy_s(progressImage, s, image);
@@ -4190,7 +4192,7 @@ void Renderer::SetProgressBackImage(const char *image)
     if (s > progressBackImageSize)
     {
         progressBackImageSize = s;
-        delete progressBackImage;
+        delete[] progressBackImage;
         progressBackImage = new char[progressBackImageSize];
     }
     strcpy_s(progressBackImage, s, image);
@@ -4208,7 +4210,7 @@ void Renderer::SetTipsImage(const char *image)
     if (s > progressTipsImageSize)
     {
         progressTipsImageSize = s;
-        delete progressTipsImage;
+        delete[] progressTipsImage;
         progressTipsImage = new char[progressTipsImageSize];
     }
     memcpy(progressTipsImage, image, s);

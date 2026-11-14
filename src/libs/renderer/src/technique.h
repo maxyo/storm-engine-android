@@ -1,6 +1,7 @@
 #pragma once
 
 #include <unordered_map>
+#include <vector>
 
 #include "renderer.h"
 #include "shim/device.hpp"
@@ -91,7 +92,7 @@ class CTechnique
     // temporary used
     uint32_t dwNumParams;
     SRSPARAM *pParams;
-    uint32_t *pPassStorage;
+    std::vector<uint32_t> pPassStorage; // pass compile scratch, only while DecodeFiles runs
 
     // executed technique section
 

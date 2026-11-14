@@ -626,17 +626,17 @@ CTechnique::~CTechnique()
         {
             technique_t *pTech = &pB->pTechniques[j];
             for (k = 0; k < pTech->dwNumPasses; k++)
-                STORM_DELETE(pTech->pPasses[k].pPass);
+                delete[] pTech->pPasses[k].pPass;
             free(pTech->pPasses);
         }
-        STORM_DELETE(pB->pParams);
-        STORM_DELETE(pB->pBlockName);
+        free(pB->pParams);
+        delete[] pB->pBlockName;
         free(pB->pTechniques);
     }
     for (i = 0; i < dwNumShaders; i++)
     {
-        STORM_DELETE(pShaders[i].pName);
-        STORM_DELETE(pShaders[i].pDecl);
+        delete[] pShaders[i].pName;
+        free(pShaders[i].pDecl);
         if (pShaders[i].pPixelShader != nullptr)
         {
             pShaders[i].pPixelShader->Release();
@@ -878,7 +878,7 @@ uint32_t CTechnique::ProcessPass(char *pFile, uint32_t dwSize, char **pStr)
     pTechniques->pPasses = (pass_t *)realloc(pTechniques->pPasses, sizeof(pass_t) * (pTechniques->dwNumPasses + 1));
     pTechniques->pPasses[pTechniques->dwNumPasses] = {};
 
-    uint32_t *pPass = pPassStorage;
+    uint32_t *pPass = pPassStorage.data();
     uint32_t *pPassBegin = pPass;
     uint32_t dwTextureIndex, dwAdditionalFlags = 0;
     char *pTemp, temp[256];
@@ -1165,7 +1165,7 @@ uint32_t CTechnique::ProcessPass(char *pFile, uint32_t dwSize, char **pStr)
 
     uint32_t dwSizePass = pPass - pPassBegin;
     pPassBegin = new uint32_t[dwSizePass]; //(uint32_t*)RESIZE(pPassBegin,dwSizePass*sizeof(uint32_t));
-    memcpy(pPassBegin, pPassStorage, dwSizePass * sizeof(uint32_t));
+    memcpy(pPassBegin, pPassStorage.data(), dwSizePass * sizeof(uint32_t));
     pTechniques->pPasses[pTechniques->dwNumPasses].dwSize = dwSizePass;
     pTechniques->pPasses[pTechniques->dwNumPasses].isValidate = true;
     pTechniques->pPasses[pTechniques->dwNumPasses].pPass = pPassBegin;
@@ -1493,9 +1493,10 @@ uint32_t CTechnique::ProcessBlock(char *pFile, uint32_t dwSize, char **pStr)
 
     // delete parameters
     for (i = 0; i < dwNumParams; i++)
-        STORM_DELETE(pParams[i].cName);
+        delete[] pParams[i].cName;
     dwNumParams = 0;
-    STORM_DELETE(pParams);
+    free(pParams);
+    pParams = nullptr;
 
     sCurrentBlockName[0] = 0;
 
@@ -1529,11 +1530,11 @@ void CTechnique::DecodeFiles(char *sub_dir)
 {
     uint64_t dwRDTSC;
     RDTSC_B(dwRDTSC);
-    pPassStorage = new uint32_t[16384];
+    pPassStorage.resize(16384);
 
     InnerDecodeFiles(sub_dir);
 
-    STORM_DELETE(pPassStorage);
+    pPassStorage = {};
     RDTSC_E(dwRDTSC);
     uint32_t loadedShaders = 0;
     for (uint32_t i = 0; i < dwNumShaders; ++i)
@@ -1545,7 +1546,10 @@ void CTechnique::DecodeFiles(char *sub_dir)
 
     // some optimize
     for (uint32_t i = 0; i < dwNumBlocks; i++)
-        STORM_DELETE(pBlocks[i].pBlockName);
+    {
+        delete[] pBlocks[i].pBlockName;
+        pBlocks[i].pBlockName = nullptr;
+    }
 }
 
 void CTechnique::InnerDecodeFiles(char *sub_dir)
