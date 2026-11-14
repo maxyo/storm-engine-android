@@ -273,10 +273,10 @@ void Grass::PrepareHeights()
 
 void Grass::UpdateWindow(int32_t camx, int32_t camz)
 {
-    // The blocks Realize can draw: within GRASS_VEIW blocks of the camera's block, or within the visible distance
-    // (RenderBlock's test, in world units: the data scale shrinks the blocks)
-    int32_t reach = std::max<int32_t>(
-        GRASS_VEIW, static_cast<int32_t>(ceilf(m_fMaxVisibleDist / (m_fDataScale * GRASS_BLK_DST))) + 2);
+    // The blocks Realize can draw: those within the visible distance (RenderBlock's test, in world units: the data
+    // scale sizes the blocks), whichever square DrawGrass walks. GRASS_VEIW ignores the scale: for the island jungle
+    // seen from the sea (scale 10-20) it held a window five times as wide, tens of MB of blades never drawn.
+    int32_t reach = static_cast<int32_t>(ceilf(m_fMaxVisibleDist / (m_fDataScale * GRASS_BLK_DST))) + 2;
     // The window's 1/32-block places are 15 bits: 1023 blocks across
     if (reach > grass_pack::kMaxReach)
     {

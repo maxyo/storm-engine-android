@@ -50,8 +50,9 @@ struct MapElement // grs.h GRSMapElement
 
 inline constexpr uint32_t kGrassId = 0x73737247, kGrassVer = 0x30302E31; // grs.h GRASS_ID 'ssrG', GRASS_VER '00.1'
 
-// Grass::UpdateWindow's reach for the default GRASS_MAX_DIST 50 and data scale 1.
-inline constexpr int32_t kReach = std::max<int32_t>(static_cast<int32_t>(50.0f / 1.0f / 1.0f + 0.5f) + 1, 50 + 2);
+// Grass::UpdateWindow's reach, ceil(maxDist / (scale * GRASS_BLK_DST)) + 2, at its widest in the game: the island
+// jungle seen from the sea (sea.c: 1000 m at the default jungle scale 10). A location's grass (50 m, scale 1) is 52.
+inline constexpr int32_t kReach = 1000 / 10 + 2;
 
 inline int failures = 0;
 

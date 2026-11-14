@@ -6,4 +6,5 @@ game data in CI, `tools/ci/run_host_tests.py`). Run them before a release, like 
 
 - `grass_pack/run.py <game directory>`: every grass map (`.grs`) packs into the grass vertices
   (`src/libs/location/src/grass_pack.hpp`): positions exact, heights within half a step, the window within 15 bits.
-  Prints the largest map and the peak buffer of a window.
+  Prints the largest map and the peak buffer of a window at the widest reach the game asks for (the island jungle seen
+  from the sea).
