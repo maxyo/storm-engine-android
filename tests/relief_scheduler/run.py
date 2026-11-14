@@ -7,6 +7,7 @@ check=Path(__file__).resolve().parent
 with tempfile.TemporaryDirectory(prefix="storm-relief-scheduler-") as directory:
     output=Path(directory)/"check"
     subprocess.run([os.environ.get('CXX','c++'),'-std=c++20','-pthread','-Wall','-Wextra','-Werror',
+        '-fno-access-control', # fixture backdates the quiet deadline under the real queue mutex; no production hook
         '-ffunction-sections','-fdata-sections','-Wl,--gc-sections',
         '-fsanitize=address,undefined','-fno-sanitize-recover=all',
         '-I'+str(check/'stubs'),'-I'+str(root/'src/libs/renderer_bgfx/src'),

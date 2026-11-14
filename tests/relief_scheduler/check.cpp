@@ -21,6 +21,7 @@ std::atomic<int> status{2};
 std::atomic<float> forecast{0.95f};
 std::atomic<bool> hot{true}, block_job{false}, cancelled{false}, slow_open{false};
 std::atomic<int> opened{0}, started{0}, pause_after{0};
+std::atomic<bool> background_enabled{false}, background_complete{false};
 std::mutex events_mutex;
 std::vector<std::string> events;
 std::filesystem::path cache;
@@ -34,7 +35,7 @@ template<class Predicate> void until(Predicate predicate, const char *message) {
     expect(predicate(),message);
 }
 void reset() {
-    status=2; forecast=0.95f; hot=true; block_job=false; cancelled=false; slow_open=false; opened=0; started=0; pause_after=0;
+    status=2; forecast=0.95f; hot=true; block_job=false; cancelled=false; slow_open=false; opened=0; started=0; pause_after=0; background_enabled=false; background_complete=false;
     std::lock_guard lock(events_mutex); events.clear();
 }
 relief::Outcome infer(const std::filesystem::path &file, const char *lane) {
@@ -87,10 +88,12 @@ Outcome Session::PrepareFile(const std::filesystem::path&,const std::filesystem:
 Outcome Session::Upscale(const std::filesystem::path&,const std::filesystem::path &file,
     const UpscaleOutput&,int,std::string&) { return infer(file,"U:"); }
 bool ReleaseGpu() { return false; }
-std::vector<std::filesystem::path> List(const std::filesystem::path&) { return {}; }
+std::vector<std::filesystem::path> List(const std::filesystem::path&) {
+    return background_enabled ? std::vector<std::filesystem::path>{"background"} : std::vector<std::filesystem::path>{};
+}
 int Prune(const std::filesystem::path&,const std::vector<std::filesystem::path>&,const std::filesystem::path&,int) { return 0; }
-void MarkComplete(const std::filesystem::path&,int,size_t) {}
-bool Complete(const std::filesystem::path&,int,size_t,int*) { return true; }
+void MarkComplete(const std::filesystem::path&,int,size_t) { background_complete=true; }
+bool Complete(const std::filesystem::path&,int,size_t,int*) { return !background_enabled || background_complete; }
 }
 int main(int argc,char **argv) {
     expect(argc==2,"isolated cache supplied");cache=std::filesystem::path(argv[1])/"cache";
@@ -181,6 +184,26 @@ int main(int argc,char **argv) {
     {
         std::lock_guard lock(events_mutex);
         expect(events.size()==22 && events[17]=="N:age-far","far live texture gets a turn after 16 other admissions");
+    }
+    g.shutdown();
+    // Make background work genuinely due while both foreground lanes wait. Backdate only the quiet deadline,
+    // under the worker's own mutex, to avoid a 30-second idle test. All selection and preparation paths are real.
+    reset();status=1;forecast=0.5f;block_job=true;configure(g);
+    active=normal("background-anchor",650,1);g.request(active,"background-anchor");
+    until([&]{return started==1;},"background test active job started");
+    auto live=normal("foreground-normal",651,1);auto live_upscale=upscale("foreground-upscale",652);
+    g.request(live,"foreground-normal");expect(g.request_upscale(live_upscale),"both foreground lanes queued before background");
+    background_enabled=true;g.set_active(true);
+    {
+        std::lock_guard lock(g.mutex_);
+        g.last_request_=std::chrono::steady_clock::now()-31s;
+    }
+    block_job=false;
+    until([&]{return background_complete.load();},"due background work eventually completes");
+    {
+        std::lock_guard lock(events_mutex);
+        expect(events==std::vector<std::string>{"N:background-anchor","U:foreground-upscale","N:foreground-normal","N:background"},
+               "background begins only after both loaded foreground lanes drain");
     }
     g.shutdown();
     // A real inference failure is terminal for that entry and does not starve the other lane.
