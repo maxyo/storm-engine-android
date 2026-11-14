@@ -350,6 +350,10 @@ void LocationCamera::Realize(uint32_t delta_time)
     if (dynamic_fog.isOn)
         ProcessDynamicFov(core.GetDeltaTime() * .001f, realPos, lookTo, vUp);
 
+#ifdef __ANDROID__
+    // Keep a stable horizontal camera heading even before the movement stick is held.
+    MovementViewDirection();
+#endif
     rs->SetCamera(realPos, lookTo, vUp);
 
 #ifdef CAMERA_VIEW_TEST_ENABLE

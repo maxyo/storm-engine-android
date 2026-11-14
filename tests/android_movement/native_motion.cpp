@@ -24,8 +24,17 @@ MovementPermission permissions(const GameplaySnapshot &current)
 {
 #include "permissions.inc"
 }
-struct Camera { bool thirdPerson=true; Vec3 forward{0,0,1};
-    Vec3 MovementViewDirection()const{return forward;} bool IsThirdPersonFollow()const{return thirdPerson;} } camera;
+struct Camera {
+    enum {cwm_none, cwm_follow, cwm_topos, cwm_free};
+    int wmode=cwm_follow;
+    bool isLookMode=false,isLockFPMode=false,isSleep=false,m_bTrackMode=false;
+    Vec3 lookTo{0,0,1},camPos{},pos{},fromLook{};
+    float lheight=1;
+    void ExecuteTopos(float);
+    mutable Vec3 movementForward{0,0,1};
+#include "camera_interface.inc"
+} camera;
+#include "camera_topos.inc"
 struct Motion
 {
     bool fight=false,isTurnLock=false,androidCameraRelative=false;
@@ -123,7 +132,7 @@ int main()
     // change between walking and swimming (it used to be dropped in water: the waves carried
     // the hero one way and the stick could not change it).
     {
-        Player swimmer; swimmer.androidCameraRelative=true; camera.forward={0,0,1};
+        Player swimmer; swimmer.androidCameraRelative=true; camera.lookTo={0,0,1};
         swimmer.isSwim=true; swimmer.isMove=false; swimmer.androidRunTier=true;
         swimmer.analog(MovementAxes{1,0,1,true}); // pushed right
         assert(swimmer.isMove && !swimmer.lastRun && !swimmer.androidRunTier && swimmer.strafeMove==0 && !swimmer.androidMotion);
@@ -192,7 +201,7 @@ int main()
     for(int cam=0;cam<360;cam+=30) for(int angle=0;angle<360;angle+=5)
     {
         const float c=cam*.017453292519943295f,a=angle*.017453292519943295f;
-        camera.forward={std::sin(c),0,std::cos(c)};
+        camera.lookTo={std::sin(c),0,std::cos(c)};
         Player moving;
         moving.analog({std::sin(a),std::cos(a),.5f,true});moving.step();
         assert(!moving.lastBack&&!moving.lastRun);
@@ -201,18 +210,73 @@ int main()
         assert(near(std::cos(moving.ay),moving.androidMotionDirection.z));
         assert(moving.strafeMove==0);
     }
-    camera.forward={0,0,-1};
+    // The same held stick follows the live locator camera as the actor moves
+    // across the location. Actor heading changes must never feed back into its basis.
+    for(int mode : {Camera::cwm_topos, Camera::cwm_follow})
+    {
+        camera.wmode=mode;
+        Player moving;
+        MovementInput held;
+        held.guard=[](std::string_view){return std::optional<MovementPermission>({true,true,true,true,true});};
+        held.updateOwner("camera-test");
+        assert(held.offer("1\tcamera-test\t"+std::to_string(held.generation())+"\t1\t1\t500\t0"));
+        for(int frame=0;frame<360;++frame)
+        {
+            const float yaw=frame*.017453292519943295f;
+            camera.lookTo={std::sin(yaw)*3, -4, std::cos(yaw)*3};
+            if(mode==Camera::cwm_topos)
+            {
+                camera.pos=camera.lookTo-Vec3(0,camera.lheight,0);
+                camera.ExecuteTopos(.1f); // real locator camera tracks the actor position
+            }
+            const Vec3 before=moving.curPos;
+            moving.analog(*held.read());moving.step(); // no new pointer/MOVE packet
+            assert(moving.androidCameraRelative && "live locator camera must own movement basis");
+            same(moving.curPos-before,Vec3(std::cos(yaw)*.2f,0,-std::sin(yaw)*.2f));
+            assert(moving.androidCameraRelative && !moving.lastBack && moving.strafeMove==0);
+        }
+        // A pitched/vertical view keeps the last camera heading independently
+        // of character yaw; leaving the pole picks up the new camera immediately.
+        camera.lookTo={3,-4,0};moving.analog({0,1,.5f,true});moving.step();
+        for(Vec3 pole : {Vec3(0,-10,0),Vec3(.00001f,-10,.00001f)})
+        {
+            camera.lookTo=pole;moving.ay=2;
+            moving.analog({1,0,.5f,true});
+            same(moving.androidMotionDirection,{0,0,-1});
+        }
+        camera.lookTo={0,-4,-3};moving.analog({0,1,.5f,true});
+        same(moving.androidMotionDirection,{0,0,-1});
+        moving.release(std::nullopt);moving.androidMotion=false;
+        const Vec3 stopped=moving.curPos;
+        for(int frame=0;frame<10;++frame){moving.step();same(moving.curPos,stopped);}
+        Player swimmer;swimmer.isSwim=true;swimmer.analog({0,1,.5f,true});
+        assert(near(swimmer.turnX,0)&&near(swimmer.turnZ,-1));
+    }
+    // A first-person flag left over from the previous follow mode must not
+    // disable the now-visible locator camera. Free/track/sleep never opt in.
+    camera.wmode=Camera::cwm_topos;camera.isLookMode=true;
+    Player locator;locator.analog({0,1,.5f,true});assert(locator.androidCameraRelative);
+    camera.isLookMode=false;
+    for(int excluded=0;excluded<3;++excluded)
+    {
+        camera.wmode=excluded==0?Camera::cwm_free:Camera::cwm_follow;
+        camera.m_bTrackMode=excluded==1;camera.isSleep=excluded==2;
+        Player disabled;disabled.analog({0,1,.5f,true});assert(!disabled.androidCameraRelative);
+    }
+    camera.m_bTrackMode=camera.isSleep=false;
+    camera.wmode=Camera::cwm_follow;
+    camera.lookTo={0,0,-1};
     Player combat;combat.fight=true;combat.ay=0;
     combat.analog({0,1,.5f,true});combat.step();
     assert(combat.curPos.z>0&&combat.curPos.x==0&&!combat.lastBack);
-    camera.forward={0,0,1};
+    camera.lookTo={0,0,1};
     // First-person uses actor-relative forward/back and preserves look yaw.
-    camera.thirdPerson=false;camera.forward={0,0,-1};
+    camera.isLookMode=true;camera.lookTo={0,0,-1};
     Player eyes;eyes.ay=0;eyes.analog({0,-1,.5f,true});eyes.step();
     assert(!eyes.androidCameraRelative&&eyes.lastBack&&eyes.ay==0&&eyes.curPos.z<0);
     eyes.analog({1,0,.5f,true});eyes.step();
     assert(eyes.ay==0&&eyes.androidMotionDirection.x==1&&eyes.androidMotionDirection.z==0);
-    camera.thirdPerson=true;camera.forward={0,0,1};
+    camera.isLookMode=false;camera.lookTo={0,0,1};
     Player tiers;
     for(float radius : {.2f,.4f,.79f}) {tiers.analog({0,1,radius,true});assert(tiers.androidMotionSpeed==2&&!tiers.lastRun);}
     for(float radius : {.8f,1.f,.7f,.65f}) {tiers.analog({0,1,radius,true});assert(tiers.androidMotionSpeed==5&&tiers.lastRun);}

@@ -14,6 +14,7 @@
 #include "path_tracks.h"
 #include "renderer.h"
 #include "vma.hpp"
+#include <cmath>
 #include <string>
 #include <vector>
 
@@ -76,7 +77,22 @@ class LocationCamera : public Entity
     float GetAx() const;
 #ifdef __ANDROID__
     // Use the actual camera, not a renderer view temporarily changed by UI/shadow draws.
-    glm::vec3 MovementViewDirection() const { return lookTo - camPos; }
+    glm::vec3 MovementViewDirection() const
+    {
+        const auto view = lookTo - camPos;
+        const float horizontal = std::hypot(view.x, view.z);
+        // At the vertical pole screen-forward has no horizontal direction. Keep
+        // the last camera heading, never the actor heading (which the stick turns).
+        if (std::isfinite(horizontal) && std::isfinite(view.y) &&
+            horizontal > .001f && horizontal > .001f * std::fabs(view.y))
+            movementForward = glm::vec3(view.x / horizontal, 0.0f, view.z / horizontal);
+        return movementForward;
+    }
+    bool IsMovementCamera() const
+    {
+        return (wmode == cwm_topos || (wmode == cwm_follow && !isLookMode)) &&
+            !isLockFPMode && !isSleep && !m_bTrackMode;
+    }
     bool IsThirdPersonFollow() const { return wmode == cwm_follow && !isLookMode && !isLockFPMode; }
 #endif
 
@@ -133,6 +149,7 @@ class LocationCamera : public Entity
 
     float dAx, dAy;
 #ifdef __ANDROID__
+    mutable glm::vec3 movementForward{0.0f, 0.0f, 1.0f};
     float dragAy = 0.0f; // this frame's camera drag as a yaw angle (mobile camera mode)
     float gameRadius = 3.0f; // the game's radius (MSG_CAMERA_SET_RADIUS); radius is it scaled by the pinch
 #endif

@@ -107,11 +107,11 @@ void Player::Move(float dltTime)
     const auto cameraGeneration = storm::android::movementInput.generation();
     if (cameraGeneration != androidCameraGeneration || task.task != npct_none ||
         command.cmd != aicmd_none || GetId() != core.GetEntityId("Player") ||
-        (locCam && !locCam->IsThirdPersonFollow()))
+        (locCam && !locCam->IsMovementCamera()))
         androidCameraRelative = false;
     androidCameraGeneration = cameraGeneration;
     if (androidAxes && task.task == npct_none && command.cmd == aicmd_none &&
-        (!locCam || locCam->IsThirdPersonFollow()))
+        (!locCam || locCam->IsMovementCamera()))
         androidCameraRelative = true;
     androidMovementHeld = androidAxes.has_value();
     androidTraceMagnitude = androidAxes ? androidAxes->magnitude : 0.0f;
@@ -196,7 +196,7 @@ void Player::Move(float dltTime)
                     // In water the native swim moves the hero along his heading at its own
                     // pace (no run, no strafe, the waves on top): the stick steers it, relative
                     // to the camera as on land.
-                    const bool cameraRelative = androidCameraRelative && locCam && locCam->IsThirdPersonFollow();
+                    const bool cameraRelative = androidCameraRelative && locCam && locCam->IsMovementCamera();
                     const glm::vec3 forward = cameraRelative ? locCam->MovementViewDirection() :
                         glm::vec3(sinf(ay), 0.0f, cosf(ay));
                     const auto direction = storm::android::movementDirection(axes, forward.x, forward.z, ay);
