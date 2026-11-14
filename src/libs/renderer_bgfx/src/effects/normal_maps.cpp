@@ -338,7 +338,10 @@ bool NormalMaps::toggle_parallax(const std::string &name, bool &parallax_now)
 
 NormalMaps::Relief NormalMaps::handle(shim::TexStore &store, fx::Lighting &lighting)
 {
-    return store.normal_map ? upload(store.normal_map, lighting, max_size_) : Relief{};
+    // A grey bump texture supplies authored height data, not an authored RGB normal. Its Scharr-derived normal
+    // must not stand in for a pending neural colour normal. The original texture/height cache remains intact.
+    return store.normal_map && store.normal_map->relief != fx::ReliefClass::HeightMap
+               ? upload(store.normal_map, lighting, max_size_) : Relief{};
 }
 
 NormalMaps::Selection NormalMaps::select(shim::TexStore *colour, shim::TexStore *detail, fx::Lighting &lighting)
@@ -348,8 +351,9 @@ NormalMaps::Selection NormalMaps::select(shim::TexStore *colour, shim::TexStore 
     for (const int stage : {1, 0})
     {
         shim::TexStore *store = stages[stage];
-        if (!store || !store->normal_map)
-            continue;
+        if (!store || !store->normal_map || store->normal_map->relief == fx::ReliefClass::HeightMap)
+            continue; // generated brightness/height normals are never a shading fallback
+
         const Relief map = handle(*store, lighting);
         if (!selected.entry || bgfx::isValid(map.handle))
             selected = {map, store->normal_map.get(), stage};

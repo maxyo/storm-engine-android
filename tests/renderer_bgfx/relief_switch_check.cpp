@@ -153,6 +153,19 @@ int main()
     maps.on_texture_loaded(*bump, "resource\\textures\\bump_wall.tga.tx", textures / "bump_wall.tga.tx");
     maps.on_texture_loaded(*cannon, "resource\\textures\\cannon_x.tga.tx", textures / "cannon_x.tga.tx");
     maps.on_texture_loaded(*glass, "resource\\textures\\windowglass_x.tga.tx", textures / "windowglass_x.tga.tx");
+    auto rgb_normal = Levels(false);
+    for (auto &level : rgb_normal)
+        for (size_t pixel = 0; pixel < level.size(); pixel += 4)
+        {
+            level[pixel] = 255; level[pixel + 1] = 128; level[pixel + 2] = 128; level[pixel + 3] = 255;
+        }
+    auto authored = Store(rgb_normal);
+    effects::NormalMaps authored_maps;
+    authored_maps.configure(false, 512, false);
+    authored_maps.on_texture_loaded(*authored, "authored_rgb_bump.tga.tx", textures / "authored_rgb_bump.tga.tx");
+    expect(!authored->normal_map || authored->normal_map->relief != fx::ReliefClass::HeightMap,
+           "authored RGB normal is not treated as a grey-height conversion");
+    expect(authored->sub(0, 0).data == rgb_normal[0], "authored RGB source remains intact for its original shader binding");
     const std::vector<shim::TexStore *> loaded{stone.get(), bump.get(), cannon.get(), glass.get()};
     effects::NormalMaps::Stats off = Settle(maps, loaded);
     expect(stone->normal_map && bump->normal_map, "textures loaded while relief is off get their entries");
@@ -174,6 +187,14 @@ int main()
     expect(on.waiting + on.missing == 2, "the colour textures are requested from the generator");
     expect(stone->normal_map->key != old_key && fx::HasReliefMap(relief, old_key),
            "the older build's map of the stone texture is not taken: its map is requested");
+    {
+        fx::Lighting gpu_lighting;
+        const auto pending = maps.select(stone.get(), nullptr, gpu_lighting);
+        expect(!bgfx::isValid(pending.map.handle),
+               "legacy generated cache never binds while the proper colour normal is unavailable");
+        expect(fx::ReliefMethod(fx::ReliefClass::Stone) != fx::ReliefMethod(fx::ReliefClass::HeightMap),
+               "authored height derivation and neural colour normals have separate cache provenance");
+    }
     expect(on.derived == 1 && fx::HasReliefMap(relief, bump->normal_map->key),
            "the height texture's map is derived from its game file into the relief directory");
 
@@ -204,13 +225,12 @@ int main()
         fx::Lighting lighting;
         const uint32_t derived_before = maps.stats().derived;
         std::filesystem::remove(fx::ReliefFile(relief, bump->normal_map->key));
-        maps.handle(*bump, lighting); // Stored: reads it, finds none
+        maps.handle(*bump, lighting); // excluded from normal shading, even if its cache entry says Stored
         Settle(maps, {bump.get()});
-        maps.handle(*bump, lighting); // looked up again: derived
+        maps.handle(*bump, lighting); // repeated draws still do not request the derived fallback
         const effects::NormalMaps::Stats evicted = Settle(maps, {bump.get()});
-        expect(evicted.derived == derived_before + 1 && fx::HasReliefMap(relief, bump->normal_map->key) &&
-                   bump->normal_map->state != effects::NormalMapEntry::Failed,
-               "a map evicted while its texture is loaded is made again");
+        expect(evicted.derived == derived_before && !fx::HasReliefMap(relief, bump->normal_map->key),
+               "shading does not regenerate an evicted brightness-derived fallback");
     }
     // The stores of earlier builds go at start (the files directory's relief, the old "NormalMaps" cache).
     const std::filesystem::path files = root / "files", cache = root / "cache";
@@ -298,15 +318,35 @@ int main()
         }
         detail.state = effects::NormalMapEntry::Uploaded;
         detail.handle = {124};
+        const auto height_ready = selection_maps.select(colour_store.get(), detail_store.get(), gpu_lighting);
+        expect(height_ready.stage == 0 && height_ready.entry == &base && height_ready.map.handle.idx == 123,
+               "ready Scharr greybump cannot override the proper colour normal");
+        base.state = effects::NormalMapEntry::Waiting;
+        const auto proper_pending = selection_maps.select(colour_store.get(), detail_store.get(), gpu_lighting);
+        expect(proper_pending.entry == &base && !bgfx::isValid(proper_pending.map.handle),
+               "ready Scharr greybump stays unbound while the proper colour normal is pending");
+        expect(!bgfx::isValid(selection_maps.handle(*detail_store, gpu_lighting).handle),
+               "direct material lookup cannot bind a cached derived greybump normal either");
+        base.state = effects::NormalMapEntry::Uploaded;
+        detail.relief = fx::ReliefClass::Stone; // a proper pipeline normal, not a greybump conversion
         const auto ready = selection_maps.select(colour_store.get(), detail_store.get(), gpu_lighting);
         expect(ready.stage == 1 && ready.entry == &detail && ready.map.handle.idx == 124,
-               "ready detail retains its original priority");
+               "proper ready detail retains its original priority");
         const auto disabled = selection_maps.select(colour_store.get(), nullptr, gpu_lighting);
         expect(disabled.stage == 0 && disabled.entry == &base, "disabled detail uses the colour map");
         base.state = detail.state = effects::NormalMapEntry::Pending;
         const auto waiting = selection_maps.select(colour_store.get(), detail_store.get(), gpu_lighting);
         expect(waiting.stage == 1 && waiting.entry == &detail && !bgfx::isValid(waiting.map.handle),
                "two pending maps retain the detail entry for missing-map diagnostics");
+        // A source colour texture never supplies an improvised brightness normal during generation or failure.
+        for (const auto state : {effects::NormalMapEntry::Pending, effects::NormalMapEntry::Waiting,
+                                 effects::NormalMapEntry::Missing, effects::NormalMapEntry::Failed})
+        {
+            base.state = state;
+            const auto unavailable = selection_maps.select(colour_store.get(), nullptr, gpu_lighting);
+            expect(!bgfx::isValid(unavailable.map.handle),
+                   "unavailable neural colour normal renders without any normal-map handle");
+        }
         base.handle = detail.handle = BGFX_INVALID_HANDLE;
     }
 

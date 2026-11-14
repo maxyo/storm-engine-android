@@ -8,7 +8,9 @@
 //     relief directory, and kept there. Until its map is ready the texture has no relief; the "effects relief:" line
 //     says how many wait.
 //   * grey height ("bump") textures: their values are heights. The game derives their maps itself (fx::DeriveNormalMap
-//     on a texture worker, the material texture of their own heights) into the same directory, once.
+//     on a texture worker, the material texture of their own heights) into the same directory, once. This cache
+//     remains height data: its derived normal is never selected for shading, including while a colour map is pending.
+//     Original RGB normal textures remain available to the game's own shader bindings.
 // Gloss maps (fx/gloss_map.hpp) follow the same path for the colour textures of a gloss class whose relief class has no
 // height (TexStore::gloss_map): an entry at the load, looked up while Settings::gloss is on (now or when it is switched
 // on), requested from the relief generator (PBRify's roughness network) when the relief directory has none, stored
