@@ -42,9 +42,9 @@ bool ReliefTakesParallax(ReliefClass relief);
 float ReliefDepthTexels(ReliefClass relief);
 
 // The deepest the parallax goes, in metres: where a texture is stretched over a large surface (a house wall's atlas),
-// its depth in texels is a lot of centimetres. The shallowest is a fifth of it (3 mm): the texture of a plank, a post
+// its depth in texels is a lot of centimetres. The shallowest is a fifth of it (5 mm): the texture of a plank, a post
 // or a plank, its texel a fraction of a millimetre, would get a depth nobody sees.
-inline constexpr float kParallaxMaxDepth = 0.015f;
+inline constexpr float kParallaxMaxDepth = 0.025f;
 
 // How much of the sun's light the relief's own shadow takes where it falls (fx_lighting.sh fxParallaxShadow).
 inline constexpr float kParallaxShadow = 0.8f;

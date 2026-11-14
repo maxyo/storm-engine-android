@@ -176,9 +176,12 @@ at stage 7 (`kMaterialStage`, `s_fxMaterial`, the unit the gloss reads), the rel
 stage 1's grey height texture with its own heights; stage 0's gloss then yields unit 7, counted) and the normal map read
 where the eye's ray meets the relief (`fx_lighting.sh` fxParallax), fading out between 10 and 15 m.
 The height is normalised per atlas region (`height_map.hpp`), each class has its
-own depth (`ReliefDepthTexels`: stone 6 texels of the 512 map, building atlases 4, the grey height maps 3, plaster 2.5,
-wood 2, props 1.5, metal 0.75; a depth in texels is already proportional to the texel's size in the world, so small objects get
-little and walls more, kept between 6 mm and `kParallaxMaxDepth` 3 cm, so small objects are not left with a depth nobody sees), the depth fades out towards grazing views (N.V 0.08..0.35) and
+own depth (`ReliefDepthTexels`: stone 3 texels of the 512 map, building atlases 2, the grey height maps 1.5, plaster 1.25,
+wood 1, props 0.75, metal 0.375: a quarter of the first values; a depth in texels is already proportional to the texel's
+size in the world, so small objects get little and walls more, kept between 5 mm and `kParallaxMaxDepth` 2.5 cm). Only
+masonry takes the parallax by default (`ReliefTakesParallax`: stone and the house atlases); wood, furniture, props,
+plaster ground and metal keep normals and cavity only, the shipped list names the exceptions. The depth fades out towards
+grazing views (N.V 0.08..0.35) and
 the rest of the shift is held to twice the depth, and clamp-addressed textures have none (the
 reads would run off their edge). On Высокая the relief also shadows itself towards the sun (fxParallaxShadow, six taps
 of the height; not indoors): the lit draws' sun term, half of the baked colours.
