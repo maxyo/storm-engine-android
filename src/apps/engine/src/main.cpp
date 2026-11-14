@@ -1,6 +1,9 @@
 #include <chrono>
+#include <exception>
+#include <mutex>
 #include <string>
 #include <thread>
+#include <utility>
 
 #include <SDL2/SDL.h>
 // AddressSanitizer must see every C++ allocation: an ASan build keeps the default new/delete.
@@ -189,6 +192,58 @@ void ReportFatalError(const char *what)
     SDL_ShowMessageBox(&dialog, nullptr);
 }
 
+// Event watches (window, lifecycle) run inside SDL's C functions, some with SDL's watcher lock
+// held: an exception must not unwind through them, and the fatal-error dialog must not be shown
+// from there. A handler called from SDL runs its body through InsideSdlCallback, which keeps
+// the first exception; the main loop rethrows it right after the SDL call returned, into the
+// loop's catch (ReportFatalError).
+std::mutex callbackErrorMutex;
+std::exception_ptr callbackError;
+
+std::string Describe(const std::exception_ptr &error)
+{
+    try
+    {
+        std::rethrow_exception(error);
+    }
+    catch (const std::exception &exception)
+    {
+        return exception.what();
+    }
+    catch (...)
+    {
+        return "unknown error";
+    }
+}
+
+template <typename Body> void InsideSdlCallback(const char *what, Body &&body)
+{
+    try
+    {
+        body();
+    }
+    catch (...)
+    {
+        const auto error = std::current_exception();
+        spdlog::critical("Exception in the SDL callback '{}': {}; the game stops after the SDL call returns", what,
+                         Describe(error));
+        std::lock_guard lock(callbackErrorMutex);
+        if (!callbackError)
+            callbackError = error;
+    }
+}
+
+void RethrowCallbackError()
+{
+    std::exception_ptr error;
+    {
+        std::lock_guard lock(callbackErrorMutex);
+        error = std::exchange(callbackError, nullptr);
+    }
+    if (error)
+        std::rethrow_exception(error);
+}
+
 #ifdef __ANDROID__
 // Logs what the script patch layer did during the resource scan (which runs
 // before logging is ready) and, once per distinct set of unapplied fixes, tells
@@ -276,7 +331,7 @@ void SubscribeEngineToAppEvents()
     // Early: pause audio and tell scripts inside the SDL call that announces the
     // pause, before anything else can run.
     events.subscribe(
-        [](const storm::AppEvent &event) {
+        [](const storm::AppEvent &event) { InsideSdlCallback("early application event", [&] {
             if (event.type == storm::AppEventType::WillEnterBackground)
             {
                 audioGate.foreground = false;
@@ -301,7 +356,7 @@ void SubscribeEngineToAppEvents()
                 // A backgrounded process can be killed without notice: do not lose buffered log lines.
                 spdlog::apply_all([](const std::shared_ptr<spdlog::logger> &logger) { logger->flush(); });
             }
-        },
+        }); },
         true);
     events.subscribe([](const storm::AppEvent &event) {
         const bool ready = core_private && core_private->initialized();
@@ -334,7 +389,7 @@ void SubscribeEngineToAppEvents()
     });
 }
 
-void HandleWindowEvent(const storm::OSWindow::Event &event)
+void HandleWindowEventInSdl(const storm::OSWindow::Event &event)
 {
     if (event == storm::OSWindow::Closed)
     {
@@ -373,6 +428,12 @@ void HandleWindowEvent(const storm::OSWindow::Event &event)
             audioGate.apply();
         }
     }
+}
+
+// Called from SDL's window event watch (sdl_window.cpp).
+void HandleWindowEvent(const storm::OSWindow::Event &event)
+{
+    InsideSdlCallback("window event", [&] { HandleWindowEventInSdl(event); });
 }
 
 int main(int argc, char *argv[])
@@ -626,484 +687,491 @@ int main(int argc, char *argv[])
     int exitCode = EXIT_SUCCESS;
     storm::platform::FrameWorkClock frameWork;
     isRunning = true;
-    while (isRunning)
+    // Exceptions escaping an iteration (the frame, script events raised by HUD input, lifecycle
+    // and window handlers, the Android adapters) are reported and end the session in order
+    // instead of reaching std::terminate; see ReportFatalError.
+    try
     {
-        STORM_PROFILE_ZONE("main loop");
-        if (const auto work = frameWork.lap(storm::platform::FrameWorkClock::Clock::now()))
-            storm::platform::reportFrameWork(std::chrono::duration_cast<std::chrono::nanoseconds>(*work));
+        while (isRunning)
+        {
+            STORM_PROFILE_ZONE("main loop");
+            if (const auto work = frameWork.lap(storm::platform::FrameWorkClock::Clock::now()))
+                storm::platform::reportFrameWork(std::chrono::duration_cast<std::chrono::nanoseconds>(*work));
 #ifdef __ANDROID__
-        storm::android::worldMapHud.clock(SDL_GetTicks());
-        const auto combatDrainEpoch = storm::android::combatCancelEpoch.load(std::memory_order_acquire);
-        // The UI host first: it applies the touches the platform sent, and what they produce
-        // is read in this iteration, together with the activity's own queue.
-        {
-            STORM_PROFILE_ZONE("UI host: input");
-            storm::android::ui::tick();
-        }
-        // A pinch acts only in the frame it came for (android_camera_zoom.hpp).
-        if (storm::android::cameraZoom.beginFrame())
-            __android_log_print(ANDROID_LOG_WARN, "StormInput", "camera pinch dropped: no camera with a zoom took it (gameplay %s)",
-                                gameplayState.json().c_str());
-        auto mobileCommands = storm::android::ui::takeCommands();
-        for (auto &command : storm::android::pollMobileActions())
-            mobileCommands.push_back(std::move(command));
-        for (const auto &command : mobileCommands)
-        {
-            if(storm::android::worldMapHud.modal.ownsInput(SDL_GetTicks()) &&
-                (command.starts_with("gameplay:") || command.starts_with("shortcut:") || command.starts_with("context:") ||
-                 command.starts_with("move:") || command.starts_with("combat:") || command.starts_with("sails:") ||
-                 command.starts_with("hold:") || command.starts_with("deckwalk:") || command.starts_with("seaquick:") || command.starts_with("camera:")))continue;
-            if (command.starts_with("combat:"))
+            storm::android::worldMapHud.clock(SDL_GetTicks());
+            const auto combatDrainEpoch = storm::android::combatCancelEpoch.load(std::memory_order_acquire);
+            // The UI host first: it applies the touches the platform sent, and what they produce
+            // is read in this iteration, together with the activity's own queue.
             {
-                storm::android::combatInput.offer(std::string_view(command).substr(7), SDL_GetTicks(), combatDrainEpoch);
+                STORM_PROFILE_ZONE("UI host: input");
+                storm::android::ui::tick();
             }
-            else if (command.starts_with("move:"))
+            // A pinch acts only in the frame it came for (android_camera_zoom.hpp).
+            if (storm::android::cameraZoom.beginFrame())
+                __android_log_print(ANDROID_LOG_WARN, "StormInput", "camera pinch dropped: no camera with a zoom took it (gameplay %s)",
+                                    gameplayState.json().c_str());
+            auto mobileCommands = storm::android::ui::takeCommands();
+            for (auto &command : storm::android::pollMobileActions())
+                mobileCommands.push_back(std::move(command));
+            for (const auto &command : mobileCommands)
             {
-                storm::android::movementInput.offer(std::string_view(command).substr(5), combatDrainEpoch);
-            }
-            else if (command.starts_with("landcommands:"))
-            {
-                storm::android::landCommands.offer(std::string_view(command).substr(13), SDL_GetTicks());
-            }
-            else if (command.starts_with("spyglass:"))
-            {
-                storm::android::spyglass.acknowledge(std::string_view(command).substr(9));
-            }
-            else if (command.starts_with("camera:turn\t"))
-            {
-                if (!storm::android::cameraTurn.offer(std::string_view(command).substr(7)))
-                    __android_log_print(ANDROID_LOG_ERROR, "StormInput", "invalid camera command '%s'", command.c_str());
-            }
-            else if (command.starts_with("camera:"))
-            {
-                if (!storm::android::cameraZoom.offer(std::string_view(command).substr(7)))
-                    __android_log_print(ANDROID_LOG_ERROR, "StormInput", "invalid camera command '%s'", command.c_str());
-            }
-            else if (command.starts_with("hold:"))
-            {
-                storm::android::heldControls.offer(std::string_view(command).substr(5), combatDrainEpoch);
-            }
-            else if (command.starts_with("deckwalk:"))
-            {
-                storm::android::deckWalk.offer(std::string_view(command).substr(9), combatDrainEpoch);
-            }
-            else if (command.starts_with("seaquick:"))
-            {
-                const bool accepted = storm::android::seaQuickAction.offer(std::string_view(command).substr(9), SDL_GetTicks());
-                if (command.find("\tactivate\t") != std::string::npos)
-                    storm::android::traceContextAction("sea-quick-mailbox", accepted ? "accepted" : "rejected", command);
-            }
-            else if (command.starts_with("orders:"))
-            {
-                storm::android::seaOrders.offer(std::string_view(command).substr(7), SDL_GetTicks());
-            }
-            else if (command.starts_with("worldmap:"))
-            {
-                const bool accepted=storm::android::worldMapHud.offer(std::string_view(command).substr(9),SDL_GetTicks());
-                if(accepted && command.find("\tprepare\t")!=std::string::npos){
-                    while(gameplayState.take(SDL_GetTicks())){} // discard actions already across the Java mailbox
-                    gameplayShortcuts.clear();storm::android::requestedContextAction.clear();
-                }
-                static unsigned mapTraceBudget=160;
-                if(mapTraceBudget && (command.find("\tprepare\t")!=std::string::npos || !accepted)){
-                    --mapTraceBudget;
-                    storm::android::traceContextAction("worldmap-mailbox",accepted?"accepted":"rejected",command);
-                }
-            }
-            else if (command.starts_with("navigator:"))
-            {
-                const bool accepted=storm::android::mobileScreen.empty() &&
-                    storm::android::seaNavigator.offer(std::string_view(command).substr(10),
-                        storm::android::shipTelemetry.revision(), storm::android::shipTelemetry.hudRevision(),
-                        storm::android::shipTelemetry.frame().navigatorGeneration);
-                static std::string lastNavigatorPrepared,lastNavigatorVisible,lastNavigatorOther;
-                auto &lastNavigatorRequest=command.find("\tprepare\t")!=std::string::npos?lastNavigatorPrepared:
-                    command.find("\tvisible\t")!=std::string::npos?lastNavigatorVisible:lastNavigatorOther;
-                const auto detail=std::string(accepted?"accepted ":"rejected ")+storm::android::seaNavigator.result()+" "+command+" current="+
-                    std::to_string(storm::android::shipTelemetry.revision())+"/"+std::to_string(storm::android::shipTelemetry.hudRevision())+"/"+
-                    std::to_string(storm::android::shipTelemetry.frame().navigatorGeneration);
-                if(detail!=lastNavigatorRequest){lastNavigatorRequest=detail;storm::android::traceContextAction("navigator-mailbox","receive",detail);}
-            }
-            else if (command.starts_with("hudowner:"))
-            {
-                // The portable UI presents this HUD: its unanswered revisions keep native drawing off.
-                if (command == "hudowner:lost") {
-                    if (const auto line = storm::android::hudPresenters.lost(); !line.empty())
-                        __android_log_print(ANDROID_LOG_ERROR, "StormInput", "%s", line.c_str());
-                }
-                else if (!storm::android::hudPresenters.declare(std::string_view(command).substr(9)))
-                    __android_log_print(ANDROID_LOG_ERROR, "StormInput", "unknown HUD presenter declaration '%s'", command.c_str());
-            }
-            else if (command.starts_with("shiphud:"))
-            {
-                storm::android::shipTelemetry.acknowledge(std::string_view(command).substr(8));
-            }
-            else if (command == "graphics:reload")
-            {
-                storm::android::graphicsSettingsChanged = true;
-            }
-            else if (command.starts_with("interface:"))
-            {
-                storm::android::interfacePresentation.offer(std::string_view(command).substr(10));
-            }
-            else if (command.starts_with("sails:"))
-            {
-                storm::android::shipTelemetry.offerSails(std::string_view(command).substr(6), SDL_GetTicks());
-            }
-            else if (command.starts_with("gameplay:"))
-            {
-                gameplayState.offer(std::string_view(command).substr(9), SDL_GetTicks());
-            }
-            else if ((command == "back" || command == "shortcut:mainmenu") && storm::android::fullscreenVideo())
-            {
-                // Back during a full-screen game video is the game's Cancel: the scripts'
-                // video-break handlers decide whether this video may be skipped (as the
-                // player's tap does). The interface behind it (often a stale one: the main menu
-                // leaves without a release) gets nothing.
-                core_private->Event("Control Activation", "s", "ICancel");
-                core_private->Event("Control Deactivation", "s", "ICancel");
-            }
-            else if (command.starts_with("widget:game_over\tEND\t"))
-            {
-                // The death screen's choice: end the game's death picture now. The game's own
-                // end of it (interface.c StartPictureAsVideo → PictureAsVideoBreak) goes on to
-                // its title screen, as after the picture's time.
-                if (storm::android::gameOverShown)
-                    core_private->Event("PictureAsVideoBreak");
-                else
-                    spdlog::warn("death screen: end of the death picture asked while none is shown");
-            }
-            else if (command.starts_with("shortcut:"))
-            {
-                if (storm::android::mobileScreen.empty())
-                    gameplayShortcuts.offer(std::string_view(command).substr(9), SDL_GetTicks());
-            }
-            else if (command.starts_with("main:") && storm::android::mobileScreen == "mainmenu")
-            {
-                const auto action = command.substr(5);
-                if (action == "New" || action == "Load" || action == "Options" || action == "Credits" || action == "Exit")
-                    core_private->Event("backgroundcommand", "s", action.c_str());
-            }
-            else if (command.starts_with("audiofocus:"))
-            {
-                // Reported by the activity's AudioManager focus listener.
-                const auto state = std::string_view(command).substr(11);
-                if (state == "gain") { audioGate.audioFocus = true; audioGate.duck = 1.0f; }
-                else if (state == "duck") { audioGate.audioFocus = true; audioGate.duck = 0.25f; }
-                else if (state == "loss") { audioGate.audioFocus = false; audioGate.duck = 1.0f; }
-                else __android_log_print(ANDROID_LOG_ERROR, "StormAudio", "unknown audio focus state '%s'", command.c_str());
-            }
-            else if (command == "back" && !storm::android::mobileScreen.empty())
-                core_private->Event("exitCancel");
-            else if (command == "uisound:press")
-            {
-                // A press started on the touch UI's game interface: the scripts' interface click,
-                // once per gesture (the widget actions that follow are silent, mobile_action_frame.hpp).
-                if (!storm::android::mobileScreen.empty())
-                    core_private->Event(ISOUND_EVENT, "l", 1);
-            }
-            else if (command.starts_with("context:"))
-            {
-                const bool accepted = storm::android::mobileScreen.empty() && command.substr(8) == storm::android::contextAction;
-                storm::android::traceContextAction("receive", command.substr(8),
-                    std::string("accepted=") + (accepted ? "1" : "0") + " current=" + storm::android::contextAction);
-                if (accepted)
-                    storm::android::requestedContextAction = command.substr(8);
-            }
-            else if (command.starts_with("dialogue-lost:"))
-                storm::android::endUnseenDialogue(std::string_view(command).substr(14));
-            else if (command.starts_with("dialogue:"))
-            {
-                if (storm::android::dialogueActions.size() < 8)
-                    storm::android::dialogueActions.push_back(command.substr(9));
-            }
-            else if (command.starts_with("widget:"))
-            {
-                std::istringstream stream(command.substr(7));
-                std::string screen, node, indexText, value;
-                if (std::getline(stream, screen, '\t') && std::getline(stream, node, '\t') &&
-                    std::getline(stream, indexText, '\t') && std::getline(stream, value) &&
-                    screen == storm::android::mobileScreen)
+                if(storm::android::worldMapHud.modal.ownsInput(SDL_GetTicks()) &&
+                    (command.starts_with("gameplay:") || command.starts_with("shortcut:") || command.starts_with("context:") ||
+                     command.starts_with("move:") || command.starts_with("combat:") || command.starts_with("sails:") ||
+                     command.starts_with("hold:") || command.starts_with("deckwalk:") || command.starts_with("seaquick:") || command.starts_with("camera:")))continue;
+                if (command.starts_with("combat:"))
                 {
-                    int index;
-                    const auto parsed = std::from_chars(indexText.data(), indexText.data() + indexText.size(), index);
-                    if (parsed.ec == std::errc() && parsed.ptr == indexText.data() + indexText.size())
-                        storm::android::uiWidgetActions.push_back({screen, node, value, index});
+                    storm::android::combatInput.offer(std::string_view(command).substr(7), SDL_GetTicks(), combatDrainEpoch);
+                }
+                else if (command.starts_with("move:"))
+                {
+                    storm::android::movementInput.offer(std::string_view(command).substr(5), combatDrainEpoch);
+                }
+                else if (command.starts_with("landcommands:"))
+                {
+                    storm::android::landCommands.offer(std::string_view(command).substr(13), SDL_GetTicks());
+                }
+                else if (command.starts_with("spyglass:"))
+                {
+                    storm::android::spyglass.acknowledge(std::string_view(command).substr(9));
+                }
+                else if (command.starts_with("camera:turn\t"))
+                {
+                    if (!storm::android::cameraTurn.offer(std::string_view(command).substr(7)))
+                        __android_log_print(ANDROID_LOG_ERROR, "StormInput", "invalid camera command '%s'", command.c_str());
+                }
+                else if (command.starts_with("camera:"))
+                {
+                    if (!storm::android::cameraZoom.offer(std::string_view(command).substr(7)))
+                        __android_log_print(ANDROID_LOG_ERROR, "StormInput", "invalid camera command '%s'", command.c_str());
+                }
+                else if (command.starts_with("hold:"))
+                {
+                    storm::android::heldControls.offer(std::string_view(command).substr(5), combatDrainEpoch);
+                }
+                else if (command.starts_with("deckwalk:"))
+                {
+                    storm::android::deckWalk.offer(std::string_view(command).substr(9), combatDrainEpoch);
+                }
+                else if (command.starts_with("seaquick:"))
+                {
+                    const bool accepted = storm::android::seaQuickAction.offer(std::string_view(command).substr(9), SDL_GetTicks());
+                    if (command.find("\tactivate\t") != std::string::npos)
+                        storm::android::traceContextAction("sea-quick-mailbox", accepted ? "accepted" : "rejected", command);
+                }
+                else if (command.starts_with("orders:"))
+                {
+                    storm::android::seaOrders.offer(std::string_view(command).substr(7), SDL_GetTicks());
+                }
+                else if (command.starts_with("worldmap:"))
+                {
+                    const bool accepted=storm::android::worldMapHud.offer(std::string_view(command).substr(9),SDL_GetTicks());
+                    if(accepted && command.find("\tprepare\t")!=std::string::npos){
+                        while(gameplayState.take(SDL_GetTicks())){} // discard actions already across the Java mailbox
+                        gameplayShortcuts.clear();storm::android::requestedContextAction.clear();
+                    }
+                    static unsigned mapTraceBudget=160;
+                    if(mapTraceBudget && (command.find("\tprepare\t")!=std::string::npos || !accepted)){
+                        --mapTraceBudget;
+                        storm::android::traceContextAction("worldmap-mailbox",accepted?"accepted":"rejected",command);
+                    }
+                }
+                else if (command.starts_with("navigator:"))
+                {
+                    const bool accepted=storm::android::mobileScreen.empty() &&
+                        storm::android::seaNavigator.offer(std::string_view(command).substr(10),
+                            storm::android::shipTelemetry.revision(), storm::android::shipTelemetry.hudRevision(),
+                            storm::android::shipTelemetry.frame().navigatorGeneration);
+                    static std::string lastNavigatorPrepared,lastNavigatorVisible,lastNavigatorOther;
+                    auto &lastNavigatorRequest=command.find("\tprepare\t")!=std::string::npos?lastNavigatorPrepared:
+                        command.find("\tvisible\t")!=std::string::npos?lastNavigatorVisible:lastNavigatorOther;
+                    const auto detail=std::string(accepted?"accepted ":"rejected ")+storm::android::seaNavigator.result()+" "+command+" current="+
+                        std::to_string(storm::android::shipTelemetry.revision())+"/"+std::to_string(storm::android::shipTelemetry.hudRevision())+"/"+
+                        std::to_string(storm::android::shipTelemetry.frame().navigatorGeneration);
+                    if(detail!=lastNavigatorRequest){lastNavigatorRequest=detail;storm::android::traceContextAction("navigator-mailbox","receive",detail);}
+                }
+                else if (command.starts_with("hudowner:"))
+                {
+                    // The portable UI presents this HUD: its unanswered revisions keep native drawing off.
+                    if (command == "hudowner:lost") {
+                        if (const auto line = storm::android::hudPresenters.lost(); !line.empty())
+                            __android_log_print(ANDROID_LOG_ERROR, "StormInput", "%s", line.c_str());
+                    }
+                    else if (!storm::android::hudPresenters.declare(std::string_view(command).substr(9)))
+                        __android_log_print(ANDROID_LOG_ERROR, "StormInput", "unknown HUD presenter declaration '%s'", command.c_str());
+                }
+                else if (command.starts_with("shiphud:"))
+                {
+                    storm::android::shipTelemetry.acknowledge(std::string_view(command).substr(8));
+                }
+                else if (command == "graphics:reload")
+                {
+                    storm::android::graphicsSettingsChanged = true;
+                }
+                else if (command.starts_with("interface:"))
+                {
+                    storm::android::interfacePresentation.offer(std::string_view(command).substr(10));
+                }
+                else if (command.starts_with("sails:"))
+                {
+                    storm::android::shipTelemetry.offerSails(std::string_view(command).substr(6), SDL_GetTicks());
+                }
+                else if (command.starts_with("gameplay:"))
+                {
+                    gameplayState.offer(std::string_view(command).substr(9), SDL_GetTicks());
+                }
+                else if ((command == "back" || command == "shortcut:mainmenu") && storm::android::fullscreenVideo())
+                {
+                    // Back during a full-screen game video is the game's Cancel: the scripts'
+                    // video-break handlers decide whether this video may be skipped (as the
+                    // player's tap does). The interface behind it (often a stale one: the main menu
+                    // leaves without a release) gets nothing.
+                    core_private->Event("Control Activation", "s", "ICancel");
+                    core_private->Event("Control Deactivation", "s", "ICancel");
+                }
+                else if (command.starts_with("widget:game_over\tEND\t"))
+                {
+                    // The death screen's choice: end the game's death picture now. The game's own
+                    // end of it (interface.c StartPictureAsVideo → PictureAsVideoBreak) goes on to
+                    // its title screen, as after the picture's time.
+                    if (storm::android::gameOverShown)
+                        core_private->Event("PictureAsVideoBreak");
+                    else
+                        spdlog::warn("death screen: end of the death picture asked while none is shown");
+                }
+                else if (command.starts_with("shortcut:"))
+                {
+                    if (storm::android::mobileScreen.empty())
+                        gameplayShortcuts.offer(std::string_view(command).substr(9), SDL_GetTicks());
+                }
+                else if (command.starts_with("main:") && storm::android::mobileScreen == "mainmenu")
+                {
+                    const auto action = command.substr(5);
+                    if (action == "New" || action == "Load" || action == "Options" || action == "Credits" || action == "Exit")
+                        core_private->Event("backgroundcommand", "s", action.c_str());
+                }
+                else if (command.starts_with("audiofocus:"))
+                {
+                    // Reported by the activity's AudioManager focus listener.
+                    const auto state = std::string_view(command).substr(11);
+                    if (state == "gain") { audioGate.audioFocus = true; audioGate.duck = 1.0f; }
+                    else if (state == "duck") { audioGate.audioFocus = true; audioGate.duck = 0.25f; }
+                    else if (state == "loss") { audioGate.audioFocus = false; audioGate.duck = 1.0f; }
+                    else __android_log_print(ANDROID_LOG_ERROR, "StormAudio", "unknown audio focus state '%s'", command.c_str());
+                }
+                else if (command == "back" && !storm::android::mobileScreen.empty())
+                    core_private->Event("exitCancel");
+                else if (command == "uisound:press")
+                {
+                    // A press started on the touch UI's game interface: the scripts' interface click,
+                    // once per gesture (the widget actions that follow are silent, mobile_action_frame.hpp).
+                    if (!storm::android::mobileScreen.empty())
+                        core_private->Event(ISOUND_EVENT, "l", 1);
+                }
+                else if (command.starts_with("context:"))
+                {
+                    const bool accepted = storm::android::mobileScreen.empty() && command.substr(8) == storm::android::contextAction;
+                    storm::android::traceContextAction("receive", command.substr(8),
+                        std::string("accepted=") + (accepted ? "1" : "0") + " current=" + storm::android::contextAction);
+                    if (accepted)
+                        storm::android::requestedContextAction = command.substr(8);
+                }
+                else if (command.starts_with("dialogue-lost:"))
+                    storm::android::endUnseenDialogue(std::string_view(command).substr(14));
+                else if (command.starts_with("dialogue:"))
+                {
+                    if (storm::android::dialogueActions.size() < 8)
+                        storm::android::dialogueActions.push_back(command.substr(9));
+                }
+                else if (command.starts_with("widget:"))
+                {
+                    std::istringstream stream(command.substr(7));
+                    std::string screen, node, indexText, value;
+                    if (std::getline(stream, screen, '\t') && std::getline(stream, node, '\t') &&
+                        std::getline(stream, indexText, '\t') && std::getline(stream, value) &&
+                        screen == storm::android::mobileScreen)
+                    {
+                        int index;
+                        const auto parsed = std::from_chars(indexText.data(), indexText.data() + indexText.size(), index);
+                        if (parsed.ec == std::errc() && parsed.ptr == indexText.data() + indexText.size())
+                            storm::android::uiWidgetActions.push_back({screen, node, value, index});
+                    }
+                }
+                else if (command.starts_with("touch:"))
+                {
+                    std::istringstream stream(command.substr(6));
+                    std::string screen;
+                    float x, y; int phase;
+                    if (stream >> screen >> x >> y >> phase && screen == storm::android::mobileScreen &&
+                        x >= 0 && x <= 1 && y >= 0 && y <= 1 && phase >= 0 && phase <= 3)
+                        storm::android::uiTouches.push_back({x, y, phase});
                 }
             }
-            else if (command.starts_with("touch:"))
-            {
-                std::istringstream stream(command.substr(6));
-                std::string screen;
-                float x, y; int phase;
-                if (stream >> screen >> x >> y >> phase && screen == storm::android::mobileScreen &&
-                    x >= 0 && x <= 1 && y >= 0 && y <= 1 && phase >= 0 && phase <= 3)
-                    storm::android::uiTouches.push_back({x, y, phase});
-            }
-        }
 #endif
-        SDL_PumpEvents();
-        window->PumpEvents();
-        // Queued window/lifecycle events, delivered between frames on this thread.
-        storm::AppEvents::instance().dispatch();
-        audioGate.apply();
+            SDL_PumpEvents();
+            window->PumpEvents();
+            RethrowCallbackError(); // from a handler SDL called during the pump
+            // Queued window/lifecycle events, delivered between frames on this thread.
+            storm::AppEvents::instance().dispatch();
+            audioGate.apply();
 #ifdef __ANDROID__
-        SDL_Event appEvent;
-        while (SDL_PeepEvents(&appEvent, 1, SDL_GETEVENT, SDL_APP_TERMINATING,
-                              SDL_APP_DIDENTERFOREGROUND) > 0)
-        {
-            androidLifecycle.consume(appEvent.type);
-            if (appEvent.type == SDL_APP_WILLENTERBACKGROUND || appEvent.type == SDL_APP_DIDENTERBACKGROUND ||
-                appEvent.type == SDL_APP_TERMINATING)
+            SDL_Event appEvent;
+            while (SDL_PeepEvents(&appEvent, 1, SDL_GETEVENT, SDL_APP_TERMINATING,
+                                  SDL_APP_DIDENTERFOREGROUND) > 0)
             {
-                storm::android::cancelAndroidCombatInput();
+                androidLifecycle.consume(appEvent.type);
+                if (appEvent.type == SDL_APP_WILLENTERBACKGROUND || appEvent.type == SDL_APP_DIDENTERBACKGROUND ||
+                    appEvent.type == SDL_APP_TERMINATING)
+                {
+                    storm::android::cancelAndroidCombatInput();
+                    storm::android::closeSeaOrders();
+                    storm::android::closeLandCommands();
+                    storm::android::publishLandCommands();
+                    storm::android::seaQuickLifecycleReady = false;
+                }
+            }
+            if (SDL_HasEvent(SDL_QUIT))
+                androidLifecycle.consume(SDL_QUIT);
+            // Audio pause/resume for the lifecycle goes through AppEvents and audioGate.
+            if (!androidLifecycle.canRun() || !storm::android::mobileScreen.empty())
+                gameplayShortcuts.clear();
+            if (!androidLifecycle.canRun() || !storm::android::mobileScreen.empty() || storm::android::loadingState != 0)
+            {
                 storm::android::closeSeaOrders();
                 storm::android::closeLandCommands();
                 storm::android::publishLandCommands();
-                storm::android::seaQuickLifecycleReady = false;
-            }
-        }
-        if (SDL_HasEvent(SDL_QUIT))
-            androidLifecycle.consume(SDL_QUIT);
-        // Audio pause/resume for the lifecycle goes through AppEvents and audioGate.
-        if (!androidLifecycle.canRun() || !storm::android::mobileScreen.empty())
-            gameplayShortcuts.clear();
-        if (!androidLifecycle.canRun() || !storm::android::mobileScreen.empty() || storm::android::loadingState != 0)
-        {
-            storm::android::closeSeaOrders();
-            storm::android::closeLandCommands();
-            storm::android::publishLandCommands();
-            storm::android::publishSeaOrders();
-            storm::android::movementInput.updateOwner({});
-            storm::android::GameplaySnapshot blocked;
-            blocked.blocked = notReady();
-            gameplayState.update(std::move(blocked));
-            storm::android::heldControls.update(gameplayState.revision());
-            storm::android::deckWalk.update(gameplayState.revision());
-            storm::android::updateCombatState(gameplayState, core_private);
-            storm::android::publishCombatState();
-            storm::android::publishGameplayState(gameplayState.json());
-            storm::android::worldMapHud.update({},SDL_GetTicks());
-            storm::android::publishWorldMapHud();
-            storm::android::shipTelemetry.update(gameplayState.revision(), {});
-            storm::android::publishShipTelemetry();
-            storm::android::seaQuickLifecycleReady = false;
-            storm::android::seaQuickAction.update({});
-            storm::android::publishSeaQuickAction();
-        }
-        if (androidLifecycle.terminating())
-            isRunning = false;
-        if(storm::android::worldMapHud.modal.ownsInput(SDL_GetTicks()))storm::android::publishWorldMapHud();
-        storm::android::worldMapHud.resume(bActive,SDL_GetTicks());
-        const bool mapModalHold=storm::android::worldMapHud.modal.hold(bActive,SDL_GetTicks());
-#else
-        // SDL turns SIGINT/SIGTERM into SDL_QUIT: the host shuts down in order, like closing the window.
-        if (SDL_HasEvent(SDL_QUIT))
-        {
-            spdlog::info("Quit requested (SIGINT/SIGTERM)");
-            isRunning = false;
-        }
-#endif
-        SDL_FlushEvents(0, SDL_LASTEVENT);
-        if (!isRunning)
-            break;
-
-        if ((bActive || run_in_background)
-#ifdef __ANDROID__
-            && androidLifecycle.canRun() && !mapModalHold
-#endif
-        )
-        {
-            frameWork.frame();
-
-#ifdef __ANDROID__
-            // Activity changes revoke queued intents before any native Player
-            // or Control Activation handler can consume the next frame.
-            storm::android::publishCombatState();
-            // HUD input reaches the script at the top of the frame, before RunFrame, so that
-            // what it opens or changes is drawn and published (xinterface Realize) in this same
-            // frame. Taken after RunFrame, it waited for the next frame to show anything.
-            if (const auto action = gameplayState.take(SDL_GetTicks()))
-            {
-                STORM_PROFILE_ZONE("HUD command: gameplay action");
-                STORM_PROFILE_ZONE_TEXT(action->data(), action->size());
-                // A battle ability goes through the command list, as the native menu launches it.
-                if (action->starts_with("BI_"))
-                    storm::android::launchShipAbility(*action);
-                else if (const int step = storm::android::timeScaleStep(*action); step >= 0)
-                    storm::android::applyTimeScaleStep(step);
-                else
-                    core_private->Event("Control Activation", "s", action->c_str());
-            }
-            // Commands run at a game-frame boundary, outside Android dialog callbacks: no
-            // timed key pulse or held bit can be lost between two slow native frames.
-            if (!storm::android::mobileScreen.empty()) gameplayShortcuts.clear();
-            const bool shortcutReady = isRunning && bActive && androidLifecycle.canRun() &&
-                core_private->initialized() && core.Controls && storm::android::loadingState == 0 &&
-                storm::android::mobileScreen.empty();
-            if (const auto shortcut = gameplayShortcuts.take(SDL_GetTicks(), shortcutReady))
-            {
-                STORM_PROFILE_ZONE("HUD command: shortcut");
-                const auto *control = storm::android::shortcutControl(*shortcut);
-                const auto *screen = storm::android::shortcutScreen(*shortcut);
-                [[maybe_unused]] const std::string_view shortcutName = control ? control : screen; // Tracy only
-                STORM_PROFILE_ZONE_TEXT(shortcutName.data(), shortcutName.size());
-                if (shortcutLogBudget > 0)
-                {
-                    --shortcutLogBudget;
-                    std::string dialogRun = "<missing>", launched = "<missing>", resume = "<missing>";
-                    try
-                    {
-                        if (auto *value = static_cast<VDATA *>(core.GetScriptVariable("dialogRun")))
-                            dialogRun = std::to_string(value->GetInt());
-                        auto *state = static_cast<VDATA *>(core.GetScriptVariable("InterfaceStates"));
-                        auto *attributes = state ? state->GetAClass() : nullptr;
-                        const auto read = [attributes](const char *path) -> std::string {
-                            auto *attribute = attributes ? attributes->FindAClass(attributes, path) : nullptr;
-                            return attribute && attribute->HasValue() ? attribute->GetValue().substr(0, 32) : "<missing>";
-                        };
-                        launched = read("Launched");
-                        resume = read("buttons.resume.enable");
-                    }
-                    catch (...) { /* Diagnostics must never alter command delivery or guards. */ }
-                    spdlog::info("Android shortcut {}: {} dialogRun={} InterfaceStates.Launched={} resume.enable={}",
-                                 control ? "Control Activation" : "AndroidOpenScreen", control ? control : screen, dialogRun, launched, resume);
-                }
-                // Use exactly the ordinary control event, or the app adapter's screen opening
-                // (android_open_screen.c). Script guards (dialogRun, resume.enable, fight mode,
-                // etc.) still decide whether to act.
-                if (control)
-                    core_private->Event("Control Activation", "s", control);
-                else
-                    core_private->Event("AndroidOpenScreen", "s", screen);
-            }
-#endif
-            // Exceptions escaping a frame are reported and end the session in order
-            // instead of reaching std::terminate; see ReportFatalError.
-            try
-            {
-#ifdef __ANDROID__
-                storm::android::worldMapHud.beginDraw(SDL_GetTicks());
-#endif
-                STORM_PROFILE_ZONE("frame: script, entities, render");
-                RunFrame();
-            }
-            catch (const std::exception &error)
-            {
-                ReportFatalError(error.what());
-            }
-            catch (...)
-            {
-                ReportFatalError("unknown error");
-            }
-            if (fatalError)
-            {
-                exitCode = EXIT_FAILURE;
-                break;
-            }
-#ifdef __ANDROID__
-            const bool gameplayReady = isRunning && bActive && androidLifecycle.canRun() &&
-                core_private->initialized() && core.Controls && storm::android::loadingState == 0 &&
-                storm::android::mobileScreen.empty();
-            {
-                STORM_PROFILE_ZONE("HUD adapter: sea orders");
-                storm::android::refreshSeaOrders(storm::android::seaOrdersReady(gameplayReady));
-                // Detect Activity replacement before accepting any queued action.
                 storm::android::publishSeaOrders();
-                if (const auto request = storm::android::seaOrders.take(SDL_GetTicks()))
-                {
-                    storm::android::executeSeaOrder(*request);
-                    storm::android::refreshSeaOrders(storm::android::seaOrdersReady(gameplayReady));
-                    storm::android::publishSeaOrders();
-                }
-            }
-            {
-                STORM_PROFILE_ZONE("HUD adapter: land commands");
-                // Asks the scripts only when the land interface was told its list changed (LandRefreshGate).
-                storm::android::pollLandCommands(storm::android::landCommandsReady(gameplayReady));
-                storm::android::publishLandCommands();
-                if (const auto request = storm::android::landCommands.take(SDL_GetTicks())) {
-                    storm::android::executeLandCommand(*request);
-                    storm::android::refreshLandCommands(storm::android::landCommandsReady(gameplayReady));
-                    storm::android::publishLandCommands();
-                }
-            }
-            STORM_PROFILE_ZONE("HUD adapter: gameplay, combat, map, ship");
-            auto gameplaySnapshot = storm::android::readGameplaySnapshot(gameplayReady);
-            if (!gameplayReady)
-                gameplaySnapshot.blocked = notReady(); // the same reason as the blocked branch above: one state per loop
-            storm::android::movementInput.updateOwner(gameplaySnapshot.inputOwner);
-            gameplaySnapshot.analogMovement = !gameplaySnapshot.inputOwner.empty();
-            gameplaySnapshot.movementGeneration = gameplaySnapshot.analogMovement ? storm::android::movementInput.generation() : 0;
-            gameplayState.update(std::move(gameplaySnapshot));
-            storm::android::heldControls.update(gameplayState.revision());
-            storm::android::deckWalk.update(gameplayState.revision());
-            storm::android::seaQuickLifecycleReady = gameplayReady;
-            storm::android::publishSeaQuickAction();
-            storm::android::updateCombatState(gameplayState, core_private);
-            storm::android::publishCombatState();
-            storm::android::publishGameplayState(gameplayState.json());
-            storm::android::worldMapHud.update(storm::android::readWorldMapFrame(gameplayState,gameplayReady),SDL_GetTicks());
-            storm::android::worldMapHud.finishDraw(SDL_GetTicks());
-            if(storm::android::worldMapHud.modal.receipt(SDL_GetTicks()).token){
-                storm::android::traceWorldMapModal("presented",storm::android::worldMapHud.modal.debug());
-            }
-            storm::android::publishWorldMapHud(storm::android::worldMapHud.modal.receipt(SDL_GetTicks()).token!=0);
-            {
-                // A presenting UI answers each revision within one of its frames; one that stays
-                // silent is withdrawn loudly and the native HUD parts come back (android_hud_presenter.hpp).
-                using namespace storm::android;
-                const auto &telemetry = shipTelemetry;
-                const bool seaWaiting = gameplayReady && (seaQuickAction.awaiting() || telemetry.awaiting() ||
-                    (telemetry.frame().valid && seaNavigator.pending(telemetry.revision(), telemetry.hudRevision(), telemetry.frame().navigatorGeneration)));
-                for (const auto &line : {hudPresenters.watch("sea", seaWaiting, SDL_GetTicks()),
-                                         hudPresenters.watch("worldmap", gameplayReady && worldMapHud.awaiting(), SDL_GetTicks()),
-                                         hudPresenters.watch("spyglass", gameplayReady && spyglass.awaiting(), SDL_GetTicks())})
-                    if (line) __android_log_print(ANDROID_LOG_ERROR, "StormInput", "%s", line->c_str());
-            }
-            if(storm::android::worldMapHud.modal.hold(bActive,SDL_GetTicks()))continue;
-            if(const auto command=storm::android::worldMapHud.take(SDL_GetTicks()))
-            {
-                storm::android::executeWorldMapCommand(*command);
-                storm::android::worldMapHud.update(storm::android::readWorldMapFrame(gameplayState,gameplayReady),SDL_GetTicks());
+                storm::android::movementInput.updateOwner({});
+                storm::android::GameplaySnapshot blocked;
+                blocked.blocked = notReady();
+                gameplayState.update(std::move(blocked));
+                storm::android::heldControls.update(gameplayState.revision());
+                storm::android::deckWalk.update(gameplayState.revision());
+                storm::android::updateCombatState(gameplayState, core_private);
+                storm::android::publishCombatState();
+                storm::android::publishGameplayState(gameplayState.json());
+                storm::android::worldMapHud.update({},SDL_GetTicks());
                 storm::android::publishWorldMapHud();
+                storm::android::shipTelemetry.update(gameplayState.revision(), {});
+                storm::android::publishShipTelemetry();
+                storm::android::seaQuickLifecycleReady = false;
+                storm::android::seaQuickAction.update({});
+                storm::android::publishSeaQuickAction();
             }
-            storm::android::shipTelemetry.update(gameplayState.revision(), storm::android::readShipFrame(gameplayState, storm::android::seaOrders.frame().active));
-            // Activity recreation revokes pending targets/ready ACKs before dispatch.
-            storm::android::publishShipTelemetry();
-            if (const auto detent = storm::android::shipTelemetry.takeSails(SDL_GetTicks()))
-                if (storm::android::applyShipSailTarget(gameplayState, *detent))
-                {
-                    storm::android::shipTelemetry.update(gameplayState.revision(), storm::android::readShipFrame(gameplayState, storm::android::seaOrders.frame().active));
-                    storm::android::publishShipTelemetry();
-                }
-            static uint32_t lastMobileState = 0;
-            if (core_private->initialized() && SDL_GetTicks() - lastMobileState >= 200) {
-                lastMobileState = SDL_GetTicks();
-                bool cinematic = false;
-                auto *index = static_cast<VDATA *>(core.GetScriptVariable("nMainCharacterIndex"));
-                auto *characters = static_cast<VDATA *>(core.GetScriptVariable("Characters"));
-                if (index && characters && index->GetInt() >= 0) {
-                    if (auto *character = characters->GetAClass(index->GetInt())) {
-                        auto *type = character->FindAClass(character, "chr_ai.type");
-                        cinematic = type && type->HasValue() && std::string_view(type->GetValue()) == "actor";
-                    }
-                }
-                storm::android::publishCinematic(cinematic || core.GetEntityId("CAviPlayer") != invalid_entity || core.GetEntityId("WMVideoPlay") != invalid_entity);
+            if (androidLifecycle.terminating())
+                isRunning = false;
+            if(storm::android::worldMapHud.modal.ownsInput(SDL_GetTicks()))storm::android::publishWorldMapHud();
+            storm::android::worldMapHud.resume(bActive,SDL_GetTicks());
+            const bool mapModalHold=storm::android::worldMapHud.modal.hold(bActive,SDL_GetTicks());
+#else
+            // SDL turns SIGINT/SIGTERM into SDL_QUIT: the host shuts down in order, like closing the window.
+            if (SDL_HasEvent(SDL_QUIT))
+            {
+                spdlog::info("Quit requested (SIGINT/SIGTERM)");
+                isRunning = false;
             }
 #endif
-        }
-        else
-        {
-            std::this_thread::sleep_for(std::chrono::milliseconds(50));
-        }
+            SDL_FlushEvents(0, SDL_LASTEVENT);
+            if (!isRunning)
+                break;
 
-        if (core.Controls && core.Controls->GetDebugAsyncKeyState(VK_F1) && core.Controls->GetDebugAsyncKeyState(VK_SHIFT))
-        {
-            mi_stats_print_out(mimalloc_fun, nullptr);
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            if ((bActive || run_in_background)
+#ifdef __ANDROID__
+                && androidLifecycle.canRun() && !mapModalHold
+#endif
+            )
+            {
+                frameWork.frame();
+
+#ifdef __ANDROID__
+                // Activity changes revoke queued intents before any native Player
+                // or Control Activation handler can consume the next frame.
+                storm::android::publishCombatState();
+                // HUD input reaches the script at the top of the frame, before RunFrame, so that
+                // what it opens or changes is drawn and published (xinterface Realize) in this same
+                // frame. Taken after RunFrame, it waited for the next frame to show anything.
+                if (const auto action = gameplayState.take(SDL_GetTicks()))
+                {
+                    STORM_PROFILE_ZONE("HUD command: gameplay action");
+                    STORM_PROFILE_ZONE_TEXT(action->data(), action->size());
+                    // A battle ability goes through the command list, as the native menu launches it.
+                    if (action->starts_with("BI_"))
+                        storm::android::launchShipAbility(*action);
+                    else if (const int step = storm::android::timeScaleStep(*action); step >= 0)
+                        storm::android::applyTimeScaleStep(step);
+                    else
+                        core_private->Event("Control Activation", "s", action->c_str());
+                }
+                // Commands run at a game-frame boundary, outside Android dialog callbacks: no
+                // timed key pulse or held bit can be lost between two slow native frames.
+                if (!storm::android::mobileScreen.empty()) gameplayShortcuts.clear();
+                const bool shortcutReady = isRunning && bActive && androidLifecycle.canRun() &&
+                    core_private->initialized() && core.Controls && storm::android::loadingState == 0 &&
+                    storm::android::mobileScreen.empty();
+                if (const auto shortcut = gameplayShortcuts.take(SDL_GetTicks(), shortcutReady))
+                {
+                    STORM_PROFILE_ZONE("HUD command: shortcut");
+                    const auto *control = storm::android::shortcutControl(*shortcut);
+                    const auto *screen = storm::android::shortcutScreen(*shortcut);
+                    [[maybe_unused]] const std::string_view shortcutName = control ? control : screen; // Tracy only
+                    STORM_PROFILE_ZONE_TEXT(shortcutName.data(), shortcutName.size());
+                    if (shortcutLogBudget > 0)
+                    {
+                        --shortcutLogBudget;
+                        std::string dialogRun = "<missing>", launched = "<missing>", resume = "<missing>";
+                        try
+                        {
+                            if (auto *value = static_cast<VDATA *>(core.GetScriptVariable("dialogRun")))
+                                dialogRun = std::to_string(value->GetInt());
+                            auto *state = static_cast<VDATA *>(core.GetScriptVariable("InterfaceStates"));
+                            auto *attributes = state ? state->GetAClass() : nullptr;
+                            const auto read = [attributes](const char *path) -> std::string {
+                                auto *attribute = attributes ? attributes->FindAClass(attributes, path) : nullptr;
+                                return attribute && attribute->HasValue() ? attribute->GetValue().substr(0, 32) : "<missing>";
+                            };
+                            launched = read("Launched");
+                            resume = read("buttons.resume.enable");
+                        }
+                        catch (...) { /* Diagnostics must never alter command delivery or guards. */ }
+                        spdlog::info("Android shortcut {}: {} dialogRun={} InterfaceStates.Launched={} resume.enable={}",
+                                     control ? "Control Activation" : "AndroidOpenScreen", control ? control : screen, dialogRun, launched, resume);
+                    }
+                    // Use exactly the ordinary control event, or the app adapter's screen opening
+                    // (android_open_screen.c). Script guards (dialogRun, resume.enable, fight mode,
+                    // etc.) still decide whether to act.
+                    if (control)
+                        core_private->Event("Control Activation", "s", control);
+                    else
+                        core_private->Event("AndroidOpenScreen", "s", screen);
+                }
+#endif
+                {
+#ifdef __ANDROID__
+                    storm::android::worldMapHud.beginDraw(SDL_GetTicks());
+#endif
+                    STORM_PROFILE_ZONE("frame: script, entities, render");
+                    RunFrame();
+                }
+                RethrowCallbackError(); // from a handler SDL called during the frame
+#ifdef __ANDROID__
+                const bool gameplayReady = isRunning && bActive && androidLifecycle.canRun() &&
+                    core_private->initialized() && core.Controls && storm::android::loadingState == 0 &&
+                    storm::android::mobileScreen.empty();
+                {
+                    STORM_PROFILE_ZONE("HUD adapter: sea orders");
+                    storm::android::refreshSeaOrders(storm::android::seaOrdersReady(gameplayReady));
+                    // Detect Activity replacement before accepting any queued action.
+                    storm::android::publishSeaOrders();
+                    if (const auto request = storm::android::seaOrders.take(SDL_GetTicks()))
+                    {
+                        storm::android::executeSeaOrder(*request);
+                        storm::android::refreshSeaOrders(storm::android::seaOrdersReady(gameplayReady));
+                        storm::android::publishSeaOrders();
+                    }
+                }
+                {
+                    STORM_PROFILE_ZONE("HUD adapter: land commands");
+                    // Asks the scripts only when the land interface was told its list changed (LandRefreshGate).
+                    storm::android::pollLandCommands(storm::android::landCommandsReady(gameplayReady));
+                    storm::android::publishLandCommands();
+                    if (const auto request = storm::android::landCommands.take(SDL_GetTicks())) {
+                        storm::android::executeLandCommand(*request);
+                        storm::android::refreshLandCommands(storm::android::landCommandsReady(gameplayReady));
+                        storm::android::publishLandCommands();
+                    }
+                }
+                STORM_PROFILE_ZONE("HUD adapter: gameplay, combat, map, ship");
+                auto gameplaySnapshot = storm::android::readGameplaySnapshot(gameplayReady);
+                if (!gameplayReady)
+                    gameplaySnapshot.blocked = notReady(); // the same reason as the blocked branch above: one state per loop
+                storm::android::movementInput.updateOwner(gameplaySnapshot.inputOwner);
+                gameplaySnapshot.analogMovement = !gameplaySnapshot.inputOwner.empty();
+                gameplaySnapshot.movementGeneration = gameplaySnapshot.analogMovement ? storm::android::movementInput.generation() : 0;
+                gameplayState.update(std::move(gameplaySnapshot));
+                storm::android::heldControls.update(gameplayState.revision());
+                storm::android::deckWalk.update(gameplayState.revision());
+                storm::android::seaQuickLifecycleReady = gameplayReady;
+                storm::android::publishSeaQuickAction();
+                storm::android::updateCombatState(gameplayState, core_private);
+                storm::android::publishCombatState();
+                storm::android::publishGameplayState(gameplayState.json());
+                storm::android::worldMapHud.update(storm::android::readWorldMapFrame(gameplayState,gameplayReady),SDL_GetTicks());
+                storm::android::worldMapHud.finishDraw(SDL_GetTicks());
+                if(storm::android::worldMapHud.modal.receipt(SDL_GetTicks()).token){
+                    storm::android::traceWorldMapModal("presented",storm::android::worldMapHud.modal.debug());
+                }
+                storm::android::publishWorldMapHud(storm::android::worldMapHud.modal.receipt(SDL_GetTicks()).token!=0);
+                {
+                    // A presenting UI answers each revision within one of its frames; one that stays
+                    // silent is withdrawn loudly and the native HUD parts come back (android_hud_presenter.hpp).
+                    using namespace storm::android;
+                    const auto &telemetry = shipTelemetry;
+                    const bool seaWaiting = gameplayReady && (seaQuickAction.awaiting() || telemetry.awaiting() ||
+                        (telemetry.frame().valid && seaNavigator.pending(telemetry.revision(), telemetry.hudRevision(), telemetry.frame().navigatorGeneration)));
+                    // The watch withdraws a silent presenter (an error) or brings a withdrawn one back
+                    // once the UI answers again (info): which one, the presenter's state says after it.
+                    const auto watch = [](std::string_view hud, bool waiting, const bool &presented) {
+                        if (const auto line = hudPresenters.watch(hud, waiting, SDL_GetTicks()))
+                            __android_log_print(presented ? ANDROID_LOG_INFO : ANDROID_LOG_ERROR, "StormInput", "%s", line->c_str());
+                    };
+                    watch("sea", seaWaiting, hudPresenters.sea);
+                    watch("worldmap", gameplayReady && worldMapHud.awaiting(), hudPresenters.worldMap);
+                    watch("spyglass", gameplayReady && spyglass.awaiting(), hudPresenters.spyglass);
+                }
+                if(storm::android::worldMapHud.modal.hold(bActive,SDL_GetTicks()))continue;
+                if(const auto command=storm::android::worldMapHud.take(SDL_GetTicks()))
+                {
+                    storm::android::executeWorldMapCommand(*command);
+                    storm::android::worldMapHud.update(storm::android::readWorldMapFrame(gameplayState,gameplayReady),SDL_GetTicks());
+                    storm::android::publishWorldMapHud();
+                }
+                storm::android::shipTelemetry.update(gameplayState.revision(), storm::android::readShipFrame(gameplayState, storm::android::seaOrders.frame().active));
+                // Activity recreation revokes pending targets/ready ACKs before dispatch.
+                storm::android::publishShipTelemetry();
+                if (const auto detent = storm::android::shipTelemetry.takeSails(SDL_GetTicks()))
+                    if (storm::android::applyShipSailTarget(gameplayState, *detent))
+                    {
+                        storm::android::shipTelemetry.update(gameplayState.revision(), storm::android::readShipFrame(gameplayState, storm::android::seaOrders.frame().active));
+                        storm::android::publishShipTelemetry();
+                    }
+                static uint32_t lastMobileState = 0;
+                if (core_private->initialized() && SDL_GetTicks() - lastMobileState >= 200) {
+                    lastMobileState = SDL_GetTicks();
+                    bool cinematic = false;
+                    auto *index = static_cast<VDATA *>(core.GetScriptVariable("nMainCharacterIndex"));
+                    auto *characters = static_cast<VDATA *>(core.GetScriptVariable("Characters"));
+                    if (index && characters && index->GetInt() >= 0) {
+                        if (auto *character = characters->GetAClass(index->GetInt())) {
+                            auto *type = character->FindAClass(character, "chr_ai.type");
+                            cinematic = type && type->HasValue() && std::string_view(type->GetValue()) == "actor";
+                        }
+                    }
+                    storm::android::publishCinematic(cinematic || core.GetEntityId("CAviPlayer") != invalid_entity || core.GetEntityId("WMVideoPlay") != invalid_entity);
+                }
+#endif
+            }
+            else
+            {
+                std::this_thread::sleep_for(std::chrono::milliseconds(50));
+            }
+
+            if (core.Controls && core.Controls->GetDebugAsyncKeyState(VK_F1) && core.Controls->GetDebugAsyncKeyState(VK_SHIFT))
+            {
+                mi_stats_print_out(mimalloc_fun, nullptr);
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            }
         }
     }
+    catch (const std::exception &error)
+    {
+        ReportFatalError(error.what());
+    }
+    catch (...)
+    {
+        ReportFatalError("unknown error");
+    }
+    if (fatalError)
+        exitCode = EXIT_FAILURE;
 
     // Release
 #ifdef __ANDROID__

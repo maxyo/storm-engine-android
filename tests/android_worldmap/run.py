@@ -15,7 +15,7 @@ with tempfile.TemporaryDirectory(prefix='storm-worldmap-') as temp:
     subprocess.run(common+[str(here/'check.cpp'),'-o',str(out/'check')],check=True)
     subprocess.run([str(out/'check')],check=True)
     main=(root/'src/apps/engine/src/main.cpp').read_text()
-    (out/'window_focus.inc').write_text(main[main.index('void HandleWindowEvent('):main.index('int main(')])
+    (out/'window_focus.inc').write_text(main[main.index('void HandleWindowEventInSdl('):main.index('int main(')])
     subprocess.run(common+['-D__ANDROID__','-I'+str(root/'src/libs/window/include'),str(here/'focus.cpp'),'-o',str(out/'focus')],check=True)
     subprocess.run([str(out/'focus')],check=True)
     controls=(root/'src/libs/pcs_controls/src/pcs_controls.cpp').read_text()

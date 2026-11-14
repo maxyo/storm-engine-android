@@ -25,6 +25,9 @@ struct {
     bool windowFocused=true,applied=true;
     void apply(){if(applied!=windowFocused){applied=windowFocused;audio.SetActiveWithFade(windowFocused);}}
 } audioGate;
+// main.cpp's guard around handlers SDL calls (it keeps an exception for the main loop): the
+// body runs directly here, the property under test is inside it.
+template <typename Body> void InsideSdlCallback(const char *, Body &&body) { body(); }
 #include "window_focus.inc"
 int main(){
     auto &modal=storm::android::worldMapHud.modal;
