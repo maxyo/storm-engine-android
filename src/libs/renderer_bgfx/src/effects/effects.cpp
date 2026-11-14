@@ -300,6 +300,7 @@ void Host::apply()
     report_.preset = preset_;
     requested_ = fx::Settings::FromPreset(static_cast<fx::QualityPreset>(preset_));
     bool profile = false;
+    int farlod_cull = 0;
     caps_profile_ = fx::CapsProfile::Device;
     for (const auto &option : options_)
     {
@@ -307,6 +308,8 @@ void Host::apply()
             continue; // the preset's value
         if (option.name == "fx_gpu_profile")
             profile = option.value != 0;
+        else if (option.name == "fx_farlod_cull")
+            farlod_cull = option.value;
         else if (option.name == "fx_caps_profile")
             caps_profile_ = static_cast<fx::CapsProfile>(std::clamp(option.value, 0, static_cast<int>(fx::CapsProfile::Count) - 1));
         else if (const Option *known = find_option(option.name))
@@ -316,6 +319,9 @@ void Host::apply()
     }
     for (const auto &error : report_.errors)
         shim::logf("ERROR: effects: %s", error.c_str());
+    if (static_cast<float>(farlod_cull) != render::far_lod::cull_m)
+        shim::logf("effects: far-LOD ceiling cull %d m (fx_farlod_cull, measurement)", farlod_cull);
+    render::far_lod::cull_m = static_cast<float>(farlod_cull);
     if (device_ready_ && profile != profile_)
     {
         bgfx::setDebug(profile ? BGFX_DEBUG_PROFILER : BGFX_DEBUG_NONE);
@@ -724,7 +730,8 @@ const std::vector<EffectsOptionInfo> &EffectsOptionNames()
         std::vector<EffectsOptionInfo> list{{"fx_preset", "0 Низкая, 1 Средняя, 2 Высокая"},
                                             {"fx_caps_profile", "0 device, 1 gles30-minimal, 2 mali-g5x, 3 mali-g7x, 4 adreno-6xx, "
                                                                 "5 adreno-7xx-8xx, 6 powervr, 7 xclipse (development)"},
-                                            {"fx_gpu_profile", "1: log GPU timer averages every 30 frames (measurements)"}};
+                                            {"fx_gpu_profile", "1: log GPU timer averages every 30 frames (measurements)"},
+                                            {"fx_farlod_cull", "metres: leave out model objects farther than this (far-LOD ceiling, test build), 0 off"}};
         for (const auto &option : effects::kOptions)
             list.push_back({option.name, option.values});
         return list;

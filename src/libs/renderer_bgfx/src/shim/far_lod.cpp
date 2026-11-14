@@ -20,9 +20,9 @@ std::string Take(uint64_t frames)
             line += item;
         }
         std::snprintf(item, sizeof(item), " far_lod_composes=%.2f far_lod_compose_kb=%.1f "
-                                          "island_slices=%.2f far_lod_pending=%d far_lod_px=%.1f",
+                                          "island_slices=%.2f far_lod_pending=%d far_lod_px=%.1f far_lod_culled_kt=%.1f fl_cull_m=%.0f",
                       counters.composes / n, counters.compose_bytes / n / 1024.0,
-                      counters.island_slices / n, pending, pixels);
+                      counters.island_slices / n, pending, pixels, counters.culled_triangles / n / 1000.0, cull_m);
         line += item;
     }
     counters = {};
