@@ -110,11 +110,17 @@ python3 tools/scene_sweep/run.py --game <game dir> --engine <build>/engine --out
 - `--baseline report.json` exits non-zero only for scenes that pass in that report.
 - `--render gles-gpu|vulkan|llvmpipe` what the engines draw with (default `gles-gpu`), see *Renderer*;
   `--virtualgl DIR` (or `STORM_VIRTUALGL`) is the VirtualGL directory `gles-gpu` needs.
+- `--program-cache DIR` keeps the engines' program and pipeline cache in DIR between runs (`--jobs 1`): the first
+  sweep measures a cold cache, the next ones a warm one (Vulkan: the pipeline cache and the scenes' recorded pipelines,
+  `src/libs/renderer_bgfx/src/shim/pipeline_sets.hpp`).
 - `--settle MS` how long each scene renders after its fader before the capture (default 300).
   Frame time and the renderer counters are means over this window: raise it (e.g. 5000) with
   `--only` on a few scenes and `--jobs 1` for performance measurements.
 
-Output in `--out`: `report.json` (per-scene status, reasons, load time, frame time, draw
+Output in `--out`: `report.json` (per-scene status, reasons, load time, `reveal_ms` (from loaded to the scene
+shown: the loading fader, which Vulkan holds while the scene's pipelines are created), frame time with its
+`frame_p95_ms` / `frame_p99_ms` / `frame_max_ms` over the window, `first_window` (frame-time percentiles of the first
+window after the fader, also when it was not captured because draws waited for pipelines), draw
 calls, RSS, and `renderer`: per-frame means of the bgfx shim counters, see
 `src/libs/renderer_bgfx/include/storm/render/perf_stats.hpp`), `summary.txt`, `shots/` and contact sheets in `contact/` (failures framed red).
 Keep reports out of the repository.

@@ -1,6 +1,7 @@
 #ifdef STORM_SCENE_SWEEP
 #include "scene_sweep.hpp"
 
+#include <algorithm>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -35,6 +36,8 @@ std::FILE *events = nullptr;
 const Clock::time_point started = Clock::now();
 Clock::time_point windowStart = started;
 uint32_t windowFrames = 0;
+Clock::time_point lastFrame = started;
+std::vector<float> windowFrameMs; // the window's frame times
 uint32_t lastDrawCalls = 0;
 std::function<std::string()> rendererWindow;
 std::vector<std::string> variants; // STORM_SCENE_SWEEP_VARIANTS split at ';'
@@ -43,6 +46,27 @@ storm::scene_sweep::VariantHook variantHook = nullptr;
 storm::scene_sweep::VariantReadyHook variantReadyHook = nullptr;
 storm::scene_sweep::IncompleteFrameHook incompleteFrameHook = nullptr;
 uint32_t windowIncompleteMark = 0; // incompleteFrameHook() when the window started
+
+// The window's frame times: " p50=.. p95=.. p99=.. max=.." (milliseconds).
+std::string windowFrameStats()
+{
+    std::vector<float> sorted = windowFrameMs;
+    std::sort(sorted.begin(), sorted.end());
+    const auto at = [&](double p) {
+        return sorted.empty() ? 0.0f : sorted[std::min(sorted.size() - 1, static_cast<size_t>(p * sorted.size()))];
+    };
+    char text[128];
+    std::snprintf(text, sizeof(text), " p50=%.1f p95=%.1f p99=%.1f max=%.1f", at(0.50), at(0.95), at(0.99),
+                  sorted.empty() ? 0.0f : sorted.back());
+    return text;
+}
+
+void startWindow()
+{
+    windowStart = Clock::now();
+    windowFrames = 0;
+    windowFrameMs.clear();
+}
 
 void writeEvent(const std::string &text)
 {
@@ -71,9 +95,12 @@ uint32_t event(VS_STACK *stack)
     auto *text = static_cast<VDATA *>(stack->Pop());
     if (!text)
         return IFUNCRESULT_FAILED;
-    writeEvent(text->GetString());
-    windowStart = Clock::now();
-    windowFrames = 0;
+    const std::string line = text->GetString();
+    // A window not captured (Vulkan draws waited for pipelines): its frame times still count for the scene.
+    if (line.rfind("incomplete ", 0) == 0)
+        writeEvent("window frames=" + std::to_string(windowFrames) + windowFrameStats());
+    writeEvent(line);
+    startWindow();
     windowIncompleteMark = incompleteFrameHook ? incompleteFrameHook() : 0;
     if (rendererWindow)
         rendererWindow();
@@ -86,7 +113,8 @@ uint32_t capture(VS_STACK *)
 {
     const double ms = std::chrono::duration<double, std::milli>(Clock::now() - windowStart).count();
     writeEvent("capture frames=" + std::to_string(windowFrames) + " frame_ms=" +
-               std::to_string(windowFrames ? ms / windowFrames : 0.0) + " draws=" + std::to_string(lastDrawCalls) +
+               std::to_string(windowFrames ? ms / windowFrames : 0.0) + windowFrameStats() +
+               " draws=" + std::to_string(lastDrawCalls) +
                (currentVariant >= 0 ? " variant=" + std::to_string(currentVariant) : std::string()) +
                (rendererWindow ? " renderer: " + rendererWindow() : std::string()));
     const auto ack = directory / "ack";
@@ -102,8 +130,7 @@ uint32_t capture(VS_STACK *)
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(2));
     }
-    windowStart = Clock::now();
-    windowFrames = 0;
+    startWindow();
     return IFUNCRESULT_OK;
 }
 
@@ -224,6 +251,9 @@ void storm::scene_sweep::framePresented(uint32_t drawCalls)
 {
     ++windowFrames;
     lastDrawCalls = drawCalls;
+    const Clock::time_point now = Clock::now();
+    windowFrameMs.push_back(std::chrono::duration<float, std::milli>(now - lastFrame).count());
+    lastFrame = now;
 }
 
 void storm::scene_sweep::setVariantHook(VariantHook hook, VariantReadyHook ready)

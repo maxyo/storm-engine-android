@@ -121,6 +121,10 @@ def parse_arguments():
     parser.add_argument('--settle', type=int, default=300,
                         help='ms each scene renders after its fader before the capture; frame time and the renderer '
                              'counters are means over this window (raise it for performance measurements)')
+    parser.add_argument('--program-cache', type=Path, metavar='DIR',
+                        help='the engines keep their program and pipeline cache (ProgramCache) in DIR across runs and '
+                             'sweeps (made if missing), instead of starting cold: for warm-cache measurements; '
+                             'with --jobs 1')
     parser.add_argument('--techniques', type=Path, default=REPOSITORY / 'src/techniques',
                         help="the engine's techniques, laid over the game's as the APK build does")
     parser.add_argument('--keep-work', action='store_true', help='keep the per-engine game copies and logs')
@@ -488,6 +492,12 @@ class Shard(threading.Thread):
         run = self.work / f'run-{self.runs}'
         run.mkdir()
         game, control = self.prepare(run)
+        if self.arguments.program_cache:
+            # The engine's cache root on Linux is its SDL pref path, $XDG_DATA_HOME/Akella/Sea Dogs.
+            stash = run / 'data/Akella/Sea Dogs'
+            stash.mkdir(parents=True)
+            self.arguments.program_cache.mkdir(parents=True, exist_ok=True)
+            (stash / 'ProgramCache').symlink_to(self.arguments.program_cache.resolve(), target_is_directory=True)
         environment = dict(os.environ, DISPLAY=f':{self.display}', XDG_DATA_HOME=str(run / 'data'),
                            SDL_VIDEODRIVER='x11', SDL_AUDIODRIVER='dummy', STORM_SCENE_SWEEP_DIR=str(control),
                            STORM_SCENE_SWEEP_SETTLE_MS=str(self.arguments.settle),
@@ -550,6 +560,13 @@ class Shard(threading.Thread):
                 elif kind == 'loaded':
                     loaded = time.monotonic()
                     metrics['load_ms'] = round((loaded - begun) * 1000)
+                elif kind == 'steady':
+                    # From loaded to the scene shown: the loading fader (held while Vulkan pipelines are prepared).
+                    metrics.setdefault('reveal_ms', round((time.monotonic() - loaded) * 1000))
+                elif kind == 'window':
+                    # The frame times of a window that was not captured (incomplete), first window first.
+                    values = dict(item.split('=') for item in rest.split())
+                    metrics.setdefault('first_window', {k: float(v) for k, v in values.items()})
                 elif kind == 'capture':
                     rest, _, renderer = rest.partition(' renderer: ')
                     values = dict(item.split('=') for item in rest.split())
@@ -564,7 +581,10 @@ class Shard(threading.Thread):
                     target.parent.mkdir(parents=True, exist_ok=True)
                     image.save(target, quality=82)
                     status = Path(f'/proc/{engine.pid}/status').read_text()
+                    metrics.setdefault('first_window', {k: float(values[k]) for k in ('frames', 'p50', 'p95', 'p99', 'max')})
                     measured = dict(frame_ms=round(float(values['frame_ms']), 1), draws=int(values['draws']),
+                                    frame_p95_ms=float(values['p95']), frame_p99_ms=float(values['p99']),
+                                    frame_max_ms=float(values['max']),
                                     rss_mb=int(re.search(r'VmRSS:\s+(\d+)', status)[1]) // 1024, shot=str(shot),
                                     # Per-frame means of the renderer counters (storm/render/perf_stats.hpp).
                                     renderer={key: float(value) for key, value in
@@ -802,6 +822,8 @@ def main():
         print('no scenes selected')
         return 0
     jobs = min(arguments.jobs or default_jobs(), len(chosen))
+    if arguments.program_cache and jobs != 1:
+        sys.exit('--program-cache: one engine at a time uses the cache (--jobs 1)')
     shutil.rmtree(inside(arguments.out, arguments.out / 'work'), ignore_errors=True)
     (arguments.out / 'work').mkdir()
     # One copy of the engine per sweep, hard-linked into every game copy: the build directory
