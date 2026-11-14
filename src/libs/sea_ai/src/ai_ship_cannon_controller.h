@@ -84,6 +84,11 @@ class AIShipCannonController
 
     [[nodiscard]] float GetSpeedV0() const;
 
+    // The player's camera aim (fire_side.hpp): the index of the side that fires toward the view
+    // over the full circle, INVALID_BORT_INDEX if none can; vAim: the view turned into that side's
+    // zone, its elevation kept.
+    [[nodiscard]] uint32_t GetCameraFireBort(const glm::vec3 &vCamDir, glm::vec3 &vAim) const;
+
   public:
     [[nodiscard]] uint32_t GetCannonsNum() const;
 

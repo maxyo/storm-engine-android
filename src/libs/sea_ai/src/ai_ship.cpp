@@ -357,7 +357,7 @@ bool AIShip::Fire(bool bCameraOutside)
         const auto vZ = storm::math::vz(m);
         vLook = storm::math::normalizeOrZero(glm::vec3(vZ.x, 0.0f, vZ.z));
         if (!GetCannonController()->isCanFire(vLook))
-            return false; // no side looks that way (the bow or the stern without guns)
+            return false; // no gun side can fire (fire_side.hpp: any side covers the full circle)
     }
     // Within this cone around the view a target counts as "in that direction".
     const auto inView = [&](const glm::vec3 &vTarget) {

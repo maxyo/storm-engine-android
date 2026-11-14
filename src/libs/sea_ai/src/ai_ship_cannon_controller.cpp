@@ -2,6 +2,7 @@
 
 #include "ai_balls.h"
 #include "ai_ship.h"
+#include "fire_side.hpp"
 #include "math_inlines.h"
 
 float AIShipCannonController::fMaxCannonDamageDistance = 1.0f;
@@ -58,27 +59,22 @@ bool AIShipCannonController::Fire(const glm::vec3 &vFireCamPos, const glm::vec3 
     const auto vOurPos = GetAIShip()->GetPos();
     const auto fSpeedV0 = GetSpeedV0();
 
-    const auto vTempDir = storm::math::normalizeOrZero(glm::vec3(vFireDir.x, 0.0f, vFireDir.z));
-    float fAngle = acosf(Clamp(glm::dot(vTempDir, vFireDir)));
-    if (vFireDir.y < 0)
+    glm::vec3 vAim;
+    const uint32_t dwBort = GetCameraFireBort(vFireDir, vAim);
+    if (dwBort == INVALID_BORT_INDEX)
+        return false;
+    auto &bort = aShipBorts[dwBort];
+
+    const auto vTempDir = storm::math::normalizeOrZero(glm::vec3(vAim.x, 0.0f, vAim.z));
+    float fAngle = acosf(Clamp(glm::dot(vTempDir, vAim)));
+    if (vAim.y < 0)
         fAngle = -fAngle;
 
-    glm::vec3 vTempFirePos = vOurPos + storm::math::normalizeOrZero(vTempDir);
-    vTempFirePos.y = 0.0f;
+    const float fMaxDist = AICannon::CalcMaxFireDistance(bort.fOurBortFireHeight + vOurPos.y, fSpeedV0, fAngle);
+    glm::vec3 vFirePos = vFireCamPos + fMaxDist * vAim;
+    vFirePos.y = 0.0f;
 
-    auto bortIt = GetFirstFireBort(vTempFirePos);
-    while (IsValid(bortIt))
-    {
-        const float fMaxDist = AICannon::CalcMaxFireDistance(bortIt->fOurBortFireHeight + vOurPos.y, fSpeedV0, fAngle);
-
-        glm::vec3 vFirePos = vFireCamPos + fMaxDist * storm::math::normalizeOrZero(vFireDir);
-        vFirePos.y = 0.0f;
-
-        Fire2Position(*bortIt, vFirePos, 0.0f);
-
-        bortIt = GetNextFireBort(bortIt, vTempFirePos);
-    }
-
+    Fire2Position(bort, vFirePos, 0.0f);
     return true;
 }
 
@@ -348,21 +344,20 @@ glm::vec3 AIShipCannonController::GetFirePos(const glm::vec3 &vFireDir, float fD
     const glm::vec3 vOurPos = GetAIShip()->GetPos();
     const float fSpeedV0 = GetSpeedV0();
 
-    const glm::vec3 vTempDir = storm::math::normalizeOrZero(glm::vec3(vFireDir.x, 0.0f, vFireDir.z));
-    float fAngle = acosf(Clamp(glm::dot(vTempDir, vFireDir)));
-    if (vFireDir.y < 0)
-        fAngle = -fAngle;
-
-    glm::vec3 vTempFirePos = vOurPos + storm::math::normalizeOrZero(vTempDir);
-    vTempFirePos.y = 0.0f;
-
-    const auto bortIt = GetFirstFireBort(vTempFirePos);
-    if (!IsValid(bortIt))
+    glm::vec3 vAim;
+    const uint32_t dwBort = GetCameraFireBort(vFireDir, vAim);
+    if (dwBort == INVALID_BORT_INDEX)
     {
         return {1e5f, 0.0f, 1e5f};
     }
 
-    const float fMaxDist = AICannon::CalcMaxFireDistance(bortIt->fOurBortFireHeight + vOurPos.y, fSpeedV0, fAngle);
+    const glm::vec3 vTempDir = storm::math::normalizeOrZero(glm::vec3(vAim.x, 0.0f, vAim.z));
+    float fAngle = acosf(Clamp(glm::dot(vTempDir, vAim)));
+    if (vAim.y < 0)
+        fAngle = -fAngle;
+
+    const float fMaxDist =
+        AICannon::CalcMaxFireDistance(aShipBorts[dwBort].fOurBortFireHeight + vOurPos.y, fSpeedV0, fAngle);
     if (fDistance > fMaxDist)
         fDistance = fMaxDist;
 
@@ -379,57 +374,64 @@ glm::vec3 AIShipCannonController::GetFirePos(const glm::vec3 &vFireDir)
     const glm::vec3 vOurPos = GetAIShip()->GetPos();
     const float fSpeedV0 = GetSpeedV0();
 
-    const glm::vec3 vTempDir = storm::math::normalizeOrZero(glm::vec3(vFireDir.x, 0.0f, vFireDir.z));
-    float fAngle = acosf(Clamp(glm::dot(vTempDir, vFireDir)));
-    if (vFireDir.y < 0)
-        fAngle = -fAngle;
-
-    glm::vec3 vTempFirePos = vOurPos + storm::math::normalizeOrZero(vTempDir);
-    vTempFirePos.y = 0.0f;
-
-    const auto bortIt = GetFirstFireBort(vTempFirePos);
-    if (!IsValid(bortIt)) // FIX-ME
+    glm::vec3 vAim;
+    const uint32_t dwBort = GetCameraFireBort(vFireDir, vAim);
+    if (dwBort == INVALID_BORT_INDEX)
     {
         return {1e5f, 0.0f, 1e5f};
     }
 
-    const float fMaxDist = AICannon::CalcMaxFireDistance(bortIt->fOurBortFireHeight + vOurPos.y, fSpeedV0, fAngle);
+    const glm::vec3 vTempDir = storm::math::normalizeOrZero(glm::vec3(vAim.x, 0.0f, vAim.z));
+    float fAngle = acosf(Clamp(glm::dot(vTempDir, vAim)));
+    if (vAim.y < 0)
+        fAngle = -fAngle;
 
-    return vOurPos + fMaxDist * storm::math::normalizeOrZero(vFireDir);
+    const float fMaxDist =
+        AICannon::CalcMaxFireDistance(aShipBorts[dwBort].fOurBortFireHeight + vOurPos.y, fSpeedV0, fAngle);
+
+    return vOurPos + fMaxDist * vAim;
+}
+
+uint32_t AIShipCannonController::GetCameraFireBort(const glm::vec3 &vCamDir, glm::vec3 &vAim) const
+{
+    const auto side = [this](int i) -> std::optional<storm::fire_side::Side> {
+        const auto &bort = aShipBorts[i];
+        // A side fires with its intact guns (isBortDamaged's count is only refreshed on loading).
+        if (GetBortIntactCannonsNum(bort) == 0)
+            return std::nullopt;
+        return storm::fire_side::Side{atan2f(bort.vDirection.x, bort.vDirection.z), bort.fFireZone};
+    };
+    const float fLook = atan2f(vCamDir.x, vCamDir.z);
+    const int iBort = storm::fire_side::nearest(fLook, static_cast<int>(aShipBorts.size()), side);
+    if (iBort < 0)
+        return INVALID_BORT_INDEX;
+    // The view's azimuth clamped into the zone; the elevation is the view's own.
+    const glm::vec3 vView = storm::math::normalizeOrZero(vCamDir);
+    const float fHorizontal = sqrtf(SQR(vView.x) + SQR(vView.z));
+    const float fAim = storm::fire_side::clampInto(fLook, *side(iBort));
+    vAim = glm::vec3(fHorizontal * sinf(fAim), vView.y, fHorizontal * cosf(fAim));
+    return static_cast<uint32_t>(iBort);
 }
 
 bool AIShipCannonController::isCanFire(const glm::vec3 &vCamDir) const
 {
-    const glm::vec3 vEnemyDir = storm::math::normalizeOrZero(glm::vec3(vCamDir.x, 0.0f, vCamDir.z));
-    for (const auto &bort : aShipBorts)
-    {
-        if (!bort.aCannons.empty())
-        {
-            if (bort.isBortDamaged())
-                continue;
+    glm::vec3 vAim;
+    const uint32_t dwBort = GetCameraFireBort(vCamDir, vAim);
+    if (dwBort == INVALID_BORT_INDEX)
+        return false;
+    const auto &bort = aShipBorts[dwBort];
 
-            const float fY0 = glm::dot(vEnemyDir, bort.vDirection);
-            // fY0 = (vEnemyDir ^ aShipBorts[i].vAngleVectors[1]).y;
-            // fY1 = (vEnemyDir ^ aShipBorts[i].vAngleVectors[1]).y;
-            if (fY0 <= bort.fCosFireZone)
-                continue;
-            // if ((SIGN(fY0) == SIGN(fY1)) || (SIGN(fY0) == 1)) continue;
-
-            // check fire height angle
-            glm::vec3 v1 = bort.vDirection; //(aShipBorts[i].vAngleVectors[0] + aShipBorts[i].vAngleVectors[1]) / 2.0f;
-            v1 = storm::math::normalizeOrZero(glm::vec3(v1.x, vCamDir.y, v1.z));
-            glm::vec3 v2 = storm::math::normalizeOrZero(glm::vec3(v1.x, sinf(GetBortHeightAngle(bort)), v1.z));
-            const float fSub = v2.y - v1.y;
-            const float fAng = acosf(Clamp(glm::dot(v1, v2)));
-            if (fSub > 0.0f && fAng > fabsf(bort.fFireAngMin))
-                continue;
-            if (fSub < 0.0f && fAng > fabsf(bort.fFireAngMax))
-                continue;
-
-            return true;
-        }
-    }
-    return false;
+    // check fire height angle
+    glm::vec3 v1 = bort.vDirection;
+    v1 = storm::math::normalizeOrZero(glm::vec3(v1.x, vCamDir.y, v1.z));
+    glm::vec3 v2 = storm::math::normalizeOrZero(glm::vec3(v1.x, sinf(GetBortHeightAngle(bort)), v1.z));
+    const float fSub = v2.y - v1.y;
+    const float fAng = acosf(Clamp(glm::dot(v1, v2)));
+    if (fSub > 0.0f && fAng > fabsf(bort.fFireAngMin))
+        return false;
+    if (fSub < 0.0f && fAng > fabsf(bort.fFireAngMax))
+        return false;
+    return true;
 }
 
 bool AIShipCannonController::isCanFireBort(const AISHIP_BORT &bort, const glm::vec3 &vFirePos,

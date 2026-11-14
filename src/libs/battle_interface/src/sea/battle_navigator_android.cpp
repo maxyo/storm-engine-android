@@ -9,6 +9,7 @@
 #include "shared/battle_interface/msg_control.h"
 #include "island_base.h"
 #include <platform/android_ui.hpp>
+#include "fire_side.hpp"
 #include <spdlog/spdlog.h>
 #include <algorithm>
 #include <chrono>
@@ -240,10 +241,9 @@ bool BATTLE_NAVIGATOR::DrawAndroid() const {
         storm::math::invertRigid(view);
         const auto forward=storm::math::vz(view);
         const float look=std::atan2(forward.x,forward.z)-m_fAngle;
-        float best=pi;
-        for(int i=0;i<4;++i){const auto &b=m_androidBorts[i];if(!b.present)continue;
-            const float off=std::abs(std::remainder(look-b.direction,2*pi));
-            if(off<=b.zone*.5f&&off<best){best=off;facing=i;}}
+        // The side the camera fire picks (fire_side.hpp): the nearest one over the full circle.
+        facing=storm::fire_side::nearest(look,4,[&](int i)->std::optional<storm::fire_side::Side>{const auto &b=m_androidBorts[i];
+            if(!b.present||b.damage>=1)return std::nullopt;return storm::fire_side::Side{b.direction,b.zone};});
     }
     // Firing envelopes: a quiet wedge per side out to its range, the facing one lit.
     for(int i=0;i<4;++i){const auto &b=m_androidBorts[i];if(!b.present)continue;
