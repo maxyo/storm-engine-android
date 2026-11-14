@@ -6,6 +6,8 @@
 // sea / sky / fixed-function lighting paths are used unchanged.
 #pragma once
 
+#include "storm/fx/light_falloff.hpp"
+
 #include <cstdint>
 #include <string>
 #include <string_view>
@@ -230,6 +232,10 @@ struct Settings
     // (the parallax's height). Lit and baked draws (per-pixel lighting); highlights where there is FX_LIGHT_SPECULAR.
     uint8_t wet_surfaces = 0;
     float wet_force = -1.0f; // development: 0..1 = this wetness outdoors whatever the weather, < 0 = the rain's
+    // The one falloff of every light of the per-pixel lighting (light_falloff.hpp): how much further than the game's
+    // lights they reach, their soft core, their level against the game's (options fx_light_reach, fx_light_core,
+    // fx_light_level). The same in every preset: the owner's look.
+    LightFalloff light_falloff{};
 
     static Settings FromPreset(QualityPreset preset);
 

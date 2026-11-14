@@ -265,6 +265,7 @@ void Bounce::update(Visibility &visibility, const Visibility::Bound *bound, cons
     auto job = std::make_shared<LightJob>();
     std::vector<fx::Lamp> lamps = light.lamps ? *light.lamps : std::vector<fx::Lamp>{};
     std::vector<float> holders = light.holders ? *light.holders : std::vector<float>{};
+    std::vector<std::vector<uint32_t>> fixtures = light.fixtures ? *light.fixtures : std::vector<std::vector<uint32_t>>{};
     if (new_sun && !light.town_sun)
         sun_baked_ = sun;
     if (new_lamps)
@@ -274,7 +275,7 @@ void Bounce::update(Visibility &visibility, const Visibility::Bound *bound, cons
     light_job_.start("bounce light of " + name_, job,
                                       [job, scene = scene_, sun_field = new_sun && light.town_sun ? given : sun_field_,
                                        lamp_field = lamp_field_, bake_sun, sun, new_lamps, lamps = std::move(lamps),
-                                       holders = std::move(holders), color = light.sun_color] {
+                                       holders = std::move(holders), fixtures = std::move(fixtures), color = light.sun_color] {
         const unsigned threads = Threads();
         const fx::BounceScene &s = scene->scene;
         std::shared_ptr<const fx::BounceField> sun_now = sun_field, lamps_now = lamp_field;
@@ -295,7 +296,7 @@ void Bounce::update(Visibility &visibility, const Visibility::Bound *bound, cons
         {
             const auto t = std::chrono::steady_clock::now();
             job->lamps = std::make_shared<const fx::BounceField>(
-                fx::GatherBounce(s, fx::LampsOnSurfels(*scene->occluders, s, lamps, holders, threads), threads));
+                fx::GatherBounce(s, fx::LampsOnSurfels(*scene->occluders, s, lamps, holders, fixtures, threads), threads));
             job->lamps_ms = Since(t);
             lamps_now = job->lamps;
         }

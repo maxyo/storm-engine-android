@@ -7,22 +7,20 @@ namespace storm::fx
 {
 namespace
 {
-constexpr float kRangeFade = 0.15f; // fraction of the range over which the cut-off is faded; FX_LIGHT_RANGE_FADE
-
 float Peak(Vec3 c)
 {
     return std::max({c[0], c[1], c[2]});
 }
 } // namespace
 
+LightShape ShapeOf(const PointLight &light)
+{
+    return {light.range, light.intensity, light.core};
+}
+
 float LightAttenuation(const PointLight &light, float distance)
 {
-    if (distance > light.range)
-        return 0.0f;
-    const float denominator = light.att0 + light.att1 * distance + light.att2 * distance * distance;
-    const float attenuation = 1.0f / std::max(denominator, 1e-6f);
-    const float fade = std::clamp((light.range - distance) / std::max(kRangeFade * light.range, 1e-6f), 0.0f, 1.0f);
-    return attenuation * fade;
+    return LightFalloffGammaAt(ShapeOf(light), distance);
 }
 
 LightSelection SelectLights(std::span<const PointLight> lights, Vec3 center, float radius, int max_count, bool include_baked,
@@ -85,7 +83,7 @@ void FlashLights::Update(float delta_seconds)
     std::erase_if(flashes_, [](const Flash &flash) { return flash.age >= flash.duration; });
 }
 
-void FlashLights::AppendTo(std::vector<PointLight> &lights) const
+void FlashLights::AppendTo(std::vector<PointLight> &lights, const LightFalloff &falloff) const
 {
     for (const Flash &flash : flashes_)
     {
@@ -95,11 +93,11 @@ void FlashLights::AppendTo(std::vector<PointLight> &lights) const
         // Squared fade: most of the energy in the first frames, then a soft afterglow.
         for (int i = 0; i < 3; ++i)
             light.color[i] = flash.color[i] * left * left;
-        light.range = flash.range;
-        // Linear + quadratic falloff scaled to the range: about 1/20 of the peak at the range limit.
-        light.att0 = 1.0f;
-        light.att1 = 3.0f / flash.range;
-        light.att2 = 16.0f / (flash.range * flash.range);
+        // Linear + quadratic attenuation scaled to the range (about 1/20 of the peak at its end), shaped as every light.
+        const LightShape shape = ShapeOfGameLight(flash.range, 1.0f, 3.0f / flash.range, 16.0f / (flash.range * flash.range), falloff);
+        light.range = shape.range;
+        light.intensity = shape.intensity;
+        light.core = shape.core;
         lights.push_back(light);
     }
 }
@@ -118,9 +116,9 @@ PointLightUniforms PackPointLights(const LightSelection &selection, const std::a
             color[j] = l.color[j];
         }
         position[3] = l.range;
-        color[3] = l.att0;
-        params[0] = l.att1;
-        params[1] = l.att2;
+        color[3] = l.intensity;
+        params[0] = l.core * l.core;
+        params[1] = 0.0f;
         // Spot cone as saturate(rho * scale + bias); a point light gets scale 0, bias 1.
         const bool is_spot = l.cos_outer > -1.0f;
         const float width = std::max(l.cos_inner - l.cos_outer, 1e-4f);

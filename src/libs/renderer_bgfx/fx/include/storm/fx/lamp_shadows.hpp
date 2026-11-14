@@ -9,6 +9,7 @@
 // widens the projected field so filtering never reads the neighbour face).
 #pragma once
 
+#include "storm/fx/light_falloff.hpp"
 #include "storm/fx/sky_model.hpp"
 
 #include <array>
@@ -23,7 +24,8 @@ inline constexpr int kMaxShadowLamps = 16;
 // Metres: the faces' near plane. Sconces stand a few centimetres off their wall and candles 15-25 cm over their table:
 // both must be in the map. The lamp's own holder is kept out by kLampHolderRadius instead.
 inline constexpr float kLampShadowNear = 0.01f;
-// Metres around the flame in which the still geometry casts nothing (the candlestick, the lantern's frame and glass).
+// Metres around the flame in which the still geometry casts nothing (the wick and the flame's own glow). The lamp's
+// fixture (FindFixtures) casts nothing whatever its size; for a lamp whose fixture is not found this sphere is all.
 inline constexpr float kLampHolderRadius = 0.12f;
 inline constexpr int kLampGridCapacity = 8; // lamps per cell of the lamp grid
 inline constexpr float kLampFaceGuard = 1.05f;  // field of view scale over 90°: the face's border texels
@@ -32,18 +34,43 @@ struct Lamp
 {
     Vec3 position{0.0f, 0.0f, 0.0f};
     Vec3 color{1.0f, 1.0f, 1.0f}; // diffuse colour with the current intensity
+    // Its shape (light_falloff.hpp, from the game light's range and attenuation): it lights nothing beyond `range`,
+    // which is also the far end of its shadow faces.
     float range = 10.0f;
-    float att0 = 0.0f, att1 = 0.0f, att2 = 1.0f;
+    float intensity = 1.0f;
+    float core = 0.4f;
 };
+LightShape ShapeOf(const Lamp &lamp);
 
 // Candles of one candlestick or sconce are separate lights a few centimetres apart: one shadow for them. Lamps
-// closer than `radius` merge (colour summed, position weighted by brightness, the farthest range, the summed
-// colour's attenuation of the brightest).
+// closer than `radius` merge (colour summed, position weighted by brightness, the largest range, intensity and core
+// of its flames: a shape that does not follow their flicker).
 std::vector<Lamp> ClusterLamps(std::span<const Lamp> lamps, float radius);
 
-// The distance at which the lamp's light (colour luminance times the D3D attenuation) has fallen to `threshold`,
-// at most its D3D range and `limit`. The relight windows the lamp to zero there, and it is the far end of its maps.
-float LampRadius(const Lamp &lamp, float threshold, float limit);
+// A lamp's own fixture: the pieces of the still geometry (triangles joined by shared vertices) that hold its flames
+// (a candlestick, a torch, a lantern's frame and glass, a chandelier, a sconce's arm) and what carries them from below
+// or above (a lantern's post, a chandelier's chain). They cast no shadow of that lamp: a flame sits inside its own
+// fixture, whose real light fills in the shadows of its bars. A piece holds a flame when
+//   * the flame is inside its box (grown by kFixtureEnclose) and it is at most kFixtureEnclosing across, or
+//   * the flame is within kFixtureTouch of its box and it is narrow (at most kFixtureNarrow across in x and z, at
+//     most kFixtureTall high);
+// narrow pieces stacked on those (their x-z boxes overlap, their heights meet within kFixtureGap) join, while the
+// fixture stays narrow and at most kFixtureTall high. A table under a candle, a wall behind a sconce, a beam over a
+// lamp are no fixture: they are wide. `flames`: per lamp the positions of its flames.
+inline constexpr float kFixtureEnclose = 0.05f;
+inline constexpr float kFixtureEnclosing = 2.0f;
+inline constexpr float kFixtureTouch = 0.25f;
+inline constexpr float kFixtureNarrow = 0.6f;
+inline constexpr float kFixtureTall = 5.0f;
+inline constexpr float kFixtureGap = 0.03f;
+struct Fixture
+{
+    std::vector<uint32_t> triangles; // triangle numbers (index triple t is indices[3 t .. 3 t + 2]), ascending
+    int pieces = 0;
+    Vec3 lo{0.0f, 0.0f, 0.0f}, hi{0.0f, 0.0f, 0.0f}; // its box (pieces > 0)
+};
+std::vector<Fixture> FindFixtures(std::span<const Vec3> positions, std::span<const uint32_t> indices,
+                                  std::span<const std::vector<Vec3>> flames);
 
 // Which lamps reach which part of the room: a grid of `cell`-sized cells over lo..hi holding up to kLampGridCapacity
 // lamp numbers (index + 1, 0 = none; strongest at the cell first) per cell. `rgba` is a 3D RGBA8 image of
@@ -57,7 +84,7 @@ struct LampGrid
     int overflow_cells = 0; // cells reached by more lamps than they hold (the weakest there are left out)
     int max_lamps = 0;      // the most lamps over one cell
 };
-// `lamps`: range = the radius each one lights (LampRadius). Cells are at least `cell` metres and at most
+// `lamps`: range = the radius each one lights. Cells are at least `cell` metres and at most
 // max_cells per axis (larger rooms get larger cells).
 LampGrid BuildLampGrid(std::span<const Lamp> lamps, Vec3 lo, Vec3 hi, float cell, int max_cells_xz, int max_cells_y);
 
@@ -96,10 +123,11 @@ struct TriangleGrid
 };
 TriangleGrid BuildTriangleGrid(std::span<const Vec3> positions, std::span<const uint32_t> indices, float cell);
 // The triangles (as index triples of `indices`, in the order of `indices`) that can cast a shadow of a lamp at
-// `center` lighting `radius` metres: those whose bounding box touches that sphere. Appended to `out`; `seen` is
-// scratch memory the caller keeps between calls.
+// `center` lighting `radius` metres: those whose bounding box touches that sphere, but for the triangle numbers of
+// `indices` in `skip` (ascending: the lamp's own fixture). Appended to `out`; `seen` is scratch memory the caller keeps
+// between calls.
 void TrianglesInSphere(const TriangleGrid &grid, std::span<const uint32_t> indices, Vec3 center, float radius,
-                       std::vector<uint32_t> &out, std::vector<uint32_t> &seen);
+                       std::vector<uint32_t> &out, std::vector<uint32_t> &seen, std::span<const uint32_t> skip = {});
 
 struct CubeFace
 {

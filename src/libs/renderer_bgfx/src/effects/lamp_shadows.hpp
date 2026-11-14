@@ -3,8 +3,9 @@
 //
 // The location reports its lamps every frame (render::SetEffectsLamps: the static lights of lights.ini placed at
 // its locators, with their flicker) and once its still geometry with its baked vertex colours
-// (render::SetEffectsLocationGeometry). Candles of one fixture are merged; every lamp gets the radius within which it
-// lights (fx::LampRadius). The lamps nearest to the camera, up to Settings::lamp_shadows, take a slot:
+// (render::SetEffectsLocationGeometry). Candles of one fixture are merged; every lamp lights within its shape's radius
+// (fx/light_falloff.hpp, the same falloff as every light). Its own fixture (fx::FindFixtures: candlestick, lantern,
+// post, chandelier) casts no shadow of it. The lamps nearest to the camera, up to Settings::lamp_shadows, take a slot:
 //   * a row of six cube faces in two depth atlases holding the distance to the lamp / its radius (linear, written
 //     by fs_ff_lamp_caster): `static` with the still geometry around the lamp, drawn once when the lamp takes the
 //     slot (a few slots per frame; all of them in the first frame of a location); `dynamic` with the characters (the
@@ -13,15 +14,15 @@
 // A lamp fades in once its faces are drawn and fades out before its slot goes to another lamp.
 // The last Settings::lamp_moving slots are for the lights that move, the nearest to the camera; the receivers take
 // them without the grid, and they only add light (no bake holds theirs), as far and as strong as the game's point
-// light they stand for (its D3D range and attenuation, the fade of fxPointLight):
+// light they stand for (its shape, as fxPointLight lights it):
 //   * carried lanterns and torches (render::SetEffectsDynamicLights): their still faces are drawn again from the
 //     location's triangles around them whenever they move;
 //   * the ships' lanterns (render::SetEffectsShipLights): a lantern stands still on its ship, so its faces are in
-//     the ship's space (the receivers and the casters turn into it): the still faces hold the ship itself
-//     (render::SetEffectsShipGeometry, drawn once and when the ship changes), the dynamic ones the crew, the sails
-//     and other ships.
+//     the ship's space (the receivers and the casters turn into it): the still faces hold the ship itself but the
+//     lantern's own fixture (render::SetEffectsShipGeometry, drawn once and when the ship changes), the dynamic ones
+//     the crew, the sails and other ships.
 // Receivers (the lit and baked variants into the game picture, ff_fragment.sh ffLampLight) look the lamps of their
-// cell up, evaluate each with the game's own attenuation and compare against both atlases. A lamp without a slot
+// cell up, evaluate each with its shape and compare against both atlases. A lamp without a slot
 // lights nothing per pixel: no light without its shadow.
 // Interiors also get the room light (fx::RoomLight, a 3D texture of the baked colours around every point): the
 // ambient of the lit models that stand in the room.
@@ -67,6 +68,7 @@ class LampShadows
     // changed; not their flicker): the bounce of their light (effects/bounce.hpp) follows it.
     const std::vector<fx::Lamp> &lamps() const { return lamps_; }
     const std::vector<float> &holders() const { return holder_; }
+    const std::vector<std::vector<uint32_t>> &fixtures() const { return fixtures_; }
     uint32_t layout() const { return layout_; }
     // Main thread, every frame the location draws: the lights that move (carried lanterns and torches).
     void set_moving(std::vector<fx::Lamp> lamps)
@@ -133,7 +135,7 @@ class LampShadows
         bool leaving = false;   // fading out: the slot goes to another lamp
         float weight = 0.0f;    // 0..1, the fade
         bgfx::IndexBufferHandle triangles = BGFX_INVALID_HANDLE; // the solid still geometry within its radius
-        std::vector<std::pair<size_t, bgfx::IndexBufferHandle>> cut; // ... and of each cut-out texture (index into cut_)
+        std::vector<std::pair<shim::BaseTexture *, bgfx::IndexBufferHandle>> cut; // ... and of each cut-out texture
         uint32_t casters = 0, last_casters = 0;                  // character draws this / the last frame
     };
 
@@ -164,10 +166,16 @@ class LampShadows
     {
         uint64_t ship = 0, signature = 0;
         bgfx::VertexBufferHandle vertices = BGFX_INVALID_HANDLE;
-        bgfx::IndexBufferHandle solid = BGFX_INVALID_HANDLE;
-        std::vector<std::pair<shim::BaseTexture *, bgfx::IndexBufferHandle>> cut; // per texture that cuts holes
+        std::vector<fx::Vec3> positions;           // the ship's space
+        std::vector<uint32_t> indices;
+        std::vector<int32_t> cut_of;               // per triangle: -1 casts whole, else its texture in `cut`
+        std::vector<shim::BaseTexture *> cut;      // the textures that cut holes
+        // Per lantern (its place in the ship's space): its fixture (fx::FindFixtures), found once.
+        std::vector<std::pair<fx::Vec3, std::vector<uint32_t>>> fixtures;
         size_t triangles = 0;
     };
+    // The still faces' index buffers of a ship's lantern in `slot`: the ship's triangles but its own fixture's.
+    void ship_slot_triangles(Slot &slot, ShipGeometry &geometry);
     std::vector<ShipGeometry> ship_geometry_;
     void free_ship_geometry(ShipGeometry &geometry);
     uint64_t drawn_ship_ = 0;
@@ -176,10 +184,8 @@ class LampShadows
     std::vector<int> raw_lamp_;   // per raw lamp: its merged lamp (index into lamps_), -1: none (no light)
     std::vector<fx::Lamp> lamps_; // merged, this frame's colours; range = the radius it lights
     std::vector<fx::Vec3> placed_; // per merged lamp: where it stood when the slots were laid out
-    std::vector<float> radius_;   // per merged lamp, fixed while the lamps stand where they were
     std::vector<float> holder_;   // per merged lamp: the size of its fixture
     uint32_t layout_ = 0;         // see layout()
-    float layout_gain_ = -1.0f;   // the gain of the last layout
     std::vector<Slot> slot_;
     bool layout_dirty_ = true; // the lamps or the geometry changed: every slot is chosen and drawn again at once
     bool grid_dirty_ = true;
@@ -200,6 +206,12 @@ class LampShadows
         fx::TriangleGrid grid;
     };
     std::vector<CutOut> cut_;
+    std::vector<int32_t> list_of_;   // per triangle of indices_: -1 in solid_, else its cut_
+    std::vector<uint32_t> local_of_; // ... its number in that list
+    // Per merged lamp: the triangles of its own fixture (fx::FindFixtures, ascending): they cast no shadow of it.
+    std::vector<std::vector<uint32_t>> fixtures_;
+    bool fixtures_dirty_ = true;
+    void find_fixtures();
     float model_lift_ = 0.0f;
     float tint_ = 0.25f; // Settings::lamp_tint
     fx::Vec3 geometry_lo_{}, geometry_hi_{};
@@ -220,7 +232,7 @@ class LampShadows
     std::array<std::array<float, 4>, 11> grid_uniforms_{};
     std::array<float, 16> bound_view_{}, view_to_world_{};
     bool reported_ = false;
-    bool transient_reported_ = false, ship_reported_ = false;
+    bool transient_reported_ = false, ship_reported_ = false, carried_reported_ = false;
 };
 
 } // namespace storm::effects

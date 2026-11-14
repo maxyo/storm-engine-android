@@ -388,7 +388,7 @@ SurfelLight SunOnSurfels(const Occluders &occluders, const BounceScene &scene, c
 }
 
 SurfelLight LampsOnSurfels(const Occluders &occluders, const BounceScene &scene, std::span<const Lamp> lamps,
-                           std::span<const float> holder, unsigned threads)
+                           std::span<const float> holder, std::span<const std::vector<uint32_t>> fixture, unsigned threads)
 {
     const size_t surfels = scene.position.size();
     SurfelLight light(surfels * 2, Rgb{0.0f, 0.0f, 0.0f});
@@ -408,20 +408,16 @@ SurfelLight LampsOnSurfels(const Occluders &occluders, const BounceScene &scene,
                 const float d = Dot(scene.normal[s], dir);
                 if (std::fabs(d) <= 0.02f)
                     continue;
-                // ffLampAdd's falloff of a lamp of the place: the D3D attenuation, faded to zero at its radius, from
-                // no nearer than its own size.
-                float window = reach / lamp.range;
-                window = 1.0f - window * window * window * window;
-                window *= window;
+                // ffLampAdd's falloff of a lamp of the place.
+                const float falloff = LightFalloffGammaAt(ShapeOf(lamp), reach);
                 const float size = i < holder.size() ? holder[i] : 0.0f;
-                const float near = std::max(reach, size);
-                const float falloff = window / std::max(lamp.att0 + lamp.att1 * near + lamp.att2 * near * near, 1e-3f);
                 const float side = d > 0.0f ? 1.0f : -1.0f;
                 const Vec3 o{scene.position[s][0] + scene.normal[s][0] * side * kSurfaceOffset,
                              scene.position[s][1] + scene.normal[s][1] * side * kSurfaceOffset,
                              scene.position[s][2] + scene.normal[s][2] * side * kSurfaceOffset};
                 // The lamp's own fixture does not shadow it.
-                if (occluders.Occluded(o, dir, std::max(0.01f, reach - size), scratch))
+                if (occluders.Occluded(o, dir, std::max(0.01f, reach - size), scratch,
+                                       i < fixture.size() ? std::span<const uint32_t>(fixture[i]) : std::span<const uint32_t>{}))
                     continue;
                 const float e = std::fabs(d) * falloff;
                 Rgb &out = light[s * 2 + (d > 0.0f ? 1 : 0)];

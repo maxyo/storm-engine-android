@@ -147,7 +147,7 @@ vec3 ffBounce(vec3 P, vec3 Ng, vec3 Nw)
 // u_fxLamps[1]: x 1 / faces per atlas row, y 1 / atlas rows, z static face size in texels, w dynamic face size
 // per slot i at 2 + 3i: xyz position, w radius | rgb colour (with the slot's fade), w 1 = characters stand in its
 //               light, + 2 = a light that moves (a carried lantern: no bake holds its light, it only adds) |
-//               att0, att1, att2, w the lamp's own size in metres (no point is lit from nearer)
+//               intensity, core², unused, w unused
 // u_fxLampGrid[0]: xyz the lamp grid's corner, w debug view (1 each slot in its colour, 2 the shadow mask)
 // u_fxLampGrid[1]: xyz 1 / the grid's extent, w cells along x
 // u_fxLampGrid[2]: xyz the room light's corner, w > 0 = this draw takes its ambient from the room light, times w
@@ -270,7 +270,7 @@ vec3 ffLampDebugColor(float slot)
 
 // Adds the lamp with grid number `id` (slot + 1, 0 = none) at Pw: sum.rgb its light with its shadow, sum.a the
 // luminance of its light without the shadow. Ng: geometric normal (shadow bias, no light from behind the
-// surface), N: shading normal. The game's own D3D attenuation, faded to zero at the lamp's radius.
+// surface), N: shading normal. fxLightFalloff: the lamp's shape, zero at its radius.
 // specV, spec: the world-space unit vector to the eye and the pixel's highlight (fxGlossSpec / fxMaterialSpec); the
 // lamp's highlight with its shadow is added to lampSpec.
 void ffLampAdd(float id, vec3 Pw, vec3 Ng, vec3 N, vec3 specV, vec2 spec, inout vec4 sum, inout vec3 lampSpec)
@@ -290,26 +290,11 @@ void ffLampAdd(float id, vec3 Pw, vec3 Ng, vec3 N, vec3 specV, vec2 spec, inout 
     if (ngl <= 0.0 || ndl <= 0.0)
         return;
     vec4 color = u_fxLamps[base + 1];
-    vec4 att = u_fxLamps[base + 2];
+    vec4 shape = u_fxLamps[base + 2];
     float moving = color.w > 1.5 ? 1.0 : 0.0;
-    // A lamp of the place fades to zero at the radius it lights on the baked surfaces. A light that moves stands for
-    // one of the game's own point lights and only adds light: it reaches as that light does (fxPointLight: its D3D
-    // range, the radius here, with the same fade at its end).
-    float window;
-    if (moving > 0.5)
-        window = clamp((lamp.w - reach) / (FX_LIGHT_RANGE_FADE * lamp.w), 0.0, 1.0);
-    else
-    {
-        window = reach / lamp.w;
-        window = 1.0 - window * window * window * window;
-        window *= window;
-    }
-    // The lamp is its flames and their fixture, not a point: nothing is lit from nearer than its own size.
-    float d = max(reach, att.w);
-    float falloff = window / max(att.x + att.y * d + att.z * d * d, 1e-3);
-#ifdef FX_LIGHT_LINEAR
-    falloff *= falloff; // as fxPointLight
-#endif
+    // Every light of the place, still or moving, with the one falloff of all lights (fx/light_falloff.hpp): its
+    // radius is where it ends.
+    float falloff = fxLightFalloff(reach, lamp.w, shape.x, shape.y);
     float light = ndl * falloff;
     vec3 rgb = fxLightColor(color.rgb);
     if (u_fxLampGrid[0].w > 0.5)

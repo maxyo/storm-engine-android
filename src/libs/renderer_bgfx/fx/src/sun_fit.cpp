@@ -208,7 +208,8 @@ bool Occluders::Hits(uint32_t tri, const Vec3 &origin, const Vec3 &dir, float re
 }
 
 template <bool Closest>
-bool Occluders::March(const Vec3 &origin, const Vec3 &dir, float reach, Scratch &scratch, Hit &best) const
+bool Occluders::March(const Vec3 &origin, const Vec3 &dir, float reach, Scratch &scratch, Hit &best,
+                      std::span<const uint32_t> ignore) const
 {
     if (triangles_ == 0)
         return false;
@@ -246,7 +247,7 @@ bool Occluders::March(const Vec3 &origin, const Vec3 &dir, float reach, Scratch 
                 continue;
             scratch.stamp[tri] = scratch.ray;
             Hit hit;
-            if (!Hits(tri, origin, dir, Closest && found ? best.t : reach, hit))
+            if (!Hits(tri, origin, dir, Closest && found ? best.t : reach, hit) || std::binary_search(ignore.begin(), ignore.end(), tri))
                 continue;
             best = hit;
             found = true;
@@ -264,16 +265,16 @@ bool Occluders::March(const Vec3 &origin, const Vec3 &dir, float reach, Scratch 
     return found;
 }
 
-bool Occluders::Occluded(const Vec3 &origin, const Vec3 &dir, float reach, Scratch &scratch) const
+bool Occluders::Occluded(const Vec3 &origin, const Vec3 &dir, float reach, Scratch &scratch, std::span<const uint32_t> ignore) const
 {
     Hit hit;
-    return March<false>(origin, dir, reach, scratch, hit);
+    return March<false>(origin, dir, reach, scratch, hit, ignore);
 }
 
 std::optional<Occluders::Hit> Occluders::Closest(const Vec3 &origin, const Vec3 &dir, float reach, Scratch &scratch) const
 {
     Hit hit;
-    if (!March<true>(origin, dir, reach, scratch, hit))
+    if (!March<true>(origin, dir, reach, scratch, hit, {}))
         return std::nullopt;
     return hit;
 }

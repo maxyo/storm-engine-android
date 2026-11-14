@@ -111,10 +111,11 @@ using SurfelLight = std::vector<Rgb>;
 // The sun (unit `sun`, towards it) of colour `color` on the surfels, its shadow traced through `occluders`.
 SurfelLight SunOnSurfels(const Occluders &occluders, const BounceScene &scene, const Vec3 &sun, const Rgb &color,
                          unsigned threads);
-// The place's lamps (range: the radius the relight windows them to, LampRadius) as ffLampAdd lights them, each
-// from no nearer than its `holder` size, their shadows traced.
+// The place's lamps as ffLampAdd lights them (their shape, light_falloff.hpp, in the gamma space of the game's colours),
+// their shadows traced: a ray ends `holder` metres before the flame and passes through the lamp's own `fixture`
+// (lamp_shadows.hpp FindFixtures: triangle numbers of the occluders' geometry).
 SurfelLight LampsOnSurfels(const Occluders &occluders, const BounceScene &scene, std::span<const Lamp> lamps,
-                           std::span<const float> holder, unsigned threads);
+                           std::span<const float> holder, std::span<const std::vector<uint32_t>> fixture, unsigned threads);
 
 struct BounceField
 {

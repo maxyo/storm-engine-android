@@ -5,6 +5,7 @@
 // for one draw call happens here, on the CPU.
 #pragma once
 
+#include "storm/fx/light_falloff.hpp"
 #include "storm/fx/sky_model.hpp"
 
 #include <array>
@@ -17,15 +18,15 @@ namespace storm::fx
 inline constexpr int kMaxPointLights = 8; // per draw call; the fixed-function limit of the engine
 
 // One D3DLIGHT9 of type POINT or SPOT, world space. `color` is D3DLIGHT9.Diffuse with whatever flicker or
-// fade the engine applied this frame.
+// fade the engine applied this frame; its range and attenuation are the light's shape (light_falloff.hpp:
+// ShapeOfGameLight).
 struct PointLight
 {
     Vec3 position{0.0f, 0.0f, 0.0f};
     Vec3 color{1.0f, 1.0f, 1.0f};
-    float range = 10.0f; // D3DLIGHT9.Range: no light beyond it
-    float att0 = 0.0f;   // D3DLIGHT9.Attenuation0..2: 1 / (att0 + att1 * d + att2 * d²)
-    float att1 = 0.0f;
-    float att2 = 1.0f;
+    float range = 10.0f;    // LightShape: no light beyond it
+    float intensity = 1.0f; // LightShape
+    float core = 0.4f;      // LightShape
     // Spot lights only (D3DLIGHT_SPOT); a point light keeps cos_outer = -1.
     Vec3 direction{0.0f, -1.0f, 0.0f}; // unit, the way the light points
     float cos_inner = 1.0f;            // cos(Theta / 2)
@@ -36,8 +37,8 @@ struct PointLight
     bool baked = false;
 };
 
-// Fixed-function attenuation of `light` at `distance`, including the range cut-off and, at the very end of the
-// range, the short fade that hides the cut-off edge per pixel (mirrors fx_lighting.sh).
+// The light's shape and its gamma-space falloff at `distance` (LightFalloffGammaAt; fxLightFalloff of fx_lighting.sh).
+LightShape ShapeOf(const PointLight &light);
 float LightAttenuation(const PointLight &light, float distance);
 
 struct LightSelection
@@ -64,7 +65,7 @@ class FlashLights
     // `peak_color` may exceed 1; the light fades to nothing over `duration` seconds (fast start, long tail).
     void Add(Vec3 position, Vec3 peak_color, float range, float duration);
     void Update(float delta_seconds);
-    void AppendTo(std::vector<PointLight> &lights) const;
+    void AppendTo(std::vector<PointLight> &lights, const LightFalloff &falloff) const;
     size_t Count() const
     {
         return flashes_.size();

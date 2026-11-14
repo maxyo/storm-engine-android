@@ -7,7 +7,9 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <cstring>
+#include <string>
 
 namespace storm::effects
 {
@@ -21,10 +23,7 @@ constexpr uint64_t kMapFlags = BGFX_TEXTURE_RT | BGFX_SAMPLER_COMPARE_LEQUAL | B
                                BGFX_SAMPLER_V_CLAMP;
 // Candles of one candlestick or sconce: one lamp, one shadow.
 constexpr float kFixtureRadius = 0.5f;
-// A lamp lights as far as its light on a baked surface stays above this share of white, at most kLampReach metres.
-constexpr float kLampFloor = 0.06f;
-constexpr float kLampReach = 12.0f;
-// The lamps' strength on baked surfaces at Settings::lamp_gain 1: half of the D3D light the lit models take from the
+// The lamps' strength on baked surfaces at Settings::lamp_gain 1: half of the light the lit models take from the
 // same lamp (the look the owner chose on the v3 sheets; the game's bakes hold little lamp light of their own).
 constexpr float kBakedGain = 0.5f;
 // Lamps whose light begins farther from the camera than this take no slot.
@@ -34,7 +33,10 @@ constexpr int kSlotsPerFrame = 2;
 // Seconds a lamp takes to fade in after its faces are drawn, and to fade out before its slot goes to another lamp.
 constexpr float kFadeSeconds = 0.3f;
 // A carried lantern is in its carrier's hand: what is nearer to it than this (the lantern's own model, the hand and
-// forearm) casts nothing. The carrier's body does: the dark side of a lantern is behind whoever holds it.
+// forearm) casts nothing. The carrier's body does: the dark side of a lantern is behind whoever holds it. The
+// lantern's model is a draw of the carrier, not still geometry with a fixture (fx::FindFixtures): this sphere is the
+// rule for every light's dynamic faces (characters, props) and for the still faces of a ship's lantern whose
+// fixture was not found.
 constexpr float kLanternHolder = 0.3f;
 // A moving light's still faces are drawn again once it has moved this far.
 constexpr float kMovingStep = 0.02f;
@@ -98,8 +100,6 @@ void LampShadows::configure(const fx::Settings &settings)
         layout_dirty_ = true;
     }
     moving_slots_ = moving_slots;
-    if (settings.lamp_gain != gain_)
-        layout_dirty_ = true; // the radii follow the gain
     slots_ = slots;
     face_size_ = face;
     dynamic_face_size_ = face / 2;
@@ -123,28 +123,20 @@ void LampShadows::set_lamps(const std::vector<fx::Lamp> &lamps)
             shining.push_back(lamp);
     std::vector<fx::Lamp> merged = fx::ClusterLamps(shining, kFixtureRadius);
     // A fixture's merged position is weighted by its flames' brightness and wanders a little with their flicker: the
-    // lamps count as moved (new radii, slots and faces) only beyond that.
+    // lamps count as moved (new slots and faces) only beyond that, or when their shapes change (another falloff).
     bool moved = merged.size() != placed_.size();
     for (size_t i = 0; !moved && i < merged.size(); ++i)
-        moved = distance(merged[i].position, placed_[i]) > 0.1f;
-    if (moved || layout_dirty_)
+        moved = distance(merged[i].position, placed_[i]) > 0.1f || !(fx::ShapeOf(merged[i]) == fx::ShapeOf(lamps_[i]));
+    if (moved)
     {
-        radius_.resize(merged.size());
         placed_.resize(merged.size());
         for (size_t i = 0; i < merged.size(); ++i)
-        {
-            radius_[i] = fx::LampRadius(merged[i], kLampFloor / std::max(gain_ * kBakedGain, 1e-3f), kLampReach);
             placed_[i] = merged[i].position;
-        }
         layout_dirty_ = true;
-        // The radii follow the flicker while the layout is dirty: only a move or another gain is a new layout.
-        if (moved || gain_ != layout_gain_)
-            ++layout_;
-        layout_gain_ = gain_;
+        fixtures_dirty_ = true;
+        ++layout_;
     }
     lamps_ = std::move(merged);
-    for (size_t i = 0; i < lamps_.size(); ++i)
-        lamps_[i].range = radius_[i];
     raw_lamp_.assign(raw_.size(), -1);
     // A fixture is its flames, arms and glass, not a point: its own geometry casts nothing (the real flames fill each
     // other's shadows of it in), and nothing is lit from nearer than its size. The size reaches past its farthest flame.
@@ -161,6 +153,48 @@ void LampShadows::set_lamps(const std::vector<fx::Lamp> &lamps)
         if (raw_lamp_[j] >= 0)
             holder_[raw_lamp_[j]] = std::max(holder_[raw_lamp_[j]], best + fx::kLampHolderRadius);
     }
+    if (fixtures_dirty_ && !positions_.empty())
+        find_fixtures();
+}
+
+void LampShadows::find_fixtures()
+{
+    fixtures_dirty_ = false;
+    const auto started = std::chrono::steady_clock::now();
+    std::vector<std::vector<fx::Vec3>> flames(lamps_.size());
+    for (size_t j = 0; j < raw_.size(); ++j)
+        if (raw_lamp_[j] >= 0)
+            flames[raw_lamp_[j]].push_back(raw_[j].position);
+    std::vector<fx::Fixture> found = fx::FindFixtures(positions_, indices_, flames);
+    fixtures_.assign(found.size(), {});
+    size_t triangles = 0;
+    int held = 0, pieces = 0;
+    std::string without;
+    for (size_t i = 0; i < found.size(); ++i)
+    {
+        fixtures_[i] = std::move(found[i].triangles);
+        triangles += fixtures_[i].size();
+        pieces += found[i].pieces;
+        if (found[i].pieces > 0)
+            ++held;
+        else if (std::count(without.begin(), without.end(), '(') < 8)
+        {
+            char at[64];
+            snprintf(at, sizeof(at), " (%.1f, %.1f, %.1f)", lamps_[i].position[0], lamps_[i].position[1], lamps_[i].position[2]);
+            without += at;
+        }
+    }
+    // The bounce bakes the lamps' light again with their fixtures.
+    ++layout_;
+    shim::logf("effects: lamps: fixtures of %d of %zu lamps found (%d pieces, %zu triangles cast no shadow of their own lamp) "
+               "in %.0f ms",
+               held, lamps_.size(), pieces, triangles,
+               std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count());
+    if (held < static_cast<int>(lamps_.size()))
+        shim::logf("effects: lamps: FALLBACK: %zu lamps have no fixture in the still geometry (a model without collision, or "
+                   "one joined to a wall or a table): only what lies within %.2f m of their flames casts no shadow of them;%s%s",
+                   lamps_.size() - static_cast<size_t>(held), fx::kLampHolderRadius, without.c_str(),
+                   lamps_.size() - static_cast<size_t>(held) > 8 ? " ..." : "");
 }
 
 void LampShadows::set_geometry(const render::EffectsLocationGeometry &geometry)
@@ -194,7 +228,9 @@ void LampShadows::set_geometry(const render::EffectsLocationGeometry &geometry)
     // Triangles of a texture whose alpha cuts holes cast through it; all others cast whole.
     solid_.clear();
     cut_.clear();
-    std::vector<bool> cut_index(indices_.size(), false);
+    const size_t triangles = indices_.size() / 3;
+    list_of_.assign(triangles, -1);
+    local_of_.assign(triangles, 0);
     if (uvs_.size() == positions_.size())
         for (const auto &surface : geometry.surfaces)
         {
@@ -204,18 +240,24 @@ void LampShadows::set_geometry(const render::EffectsLocationGeometry &geometry)
             auto into = std::find_if(cut_.begin(), cut_.end(), [&](const CutOut &c) { return c.texture == surface.texture; });
             if (into == cut_.end())
                 into = cut_.insert(cut_.end(), CutOut{surface.texture, {}});
-            for (uint32_t i = surface.first_index; i < surface.first_index + surface.index_count; ++i)
+            for (uint32_t t = surface.first_index / 3; t < (surface.first_index + surface.index_count) / 3; ++t)
             {
-                into->indices.push_back(indices_[i]);
-                cut_index[i] = true;
+                list_of_[t] = static_cast<int32_t>(into - cut_.begin());
+                local_of_[t] = static_cast<uint32_t>(into->indices.size() / 3);
+                into->indices.insert(into->indices.end(), {indices_[3 * t], indices_[3 * t + 1], indices_[3 * t + 2]});
             }
         }
     else if (!geometry.surfaces.empty())
         shim::logf("ERROR: effects: lamps: the location's geometry came without texture coordinates: foliage, nets and "
                    "gratings cast whole shadows");
-    for (size_t i = 0; i < indices_.size(); ++i)
-        if (!cut_index[i])
-            solid_.push_back(indices_[i]);
+    for (size_t t = 0; t < triangles; ++t)
+        if (list_of_[t] < 0)
+        {
+            local_of_[t] = static_cast<uint32_t>(solid_.size() / 3);
+            solid_.insert(solid_.end(), {indices_[3 * t], indices_[3 * t + 1], indices_[3 * t + 2]});
+        }
+    fixtures_.clear();
+    fixtures_dirty_ = true;
     // By where they are: a lamp that takes a slot, and a carried lantern every time it moves, ask for the ones around it.
     solid_grid_ = fx::BuildTriangleGrid(positions_, solid_, kTriangleCell);
     for (CutOut &cut : cut_)
@@ -339,18 +381,26 @@ void LampShadows::choose_slots(const std::array<float, 3> &eye)
         free->lamp = lamp;
         free->at = lamps_[lamp];
         free->holder = holder_[lamp];
-        const auto buffer = [&](const fx::TriangleGrid &grid, const std::vector<uint32_t> &triangles) {
+        const auto buffer = [&](const fx::TriangleGrid &grid, const std::vector<uint32_t> &triangles,
+                                const std::vector<uint32_t> &skip) {
             near.clear();
-            fx::TrianglesInSphere(grid, triangles, free->at.position, free->at.range, near, seen_);
+            fx::TrianglesInSphere(grid, triangles, free->at.position, free->at.range, near, seen_, skip);
             return near.empty() ? bgfx::IndexBufferHandle BGFX_INVALID_HANDLE
                                 : bgfx::createIndexBuffer(
                                       bgfx::copy(near.data(), static_cast<uint32_t>(near.size() * sizeof(uint32_t))),
                                       BGFX_BUFFER_INDEX32);
         };
-        free->triangles = buffer(solid_grid_, solid_);
+        // The lamp's own fixture casts no shadow of it: its triangles by the list they are in.
+        std::vector<std::vector<uint32_t>> skip(1 + cut_.size());
+        if (static_cast<size_t>(lamp) < fixtures_.size())
+            for (const uint32_t t : fixtures_[lamp])
+                skip[1 + list_of_[t]].push_back(local_of_[t]);
+        for (std::vector<uint32_t> &list : skip)
+            std::sort(list.begin(), list.end());
+        free->triangles = buffer(solid_grid_, solid_, skip[0]);
         for (size_t c = 0; c < cut_.size(); ++c)
-            if (const bgfx::IndexBufferHandle cut = buffer(cut_[c].grid, cut_[c].indices); bgfx::isValid(cut))
-                free->cut.emplace_back(c, cut);
+            if (const bgfx::IndexBufferHandle cut = buffer(cut_[c].grid, cut_[c].indices, skip[1 + c]); bgfx::isValid(cut))
+                free->cut.emplace_back(cut_[c].texture, cut);
         placed[lamp] = true;
         ++kept;
     }
@@ -447,7 +497,8 @@ void LampShadows::choose_moving(const std::array<float, 3> &eye)
         free->lamp = kMovingLamp;
         free->at = light.lamp;
         // It stands for one of the game's point lights (render::SetEffectsDynamicLights / SetEffectsShipLights) and
-        // reaches as far as that light: its D3D range is the far end of its faces (ff_fragment.sh ffLampAdd).
+        // reaches as far as that light: its shape's radius is the far end of its faces (ff_fragment.sh ffLampAdd). A
+        // ship's lantern's holder follows its fixture (ship_slot_triangles).
         free->at.range = light.lamp.range;
         free->holder = kLanternHolder;
         free->redraw = true;
@@ -456,6 +507,13 @@ void LampShadows::choose_moving(const std::array<float, 3> &eye)
             free->ship = light.on_ship->ship;
             free->local = light.on_ship->local;
             bx::mtxInverse(free->to_local.data(), light.ship->world.data());
+        }
+        else if (!carried_reported_)
+        {
+            carried_reported_ = true;
+            shim::logf("effects: lamps: FALLBACK: a carried lantern or torch is its carrier's draw, not still geometry with a "
+                       "fixture: what lies within %.2f m of its flame casts no shadow of it (logged once)",
+                       kLanternHolder);
         }
     }
     // The geometry of a ship none of whose lanterns holds a slot any more goes.
@@ -471,10 +529,6 @@ void LampShadows::free_ship_geometry(ShipGeometry &geometry)
 {
     if (bgfx::isValid(geometry.vertices))
         bgfx::destroy(geometry.vertices);
-    if (bgfx::isValid(geometry.solid))
-        bgfx::destroy(geometry.solid);
-    for (const auto &cut : geometry.cut)
-        bgfx::destroy(cut.second);
     geometry = ShipGeometry{};
 }
 
@@ -513,41 +567,72 @@ void LampShadows::set_ship_geometry(uint64_t ship, uint64_t signature, const ren
         out[4] = textured ? geometry.uvs[i][1] : 0.0f;
     }
     kept->vertices = bgfx::createVertexBuffer(vertices, layout);
+    kept->positions.assign(geometry.positions.begin(), geometry.positions.end());
+    kept->indices.assign(geometry.indices.begin(), geometry.indices.end());
     // Triangles of a texture whose alpha cuts holes cast through it; all others cast whole.
-    std::vector<bool> cut_index(geometry.indices.size(), false);
-    std::vector<std::pair<shim::BaseTexture *, std::vector<uint32_t>>> cut;
+    kept->cut_of.assign(kept->triangles, -1);
     if (textured)
         for (const auto &surface : geometry.surfaces)
         {
             const shim::TexStore *store = shim::store_of(surface.texture);
             if (!store || !store->cutout || surface.first_index + surface.index_count > geometry.indices.size())
                 continue;
-            auto into = std::find_if(cut.begin(), cut.end(), [&](const auto &c) { return c.first == surface.texture; });
-            if (into == cut.end())
-                into = cut.insert(cut.end(), {surface.texture, {}});
-            for (uint32_t i = surface.first_index; i < surface.first_index + surface.index_count; ++i)
-            {
-                into->second.push_back(geometry.indices[i]);
-                cut_index[i] = true;
-            }
+            auto into = std::find(kept->cut.begin(), kept->cut.end(), surface.texture);
+            if (into == kept->cut.end())
+                into = kept->cut.insert(kept->cut.end(), surface.texture);
+            for (uint32_t t = surface.first_index / 3; t < (surface.first_index + surface.index_count) / 3; ++t)
+                kept->cut_of[t] = static_cast<int32_t>(into - kept->cut.begin());
         }
     else if (!geometry.surfaces.empty())
         shim::logf("ERROR: effects: lamps: a ship's geometry came without texture coordinates: its nets and gratings cast "
                    "whole shadows");
-    std::vector<uint32_t> solid;
-    for (size_t i = 0; i < geometry.indices.size(); ++i)
-        if (!cut_index[i])
-            solid.push_back(geometry.indices[i]);
+    shim::logf("effects: lamps: a ship's still geometry for its lanterns' shadows: %zu triangles, %zu textures cut holes",
+               kept->triangles, kept->cut.size());
+}
+
+void LampShadows::ship_slot_triangles(Slot &slot, ShipGeometry &geometry)
+{
+    if (bgfx::isValid(slot.triangles))
+        bgfx::destroy(slot.triangles);
+    slot.triangles = BGFX_INVALID_HANDLE;
+    for (const auto &cut : slot.cut)
+        bgfx::destroy(cut.second);
+    slot.cut.clear();
+    auto fixture = std::find_if(geometry.fixtures.begin(), geometry.fixtures.end(),
+                                [&](const auto &f) { return distance(f.first, slot.local) < 0.05f; });
+    if (fixture == geometry.fixtures.end())
+    {
+        const std::vector<fx::Vec3> flame{slot.local};
+        fx::Fixture found = std::move(fx::FindFixtures(geometry.positions, geometry.indices, std::span(&flame, 1))[0]);
+        if (found.pieces > 0)
+            shim::logf("effects: lamps: a ship's lantern at (%.2f, %.2f, %.2f) of its ship: its fixture, %d pieces of %zu "
+                       "triangles over %.2f x %.2f x %.2f m, casts no shadow of it",
+                       slot.local[0], slot.local[1], slot.local[2], found.pieces, found.triangles.size(),
+                       found.hi[0] - found.lo[0], found.hi[1] - found.lo[1], found.hi[2] - found.lo[2]);
+        else
+            shim::logf("effects: lamps: FALLBACK: a ship's lantern at (%.2f, %.2f, %.2f) of its ship has no fixture in the ship's "
+                       "geometry: only what lies within %.2f m of its flame casts no shadow of it",
+                       slot.local[0], slot.local[1], slot.local[2], kLanternHolder);
+        fixture = geometry.fixtures.insert(geometry.fixtures.end(), {slot.local, std::move(found.triangles)});
+    }
+    slot.holder = fixture->second.empty() ? kLanternHolder : fx::kLampHolderRadius;
+    std::vector<std::vector<uint32_t>> lists(1 + geometry.cut.size());
+    for (size_t t = 0; t < geometry.triangles; ++t)
+    {
+        if (std::binary_search(fixture->second.begin(), fixture->second.end(), static_cast<uint32_t>(t)))
+            continue;
+        std::vector<uint32_t> &list = lists[1 + geometry.cut_of[t]];
+        list.insert(list.end(), {geometry.indices[3 * t], geometry.indices[3 * t + 1], geometry.indices[3 * t + 2]});
+    }
     const auto buffer = [](const std::vector<uint32_t> &indices) {
         return bgfx::createIndexBuffer(bgfx::copy(indices.data(), static_cast<uint32_t>(indices.size() * sizeof(uint32_t))),
                                        BGFX_BUFFER_INDEX32);
     };
-    if (!solid.empty())
-        kept->solid = buffer(solid);
-    for (const auto &c : cut)
-        kept->cut.emplace_back(c.first, buffer(c.second));
-    shim::logf("effects: lamps: a ship's still geometry for its lanterns' shadows: %zu triangles, %zu textures cut holes",
-               kept->triangles, kept->cut.size());
+    if (!lists[0].empty())
+        slot.triangles = buffer(lists[0]);
+    for (size_t c = 0; c < geometry.cut.size(); ++c)
+        if (!lists[1 + c].empty())
+            slot.cut.emplace_back(geometry.cut[c], buffer(lists[1 + c]));
 }
 
 void LampShadows::upload_grid()
@@ -671,7 +756,7 @@ bool LampShadows::prepare(shim::Device &device, const std::array<float, 3> &eye,
         uniforms_[2 + 3 * s] = {slot.at.position[0], slot.at.position[1], slot.at.position[2], slot.at.range};
         uniforms_[3 + 3 * s] = {color[0] * slot.weight, color[1] * slot.weight, color[2] * slot.weight,
                                 (slot.last_casters > 0 ? 1.0f : 0.0f) + (slot.moving ? 2.0f : 0.0f)};
-        uniforms_[4 + 3 * s] = {slot.at.att0, slot.at.att1, slot.at.att2, slot.holder};
+        uniforms_[4 + 3 * s] = {slot.at.intensity, slot.at.core * slot.at.core, 0.0f, 0.0f};
     }
     grid_uniforms_[4] = {static_cast<float>(static_slots()), static_cast<float>(moving_slots_), tint_, 0.0f};
     // Per moving slot: the turn from the world into the space of its faces (a ship's; else none).
@@ -712,7 +797,7 @@ void LampShadows::draw_faces(shim::Device &device, Casters &casters, int s)
         return;
     // What casts, each part with its texture where that cuts holes: a lamp's triangles were chosen when it took the
     // slot; a carried light's are gathered now, from around where it is; a ship's lantern has the whole ship, in the
-    // ship's space.
+    // ship's space. A lamp's and a ship lantern's own fixture are not among them.
     struct Part
     {
         shim::BaseTexture *texture = nullptr; // null: solid
@@ -730,9 +815,10 @@ void LampShadows::draw_faces(shim::Device &device, Casters &casters, int s)
         lamp.position = slot.local;
         if (bgfx::isValid(vertices))
         {
-            if (bgfx::isValid(ship->solid))
-                parts.push_back({nullptr, ship->solid});
-            for (const auto &cut : ship->cut)
+            ship_slot_triangles(slot, *ship);
+            if (bgfx::isValid(slot.triangles))
+                parts.push_back({nullptr, slot.triangles});
+            for (const auto &cut : slot.cut)
                 parts.push_back({cut.first, cut.second});
         }
     }
@@ -768,7 +854,7 @@ void LampShadows::draw_faces(shim::Device &device, Casters &casters, int s)
         if (bgfx::isValid(slot.triangles))
             parts.push_back({nullptr, slot.triangles});
         for (const auto &cut : slot.cut)
-            parts.push_back({cut_[cut.first].texture, cut.second});
+            parts.push_back({cut.first, cut.second});
     }
     // The slot's row back to "nothing as far as the lamp reaches": the caster shader writes the distance over the
     // radius, here a distance far beyond any radius.

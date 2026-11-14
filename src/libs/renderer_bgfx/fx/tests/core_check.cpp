@@ -593,20 +593,83 @@ void CheckSupport()
     CHECK(Support{}.Describe().find("NO") != std::string::npos && all.Describe().find("NO") == std::string::npos);
 }
 
+void CheckLightFalloff()
+{
+    // The game's lights.ini lamp, candle and torch: their light in linear light as the relight had it (the D3D
+    // attenuation squared, windowed at the distance where it falls to kGameLightFloor), against the new falloff.
+    struct Game
+    {
+        float range, att0, att1, att2;
+    };
+    const auto game = [](const Game &g, float d, float reach) {
+        const float x = std::min(d / reach, 1.0f);
+        const float w = (1.0f - x * x * x * x) * (1.0f - x * x * x * x);
+        const float a = w / std::max(g.att0 + g.att1 * std::max(d, kGameLightNear) + g.att2 * std::max(d, kGameLightNear) * std::max(d, kGameLightNear), 1e-3f);
+        return a * a;
+    };
+    const LightFalloff falloff;
+    CHECK(falloff.reach == 1.6f && falloff.core == 0.4f && falloff.level == 0.85f); // the chosen look
+    for (const Game g : {Game{40.0f, 0.2f, 0.8f, 0.05f}, Game{15.0f, 0.5f, 0.0f, 1.5f}, Game{40.0f, 1.2f, 0.9f, 0.0f},
+                         Game{32.0f, 0.1f, 3.0f, 0.3f}, Game{55.0f, 0.9f, 0.2f, 0.02f}})
+    {
+        const LightShape shape = ShapeOfGameLight(g.range, g.att0, g.att1, g.att2, falloff);
+        const float reach = shape.range / falloff.reach; // the game light's own reach
+        // It ends further than the game's light, at most its reach times `reach`, and nowhere beyond.
+        CHECK(reach > 0.5f && reach <= std::min(g.range, kGameLightReach) + 1e-3f);
+        CHECK(LightFalloffAt(shape, shape.range) == 0.0f && LightFalloffAt(shape, 0.95f * reach) > 0.0f);
+        CHECK(LightFalloffAt(shape, 1.1f * reach) > 0.0f); // the game's light was gone there
+        // `level` times the game's in the middle of its reach; never hotter than that next to the flame.
+        const float match = kMatchShare * reach;
+        CHECK(Near(LightFalloffAt(shape, match), falloff.level * game(g, match, reach), 1e-3f * game(g, match, reach) + 1e-7f));
+        CHECK(LightFalloffAt(shape, 0.0f) <= falloff.level * game(g, kGameLightNear, reach) * 1.001f);
+        CHECK(shape.core >= falloff.core);
+        // Falls with the distance; the square root is the gamma-space value.
+        float previous = 1e30f;
+        for (int i = 0; i <= 200; ++i)
+        {
+            const float a = LightFalloffAt(shape, 0.1f * i);
+            CHECK(a <= previous && a >= 0.0f);
+            previous = a;
+        }
+        CHECK(Near(LightFalloffGammaAt(shape, 1.0f), std::sqrt(LightFalloffAt(shape, 1.0f)), 1e-6f));
+    }
+    // The lamp of lights.ini: less than half as hot right by the flame, about as strong at 1-2 m, further reaching.
+    {
+        const Game lamp{40.0f, 0.2f, 0.8f, 0.05f};
+        const LightShape shape = ShapeOfGameLight(lamp.range, lamp.att0, lamp.att1, lamp.att2, falloff);
+        const float reach = shape.range / falloff.reach;
+        std::printf("light falloff: lamp reach %.2f -> %.2f m, core %.2f m; at 0.15 m %.3f (game %.3f), 1 m %.3f (%.3f), 4 m %.4f (%.4f), 8 m %.4f (%.4f)\n",
+                    reach, shape.range, shape.core, LightFalloffAt(shape, 0.15f), game(lamp, 0.15f, reach), LightFalloffAt(shape, 1.0f),
+                    game(lamp, 1.0f, reach), LightFalloffAt(shape, 4.0f), game(lamp, 4.0f, reach), LightFalloffAt(shape, 8.0f),
+                    game(lamp, 8.0f, reach));
+        CHECK(LightFalloffAt(shape, 0.15f) < 0.5f * game(lamp, 0.15f, reach));
+        CHECK(LightFalloffAt(shape, 4.0f) > game(lamp, 4.0f, reach) && LightFalloffAt(shape, 8.0f) > 0.0f && game(lamp, 8.0f, reach) == 0.0f);
+    }
+    // A longer reach, a larger core, a lower level each do what they say.
+    {
+        const LightShape base = ShapeOfGameLight(40.0f, 0.2f, 0.8f, 0.05f, falloff);
+        const LightShape far = ShapeOfGameLight(40.0f, 0.2f, 0.8f, 0.05f, {2.4f, 0.4f, 0.85f});
+        const LightShape soft = ShapeOfGameLight(40.0f, 0.2f, 0.8f, 0.05f, {1.6f, 0.8f, 0.85f});
+        const LightShape dim = ShapeOfGameLight(40.0f, 0.2f, 0.8f, 0.05f, {1.6f, 0.4f, 0.5f});
+        CHECK(far.range > base.range && LightFalloffAt(far, 0.9f * base.range) > LightFalloffAt(base, 0.9f * base.range));
+        CHECK(soft.core > base.core && LightFalloffAt(soft, 0.0f) < LightFalloffAt(base, 0.0f));
+        CHECK(LightFalloffAt(dim, 2.0f) < LightFalloffAt(base, 2.0f));
+    }
+    // A light that gives nothing lights nothing.
+    CHECK(ShapeOfGameLight(10.0f, 0.0f, 0.0f, 0.0f, falloff).range == 0.0f && ShapeOfGameLight(0.0f, 1.0f, 0.0f, 0.0f, falloff).range == 0.0f);
+}
+
 void CheckLights()
 {
     PointLight torch;
     torch.position = {0.0f, 2.0f, 0.0f};
     torch.color = {1.0f, 0.6f, 0.3f};
     torch.range = 10.0f;
-    torch.att0 = 0.5f;
-    torch.att1 = 0.1f;
-    torch.att2 = 0.05f;
-    // D3D9 attenuation inside the range, nothing beyond it, a short fade right before the limit.
-    CHECK(Near(LightAttenuation(torch, 0.0f), 2.0f, 1e-5f));
-    CHECK(Near(LightAttenuation(torch, 4.0f), 1.0f / (0.5f + 0.4f + 0.8f), 1e-5f));
-    CHECK(LightAttenuation(torch, 10.01f) == 0.0f);
-    CHECK(Near(LightAttenuation(torch, 9.25f), 0.5f / (0.5f + 0.925f + 0.05f * 9.25f * 9.25f), 1e-4f));
+    torch.intensity = 1.0f;
+    torch.core = 0.4f;
+    // The falloff of its shape inside the radius, nothing beyond it.
+    CHECK(Near(LightAttenuation(torch, 0.0f), 1.0f / 0.4f, 1e-5f));
+    CHECK(LightAttenuation(torch, 10.01f) == 0.0f && LightAttenuation(torch, 10.0f) == 0.0f);
     float previous = 1e9f;
     for (int i = 0; i <= 100; ++i)
     {
@@ -636,7 +699,7 @@ void CheckLights()
     const LightSelection dynamic = SelectLights(lights, {0.0f, 1.0f, 0.0f}, 1.0f, 8, false);
     CHECK(dynamic.count == 2 && !dynamic.lights[0].baked && !dynamic.lights[1].baked);
     // A brighter light further away can outrank a dim one nearby.
-    lights[3].color = {16.0f, 16.0f, 16.0f};
+    lights[3].color = {64.0f, 64.0f, 64.0f};
     CHECK(SelectLights(lights, {0.0f, 1.0f, 0.0f}, 1.0f, 1).lights[0].position[0] == 9.0f);
 
     // A wall of a large baked mesh next to a torch: chosen at the wall's own sphere, the torch lights it, and the
@@ -674,7 +737,7 @@ void CheckLights()
         CHECK(SelectLights(pair, {0.0f, 0.0f, 0.0f}, 0.0f, 1).lights[0].color[0] == 1.0f); // fade off: unchanged
     }
 
-    // Uniform packing: view-space position, D3D terms, spot cone as scale and bias.
+    // Uniform packing: view-space position, the shape, spot cone as scale and bias.
     std::array<float, 16> view = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, -1, -2, -3, 1};
     LightSelection selection;
     selection.count = 2;
@@ -688,7 +751,7 @@ void CheckLights()
     const PointLightUniforms packed = PackPointLights(selection, view);
     CHECK(packed.u_fxPointCount[0] == 2.0f && packed.dropped == 3);
     CHECK(Near(packed.u_fxPoint[0][0], -1.0f, 1e-6f) && Near(packed.u_fxPoint[0][1], 0.0f, 1e-6f) && packed.u_fxPoint[0][3] == 10.0f);
-    CHECK(packed.u_fxPoint[1][3] == 0.5f && packed.u_fxPoint[2][0] == 0.1f && packed.u_fxPoint[2][1] == 0.05f);
+    CHECK(packed.u_fxPoint[1][3] == 1.0f && Near(packed.u_fxPoint[2][0], 0.16f, 1e-6f) && packed.u_fxPoint[2][1] == 0.0f);
     CHECK(packed.u_fxPoint[2][2] == 0.0f && packed.u_fxPoint[2][3] == 1.0f); // point light: cone factor is always 1
     const float scale = packed.u_fxPoint[6][2], bias = packed.u_fxPoint[6][3];
     CHECK(Near(0.9f * scale + bias, 1.0f, 1e-4f) && Near(0.7f * scale + bias, 0.0f, 1e-4f) && packed.u_fxPoint[7][3] == 2.0f);
@@ -697,12 +760,12 @@ void CheckLights()
     FlashLights flashes;
     flashes.Add({1.0f, 2.0f, 3.0f}, {3.0f, 2.0f, 1.0f}, 20.0f, 0.2f);
     std::vector<PointLight> out;
-    flashes.AppendTo(out);
-    CHECK(out.size() == 1 && out[0].color[0] == 3.0f && !out[0].baked && out[0].range == 20.0f);
-    CHECK(LightAttenuation(out[0], 0.0f) == 1.0f && LightAttenuation(out[0], 19.0f) < 0.06f);
+    flashes.AppendTo(out, LightFalloff{});
+    CHECK(out.size() == 1 && out[0].color[0] == 3.0f && !out[0].baked && out[0].range > 10.0f && out[0].range < 20.0f * 1.6f);
+    CHECK(LightAttenuation(out[0], 0.0f) <= 1.0f && LightAttenuation(out[0], out[0].range) == 0.0f);
     flashes.Update(0.1f);
     out.clear();
-    flashes.AppendTo(out);
+    flashes.AppendTo(out, LightFalloff{});
     CHECK(Near(out[0].color[0], 0.75f, 1e-4f)); // half the time left: a quarter of the peak
     flashes.Update(0.11f);
     CHECK(flashes.Count() == 0);
@@ -1313,29 +1376,27 @@ void AddBox(std::vector<Vec3> &p, std::vector<uint32_t> &i, Vec3 lo, Vec3 hi)
 void CheckLampShadows()
 {
     // Three candles of one candlestick become one lamp; the fireplace stays apart.
-    const Lamp candle{{1.0f, 2.0f, 1.0f}, {2.2f, 1.5f, 0.5f}, 15.0f, 0.5f, 0.0f, 1.5f};
-    std::vector<Lamp> lamps = {candle, candle, candle, {{-4.0f, 0.8f, 0.0f}, {2.2f, 1.2f, 0.7f}, 40.0f, 1.5f, 0.0f, 0.2f}};
+    const LightShape candle_shape = ShapeOfGameLight(15.0f, 0.5f, 0.0f, 1.5f, LightFalloff{});
+    const LightShape fire_shape = ShapeOfGameLight(40.0f, 1.5f, 0.0f, 0.2f, LightFalloff{});
+    const Lamp candle{{1.0f, 2.0f, 1.0f}, {2.2f, 1.5f, 0.5f}, candle_shape.range, candle_shape.intensity, candle_shape.core};
+    std::vector<Lamp> lamps = {candle, candle, candle,
+                               {{-4.0f, 0.8f, 0.0f}, {2.2f, 1.2f, 0.7f}, fire_shape.range, fire_shape.intensity, fire_shape.core}};
     lamps[1].position[0] += 0.1f;
     lamps[2].position[2] -= 0.1f;
     const std::vector<Lamp> clustered = ClusterLamps(lamps, 0.6f);
     CHECK(clustered.size() == 2 && Near(clustered[0].color[0], 6.6f, 1e-4f));
     CHECK(Near(clustered[0].position[0], 1.0333f, 1e-3f) && Near(clustered[0].position[2], 0.9667f, 1e-3f));
 
-    // A lamp lights as far as its light stays above the threshold: the candle of lights.ini 3.6 m at 0.12, the
-    // fireplace farther, never beyond the limit or its own D3D range; three candles reach farther than one.
-    const float candle_radius = LampRadius(candle, 0.12f, 12.0f);
-    const float light_there = (0.299f * 2.2f + 0.587f * 1.5f + 0.114f * 0.5f) / (0.5f + 1.5f * candle_radius * candle_radius);
-    CHECK(Near(light_there, 0.12f, 1e-3f) && candle_radius > 2.5f && candle_radius < 3.5f);
-    CHECK(LampRadius(clustered[0], 0.12f, 12.0f) > candle_radius + 1.0f);
-    CHECK(LampRadius(clustered[1], 0.12f, 12.0f) > LampRadius(clustered[0], 0.12f, 12.0f));
-    CHECK(LampRadius(clustered[1], 0.001f, 12.0f) == 12.0f && LampRadius(candle, 0.0001f, 50.0f) == 15.0f);
+    // A merged fixture keeps the largest shape of its flames (the same whatever their flicker); the fireplace reaches
+    // farther than a candle.
+    CHECK(ShapeOf(clustered[0]) == candle_shape && clustered[1].range > clustered[0].range);
 
     // The lamp grid: a cell holds the lamps whose radius reaches it, the strongest there first; cells no lamp reaches
     // hold none; a cell that more lamps reach than it holds keeps the strongest and is counted.
     {
         std::vector<Lamp> row;
         for (int i = 0; i < 3; ++i)
-            row.push_back({{2.5f + 5.0f * static_cast<float>(i), 1.5f, 2.5f}, {2.0f, 2.0f, 2.0f}, 3.0f, 0.5f, 0.0f, 1.5f});
+            row.push_back({{2.5f + 5.0f * static_cast<float>(i), 1.5f, 2.5f}, {2.0f, 2.0f, 2.0f}, 3.0f, 0.3f, 0.4f});
         const LampGrid grid = BuildLampGrid(row, {0.0f, 0.0f, 0.0f}, {15.0f, 3.0f, 5.0f}, 1.0f, 64, 16);
         CHECK(grid.nx == 15 && grid.ny == 3 && grid.nz == 5 && grid.rgba.size() == 2u * 15 * 3 * 5 * 4 && grid.overflow_cells == 0);
         const auto cell = [&](int x, int y, int z, int k) {
@@ -2105,9 +2166,10 @@ void CheckBounce()
     // No sun, no bounce; the lamps light by their falloff and shadow: a lamp 1 m east of the wall lights the shaded
     // side, its light comes back to the wall from the ground.
     CHECK(GatherBounce(scene, SunOnSurfels(occluders, scene, {0.0f, -1.0f, 0.0f}, {1.0f, 1.0f, 1.0f}, 1), 1).Energy() == 0.0);
-    const Lamp lamp{{6.3f, 2.0f, 0.0f}, {2.0f, 1.5f, 0.8f}, 6.0f, 1.0f, 0.0f, 0.3f};
+    const Lamp lamp{{6.3f, 2.0f, 0.0f}, {2.0f, 1.5f, 0.8f}, 6.0f, 1.0f, 0.4f};
     const float holder[1] = {0.2f};
-    const BounceField lamps = GatherBounce(scene, LampsOnSurfels(occluders, scene, std::span(&lamp, 1), holder, 4), 4);
+    const std::vector<uint32_t> no_fixture[1];
+    const BounceField lamps = GatherBounce(scene, LampsOnSurfels(occluders, scene, std::span(&lamp, 1), holder, no_fixture, 4), 4);
     const Rgb by_lamp = lamps.Irradiance({5.3f + 1.0f, 1.0f, 0.0f}, {1.0f, 0.0f, 0.0f});
     const Rgb behind_wall = lamps.Irradiance({5.0f - 1.0f, 1.0f, 0.0f}, {-1.0f, 0.0f, 0.0f});
     std::printf("bounce: by the lamp %.3f %.3f %.3f, behind the wall %.4f\n", by_lamp[0], by_lamp[1], by_lamp[2], behind_wall[0]);
@@ -2486,6 +2548,7 @@ int main()
     CheckLighting();
     CheckSupport();
     CheckCapsProfiles();
+    CheckLightFalloff();
     CheckLights();
     CheckShadows();
     CheckNormalMaps();

@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <initializer_list>
 #include <utility>
 
@@ -39,13 +40,10 @@ std::vector<Lamp> ClusterLamps(std::span<const Lamp> lamps, float radius)
                 out[i].position[k] = (out[i].position[k] * weight[i] + lamp.position[k] * w) / total;
                 out[i].color[k] += lamp.color[k];
             }
+            // The largest shape of its flames: the same whatever their flicker.
             out[i].range = std::max(out[i].range, lamp.range);
-            if (w > weight[i])
-            {
-                out[i].att0 = lamp.att0;
-                out[i].att1 = lamp.att1;
-                out[i].att2 = lamp.att2;
-            }
+            out[i].intensity = std::max(out[i].intensity, lamp.intensity);
+            out[i].core = std::max(out[i].core, lamp.core);
             weight[i] = total;
             merged = true;
             break;
@@ -59,20 +57,145 @@ std::vector<Lamp> ClusterLamps(std::span<const Lamp> lamps, float radius)
     return out;
 }
 
-float LampRadius(const Lamp &lamp, float threshold, float limit)
+LightShape ShapeOf(const Lamp &lamp)
 {
-    const float reach = std::min(lamp.range, limit);
-    const float luminance = Luminance(lamp.color);
-    const auto light = [&](float d) { return luminance / std::max(lamp.att0 + lamp.att1 * d + lamp.att2 * d * d, 1e-3f); };
-    if (light(reach) >= threshold)
-        return reach;
-    float lo = 0.0f, hi = reach; // the attenuation only grows with the distance
-    for (int i = 0; i < 24; ++i)
+    return {lamp.range, lamp.intensity, lamp.core};
+}
+
+namespace
+{
+struct Piece
+{
+    Vec3 lo{1e30f, 1e30f, 1e30f}, hi{-1e30f, -1e30f, -1e30f};
+    std::vector<uint32_t> triangles;
+    bool narrow() const
     {
-        const float mid = 0.5f * (lo + hi);
-        (light(mid) >= threshold ? lo : hi) = mid;
+        return hi[0] - lo[0] <= kFixtureNarrow && hi[2] - lo[2] <= kFixtureNarrow && hi[1] - lo[1] <= kFixtureTall;
     }
-    return hi;
+    float across() const
+    {
+        return std::max({hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]});
+    }
+    bool holds(const Vec3 &p, float margin) const
+    {
+        for (int k = 0; k < 3; ++k)
+            if (p[k] < lo[k] - margin || p[k] > hi[k] + margin)
+                return false;
+        return true;
+    }
+};
+
+uint32_t Root(std::vector<uint32_t> &parent, uint32_t v)
+{
+    while (parent[v] != v)
+    {
+        parent[v] = parent[parent[v]];
+        v = parent[v];
+    }
+    return v;
+}
+} // namespace
+
+std::vector<Fixture> FindFixtures(std::span<const Vec3> positions, std::span<const uint32_t> indices,
+                                  std::span<const std::vector<Vec3>> flames)
+{
+    std::vector<Fixture> fixtures(flames.size());
+    if (flames.empty() || positions.empty())
+        return fixtures;
+    // The pieces: triangles joined by shared vertices.
+    const size_t triangles = indices.size() / 3;
+    std::vector<uint32_t> parent(positions.size());
+    for (uint32_t v = 0; v < parent.size(); ++v)
+        parent[v] = v;
+    const auto valid = [&](size_t t) {
+        return indices[3 * t] < positions.size() && indices[3 * t + 1] < positions.size() && indices[3 * t + 2] < positions.size();
+    };
+    for (size_t t = 0; t < triangles; ++t)
+        if (valid(t))
+            for (int j = 1; j < 3; ++j)
+            {
+                const uint32_t a = Root(parent, indices[3 * t]), b = Root(parent, indices[3 * t + j]);
+                if (a != b)
+                    parent[b] = a;
+            }
+    std::vector<uint32_t> piece_of(positions.size(), UINT32_MAX);
+    std::vector<Piece> pieces;
+    for (size_t t = 0; t < triangles; ++t)
+    {
+        if (!valid(t))
+            continue;
+        uint32_t &id = piece_of[Root(parent, indices[3 * t])];
+        if (id == UINT32_MAX)
+        {
+            id = static_cast<uint32_t>(pieces.size());
+            pieces.emplace_back();
+        }
+        Piece &piece = pieces[id];
+        piece.triangles.push_back(static_cast<uint32_t>(t));
+        for (int j = 0; j < 3; ++j)
+            for (int k = 0; k < 3; ++k)
+            {
+                piece.lo[k] = std::min(piece.lo[k], positions[indices[3 * t + j]][k]);
+                piece.hi[k] = std::max(piece.hi[k], positions[indices[3 * t + j]][k]);
+            }
+    }
+    std::vector<uint32_t> narrow;
+    for (uint32_t p = 0; p < pieces.size(); ++p)
+        if (pieces[p].narrow())
+            narrow.push_back(p);
+    for (size_t l = 0; l < flames.size(); ++l)
+    {
+        std::vector<uint32_t> taken;
+        Vec3 lo{1e30f, 1e30f, 1e30f}, hi{-1e30f, -1e30f, -1e30f};
+        const auto take = [&](uint32_t p) {
+            taken.push_back(p);
+            for (int k = 0; k < 3; ++k)
+            {
+                lo[k] = std::min(lo[k], pieces[p].lo[k]);
+                hi[k] = std::max(hi[k], pieces[p].hi[k]);
+            }
+        };
+        for (uint32_t p = 0; p < pieces.size(); ++p)
+            for (const Vec3 &flame : flames[l])
+                if ((pieces[p].across() <= kFixtureEnclosing && pieces[p].holds(flame, kFixtureEnclose)) ||
+                    (pieces[p].narrow() && pieces[p].holds(flame, kFixtureTouch)))
+                {
+                    take(p);
+                    break;
+                }
+        // What carries it: narrow pieces stacked on it, while it stays narrow and not too tall.
+        for (bool grew = !taken.empty(); grew;)
+        {
+            grew = false;
+            for (const uint32_t p : narrow)
+            {
+                const Piece &piece = pieces[p];
+                if (std::find(taken.begin(), taken.end(), p) != taken.end())
+                    continue;
+                const bool over = piece.lo[0] <= hi[0] && piece.hi[0] >= lo[0] && piece.lo[2] <= hi[2] && piece.hi[2] >= lo[2];
+                const bool meets = piece.lo[1] <= hi[1] + kFixtureGap && piece.hi[1] >= lo[1] - kFixtureGap;
+                const bool stays = std::max(hi[0], piece.hi[0]) - std::min(lo[0], piece.lo[0]) <= kFixtureNarrow &&
+                                   std::max(hi[2], piece.hi[2]) - std::min(lo[2], piece.lo[2]) <= kFixtureNarrow &&
+                                   std::max(hi[1], piece.hi[1]) - std::min(lo[1], piece.lo[1]) <= kFixtureTall;
+                if (over && meets && stays)
+                {
+                    take(p);
+                    grew = true;
+                }
+            }
+        }
+        Fixture &fixture = fixtures[l];
+        fixture.pieces = static_cast<int>(taken.size());
+        for (const uint32_t p : taken)
+            fixture.triangles.insert(fixture.triangles.end(), pieces[p].triangles.begin(), pieces[p].triangles.end());
+        std::sort(fixture.triangles.begin(), fixture.triangles.end());
+        if (!taken.empty())
+        {
+            fixture.lo = lo;
+            fixture.hi = hi;
+        }
+    }
+    return fixtures;
 }
 
 LampGrid BuildLampGrid(std::span<const Lamp> lamps, Vec3 lo, Vec3 hi, float cell, int max_cells_xz, int max_cells_y)
@@ -110,9 +233,7 @@ LampGrid BuildLampGrid(std::span<const Lamp> lamps, Vec3 lo, Vec3 hi, float cell
                     const float distance = std::sqrt(Dot(d, d));
                     if (distance >= lamps[i].range)
                         continue;
-                    const float window = 1.0f - std::pow(distance / lamps[i].range, 4.0f);
-                    const float att = lamps[i].att0 + lamps[i].att1 * distance + lamps[i].att2 * distance * distance;
-                    reach.emplace_back(-Luminance(lamps[i].color) * window * window / std::max(att, 1e-3f), i);
+                    reach.emplace_back(-Luminance(lamps[i].color) * LightFalloffGammaAt(ShapeOf(lamps[i]), distance), i);
                 }
                 std::sort(reach.begin(), reach.end());
                 grid.max_lamps = std::max(grid.max_lamps, static_cast<int>(reach.size()));
@@ -335,7 +456,7 @@ TriangleGrid BuildTriangleGrid(std::span<const Vec3> positions, std::span<const 
 }
 
 void TrianglesInSphere(const TriangleGrid &grid, std::span<const uint32_t> indices, Vec3 center, float radius,
-                       std::vector<uint32_t> &out, std::vector<uint32_t> &seen)
+                       std::vector<uint32_t> &out, std::vector<uint32_t> &seen, std::span<const uint32_t> skip)
 {
     if (grid.count == 0)
         return;
@@ -368,7 +489,7 @@ void TrianglesInSphere(const TriangleGrid &grid, std::span<const uint32_t> indic
                         const float nearest = std::clamp(center[k], grid.box[t][0][k], grid.box[t][1][k]);
                         d2 += (nearest - center[k]) * (nearest - center[k]);
                     }
-                    if (d2 <= radius * radius)
+                    if (d2 <= radius * radius && !std::binary_search(skip.begin(), skip.end(), t))
                         found.push_back(t);
                 }
             }

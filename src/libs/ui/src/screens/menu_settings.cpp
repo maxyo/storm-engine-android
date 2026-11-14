@@ -225,6 +225,16 @@ class SettingsScreen final : public Screen
                 if (Known("fx_lamp_tint"))
                     DebugSegment(bindings, debug, "fx_lamp_tint", "Цвет ламп на стенах", {-1, 0, 25, 50, 100},
                                  {"пресет", "0%", "25%", "50%", "100%"});
+                // The one falloff of every light (fx/light_falloff.hpp): how far it reaches, its soft core, its level.
+                if (Known("fx_light_reach"))
+                {
+                    DebugSegment(bindings, debug, "fx_light_reach", "Огни: дальность", {-1, 100, 160, 220, 300},
+                                 {"пресет", "100%", "160%", "220%", "300%"});
+                    DebugSegment(bindings, debug, "fx_light_core", "Огни: мягкость у огня", {-1, 10, 40, 80},
+                                 {"пресет", "10 см", "40 см", "80 см"});
+                    DebugSegment(bindings, debug, "fx_light_level", "Огни: яркость", {-1, 50, 70, 85, 100},
+                                 {"пресет", "50%", "70%", "85%", "100%"});
+                }
                 // Sunlight through the sails (fe7b54e5): its strength.
                 if (Known("fx_sail_light"))
                     DebugSegment(bindings, debug, "fx_sail_light", "Свет сквозь паруса", {-1, 0, 100, 200, 300},

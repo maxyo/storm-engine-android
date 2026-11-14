@@ -74,8 +74,9 @@ class Occluders
         std::vector<uint32_t> stamp;
         uint32_t ray = 0;
     };
-    // True when the ray from `origin` along unit `dir` hits a triangle within `reach`.
-    bool Occluded(const Vec3 &origin, const Vec3 &dir, float reach, Scratch &scratch) const;
+    // True when the ray from `origin` along unit `dir` hits a triangle within `reach`, but for the triangle numbers in
+    // `ignore` (ascending: a lamp's own fixture, lamp_shadows.hpp FindFixtures).
+    bool Occluded(const Vec3 &origin, const Vec3 &dir, float reach, Scratch &scratch, std::span<const uint32_t> ignore = {}) const;
     // The nearest triangle the ray hits within `reach` (alpha holes let it through): at origin + t dir, at
     // barycentric (u, v) of the triangle's second and third corners.
     struct Hit
@@ -89,7 +90,8 @@ class Occluders
 
   private:
     bool Hits(uint32_t triangle, const Vec3 &origin, const Vec3 &dir, float reach, Hit &hit) const;
-    template <bool Closest> bool March(const Vec3 &origin, const Vec3 &dir, float reach, Scratch &scratch, Hit &best) const;
+    template <bool Closest>
+    bool March(const Vec3 &origin, const Vec3 &dir, float reach, Scratch &scratch, Hit &best, std::span<const uint32_t> ignore) const;
 
     std::vector<Vec3> positions_;
     std::vector<uint32_t> indices_;

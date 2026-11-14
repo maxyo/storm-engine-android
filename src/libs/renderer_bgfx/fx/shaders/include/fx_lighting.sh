@@ -345,22 +345,36 @@ float fxBakedRelief(vec3 Ng, vec3 N, vec3 V)
 }
 #endif // FX_LIGHT_NORMALMAP
 
+// The falloff of every light (fx/light_falloff.hpp): a windowed inverse square with a soft core, per unit colour.
+// Linear light; in gamma space (without FX_LIGHT_LINEAR, colours not squared) its square root, so a single light
+// looks the same either way. dist: metres, radius: no light beyond, core2: the core squared.
+float fxLightFalloff(float dist, float radius, float intensity, float core2)
+{
+    float x = min(dist / radius, 1.0);
+    float x2 = x * x;
+    float window = 1.0 - x2 * x2;
+    float light = intensity * window * window / (dist * dist + core2);
+#ifdef FX_LIGHT_LINEAR
+    return light;
+#else
+    return sqrt(light);
+#endif
+}
+
 #ifdef FX_LIGHT_POINT
 #ifndef FX_LIGHT_POINT_MAX
 #define FX_LIGHT_POINT_MAX 4
 #endif
-// Fraction of the range over which the D3D range cut-off is faded (a hard edge would show per pixel).
-#define FX_LIGHT_RANGE_FADE 0.15
 
 // Per light i (fx::PackPointLights), view space:
-//   [4i]   xyz: position, w: range
-//   [4i+1] rgb: diffuse colour, w: attenuation0
-//   [4i+2] x: attenuation1, y: attenuation2, z, w: spot cone as saturate(rho * z + w)
+//   [4i]   xyz: position, w: radius (fx::LightShape)
+//   [4i+1] rgb: diffuse colour, w: intensity
+//   [4i+2] x: core², y: unused, z, w: spot cone as saturate(rho * z + w)
 //   [4i+3] xyz: spot direction, w: spot falloff exponent
 uniform vec4 u_fxPoint[32];
 uniform vec4 u_fxPointCount; // x: number of lights
 
-// Light i at P: xyz = unit vector to the light, w = attenuation * spot factor (D3D9 fixed-function formulas).
+// Light i at P: xyz = unit vector to the light, w = falloff * spot factor.
 vec4 fxPointLight(int i, vec3 P)
 {
     vec4 position = u_fxPoint[4 * i];
@@ -369,16 +383,8 @@ vec4 fxPointLight(int i, vec3 P)
     vec3 toLight = position.xyz - P;
     float dist = length(toLight);
     vec3 L = toLight / max(dist, 1e-5);
-    float attenuation = 1.0 / max(u_fxPoint[4 * i + 1].w + params.x * dist + params.y * dist * dist, 1e-6);
-    attenuation *= clamp((position.w - dist) / (FX_LIGHT_RANGE_FADE * position.w), 0.0, 1.0);
     float cone = clamp(dot(spot.xyz, -L) * params.z + params.w, 0.0, 1.0);
-    float falloff = attenuation * pow(cone, spot.w);
-#ifdef FX_LIGHT_LINEAR
-    // The game's attenuation constants were tuned by eye in gamma space: square the falloff with the colour,
-    // so a single light reaches as far as it did and only the cosine term and overlaps follow linear light.
-    falloff *= falloff;
-#endif
-    return vec4(L, falloff);
+    return vec4(L, fxLightFalloff(dist, position.w, u_fxPoint[4 * i + 1].w, params.x) * pow(cone, spot.w));
 }
 
 // Sum of the point / spot lights' diffuse terms at P with unit normal N (to be multiplied by the material diffuse).

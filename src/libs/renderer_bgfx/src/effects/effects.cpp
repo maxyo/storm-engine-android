@@ -107,6 +107,12 @@ const Option kOptions[] = {
      [](fx::Settings &s, int v) { s.lamp_baked = static_cast<float>(std::clamp(v, 0, 100)) / 100.0f; }},
     {"fx_lamp_tint", "0..100 %: the share of a lamp's own colour in the light it adds to baked surfaces",
      [](fx::Settings &s, int v) { s.lamp_tint = static_cast<float>(std::clamp(v, 0, 100)) / 100.0f; }},
+    {"fx_light_reach", "100..400 %: how much further than the game's own lights every light reaches",
+     [](fx::Settings &s, int v) { s.light_falloff.reach = static_cast<float>(std::clamp(v, 100, 400)) / 100.0f; }},
+    {"fx_light_core", "1..200 cm: the soft core of every light (larger: less hot next to the flame)",
+     [](fx::Settings &s, int v) { s.light_falloff.core = static_cast<float>(std::clamp(v, 1, 200)) / 100.0f; }},
+    {"fx_light_level", "10..200 %: every light's strength in the middle of its reach against the game's",
+     [](fx::Settings &s, int v) { s.light_falloff.level = static_cast<float>(std::clamp(v, 10, 200)) / 100.0f; }},
     {"fx_lamp_model_lift", "0..100 %: lit models of an interior brighter than the room light around them",
      [](fx::Settings &s, int v) { s.lamp_model_lift = static_cast<float>(std::clamp(v, 0, 100)) / 100.0f; }},
     {"fx_lamp_debug", "0 off, 1 every lamp in its own colour, 2 the shadow mask",
@@ -684,6 +690,7 @@ void Host::end_frame(bool scene_frame, uint32_t frame)
         const LampShadows &lamps = lighting_.lamp_shadows();
         light.lamps = &lamps.lamps();
         light.holders = &lamps.holders();
+        light.fixtures = &lamps.fixtures();
         light.lamp_layout = lamps.layout();
         light.town_sun = town.active();
         light.town_field = town.sun_bounce();
@@ -913,12 +920,23 @@ void SetEffectsLocationGeometry(const EffectsLocationGeometry &geometry)
                                                         std::vector<fx::Vec3>(geometry.walk.begin(), geometry.walk.end()));
 }
 
+namespace
+{
+// A game light (D3D range and attenuation) with the one falloff of all lights (fx/light_falloff.hpp).
+fx::Lamp ShapedLamp(const EffectsPointLight &l)
+{
+    const fx::LightShape shape =
+        fx::ShapeOfGameLight(l.range, l.att0, l.att1, l.att2, effects::Host::instance().settings().light_falloff);
+    return {l.position, l.color, shape.range, shape.intensity, shape.core};
+}
+} // namespace
+
 void SetEffectsLamps(std::span<const EffectsPointLight> lamps)
 {
     std::vector<fx::Lamp> converted;
     converted.reserve(lamps.size());
     for (const EffectsPointLight &l : lamps)
-        converted.push_back({l.position, l.color, l.range, l.att0, l.att1, l.att2});
+        converted.push_back(ShapedLamp(l));
     effects::Host::instance().lighting().lamp_shadows().set_lamps(converted);
 }
 
@@ -928,16 +946,16 @@ void SetEffectsDynamicLights(std::span<const EffectsPointLight> lights)
     const size_t count = std::min(lights.size(), std::size(converted));
     for (size_t i = 0; i < count; ++i)
     {
-        const EffectsPointLight &l = lights[i];
-        converted[i] = {.position = l.position, .color = l.color, .range = l.range, .att0 = l.att0, .att1 = l.att1,
-                        .att2 = l.att2};
+        const fx::Lamp shaped = ShapedLamp(lights[i]);
+        converted[i] = {.position = shaped.position, .color = shaped.color, .range = shaped.range, .intensity = shaped.intensity,
+                        .core = shaped.core};
     }
     effects::Host::instance().lighting().set_dynamic_lights(std::span(converted, count));
     // The same lights for the lamps: the nearest to the camera take a moving slot and cast shadows.
     std::vector<fx::Lamp> moving;
     moving.reserve(lights.size());
     for (const EffectsPointLight &l : lights)
-        moving.push_back({l.position, l.color, l.range, l.att0, l.att1, l.att2});
+        moving.push_back(ShapedLamp(l));
     effects::Host::instance().lighting().lamp_shadows().set_moving(std::move(moving));
 }
 
@@ -946,8 +964,7 @@ void SetEffectsShipLights(std::span<const EffectsShip> ships, std::span<const Ef
     std::vector<effects::LampShadows::ShipLight> converted;
     converted.reserve(lights.size());
     for (const EffectsShipLight &l : lights)
-        converted.push_back({{l.light.position, l.light.color, l.light.range, l.light.att0, l.light.att1, l.light.att2},
-                             l.ship, l.local});
+        converted.push_back({ShapedLamp(l.light), l.ship, l.local});
     effects::Host::instance().lighting().lamp_shadows().set_ship_lights({ships.begin(), ships.end()}, std::move(converted));
 }
 

@@ -402,7 +402,8 @@ static void Settings(const std::string &models)
                                 "fx_town_walls", "fx_gloss", "fx_gloss_strength",
                                 "fx_gloss_debug", "fx_sea_waves", "fx_sea_waves_lift",
                                 "fx_sea_wakes", "fx_sea_waves_debug", "fx_pom_probe",
-                                "fx_pom_toggle", "fx_upscale"}) // GraphicsSettings.DEBUG_KEYS, -1 = the preset's
+                                "fx_pom_toggle", "fx_upscale", "fx_light_reach", "fx_light_core",
+                                "fx_light_level"}) // GraphicsSettings.DEBUG_KEYS, -1 = the preset's
             reported[key] = -1;
         debug.SetState("appSettings", reported);
         debug.SetInterface(Load(models, "settings.json"));
@@ -430,6 +431,9 @@ static void Settings(const std::string &models)
                    row("app-render_backend")["options"] == Json::array({"авто", "GLES", "Vulkan"}) &&
                    row("app-render_thread").is_object() && row("app-render_overlap").is_object(),
                "effects debug: lamp tint, graphics API, render thread, frame overlap: " + rows.dump());
+        Expect(row("app-fx_light_reach")["options"] == Json::array({"пресет", "100%", "160%", "220%", "300%"}) &&
+                   row("app-fx_light_core").is_object() && row("app-fx_light_level").is_object(),
+               "effects debug: the lights' reach, core and level: " + rows.dump());
         Expect(row("app-fx_bounce").is_object() && row("app-fx_bounce_debug").is_object() &&
                    row("app-fx_town_walls")["options"] == Json::array({"пресет", "игра", "наши"}),
                "effects debug: bounce and town walls: " + rows.dump());

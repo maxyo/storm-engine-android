@@ -29,15 +29,15 @@ fx::Vec3 rgb(const D3DCOLORVALUE &c)
     return {c.r, c.g, c.b};
 }
 
-fx::PointLight point_light(const D3DLIGHT9 &l)
+fx::PointLight point_light(const D3DLIGHT9 &l, const fx::LightFalloff &falloff)
 {
     fx::PointLight p;
     p.position = {l.Position.x, l.Position.y, l.Position.z};
     p.color = rgb(l.Diffuse);
-    p.range = l.Range;
-    p.att0 = l.Attenuation0;
-    p.att1 = l.Attenuation1;
-    p.att2 = l.Attenuation2;
+    const fx::LightShape shape = fx::ShapeOfGameLight(l.Range, l.Attenuation0, l.Attenuation1, l.Attenuation2, falloff);
+    p.range = shape.range;
+    p.intensity = shape.intensity;
+    p.core = shape.core;
     if (l.Type == D3DLIGHT_SPOT)
     {
         const float length = std::sqrt(l.Direction.x * l.Direction.x + l.Direction.y * l.Direction.y +
@@ -421,7 +421,7 @@ void Lighting::prepare(const shim::Device &device, const shim::LayoutInfo &layou
         }
         else
         {
-            points[point_count] = point_light(l);
+            points[point_count] = point_light(l, settings_.light_falloff);
             point_slot[point_count++] = static_cast<uint8_t>(slot);
         }
         ++slot;

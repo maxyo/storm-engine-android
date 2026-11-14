@@ -49,6 +49,7 @@ class Bounce
         bool sun_present = false;
         const std::vector<fx::Lamp> *lamps = nullptr;
         const std::vector<float> *holders = nullptr;
+        const std::vector<std::vector<uint32_t>> *fixtures = nullptr; // per lamp its fixture's triangles (FindFixtures)
         uint32_t lamp_layout = 0; // LampShadows::layout(): changes when the lamps are laid out anew
         bool town_sun = false;
         std::shared_ptr<const fx::BounceField> town_field; // with town_sun: the sun's field (null: not yet)
