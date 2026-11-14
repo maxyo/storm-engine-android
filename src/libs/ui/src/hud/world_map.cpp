@@ -102,6 +102,8 @@ class WorldMapScene final : public Scene
 
         view.elements["pause"] = Json::object();
         input.On("pause", "click", [this](const Event &) { hud_.Send("shortcut", "mainmenu"); });
+        view.elements["ship"] = Json::object(); // the ship screen, as at sea
+        input.On("ship", "click", [this](const Event &) { hud_.Send("shortcut", "shipscreen"); });
         if (gameplay.Has("WMapCameraSwitch"))
         {
             view.elements["camera"] = Json::object();

@@ -47,6 +47,28 @@ int main()
     assert(state.offer(request(state, "ack", "1"), 3000) && state.offer(request(state, "activate", "Map"), 3001));
     assert(state.offer(request(state, "ack", "0"), 3002) && !state.covered(19) && !state.consume(3003));
 
+    // Moor with the world map beside it: either one can be tapped, once, for the drawn frame only
+    {
+        SeaQuickActionState both;
+        auto moor = frame("Moor");
+        moor.map = true;
+        moor.mapLabel = "Map caption";
+        both.update(moor);
+        assert(both.json().find("\"action\":\"Moor\"") != std::string::npos &&
+               both.json().find("\"map\":true,\"mapLabel\":\"Map caption\"") != std::string::npos);
+        assert(!both.offer(request(both, "activate", "Map"), 10)); // not drawn yet
+        assert(both.offer(request(both, "ack", "1"), 11));
+        assert(!both.offer(request(both, "activate", "Board"), 12));
+        assert(both.offer(request(both, "activate", "Map"), 13) && !both.offer(request(both, "activate", "Moor"), 14));
+        assert(both.consume(15) == "Map");
+        assert(both.offer(request(both, "ack", "1"), 16) && both.offer(request(both, "activate", "Moor"), 17) && both.consume(18) == "Moor");
+        // without the map permission Map is refused, and the JSON says so
+        moor.map = false;
+        both.update(moor);
+        assert(both.json().find("\"map\":false") != std::string::npos);
+        assert(both.offer(request(both, "ack", "1"), 19) && !both.offer(request(both, "activate", "Map"), 20));
+    }
+
     // a new Activity owns nothing of the old one
     assert(state.offer(request(state, "ack", "1"), 4000));
     const auto old = request(state, "ack", "1");

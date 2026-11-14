@@ -180,15 +180,7 @@
      "type": "text",
      "default": ""
     },
-    "time": {
-     "type": "text",
-     "default": ""
-    },
     "speed": {
-     "type": "text",
-     "default": ""
-    },
-    "wind": {
      "type": "text",
      "default": ""
     },
@@ -199,6 +191,10 @@
     "readout": {
      "type": "bool",
      "default": true
+    },
+    "date": {
+     "type": "text",
+     "default": ""
     }
    },
    "behaviors": [

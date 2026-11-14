@@ -90,6 +90,13 @@ inline SeaQuickActionFrame readSeaQuickAction(uint64_t host, ATTRIBUTES *attribu
     frame.owner = std::to_string(host) + ":" + std::to_string(ship->pShip->GetId()) + ":" + std::to_string(ship->characterIndex) + ":" +
         pointer(character) + ":" + std::to_string(battle ? battle->GetEntityID() : invalid_entity) + ":" +
         std::to_string(shipTelemetry.revision()) + ":" + group;
+    // The world map too, beside another action (moor, board…): the script's own permission
+    // (bMapEnter, already false while bDisableMapEnter or enemies hold the squadron) and caption.
+    if (frame.action != "Map" && integer("bMapEnter").value_or(0) == 1)
+    {
+        frame.mapLabel = attribute(battleAttributes ? battleAttributes->FindAClass(battleAttributes, "Commands.Map") : nullptr, "note");
+        frame.map = !frame.mapLabel.empty() && landCommandsTextValid(frame.mapLabel, 1024);
+    }
     if (frame.action == "Map")
         frame.target = frame.owner;
     else if (frame.action == "Moor")

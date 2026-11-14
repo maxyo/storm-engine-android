@@ -815,9 +815,13 @@ class SeaQuickConsumer final : public HudConsumer
         const auto available = state.is_object() ? Flag(state, "available") : std::nullopt;
         const auto action = state.is_object() ? Text(state, "action") : std::nullopt;
         const auto label = state.is_object() ? Text(state, "label") : std::nullopt;
+        const auto map = state.is_object() ? Flag(state, "map") : std::nullopt;
+        const auto map_label = state.is_object() ? Text(state, "mapLabel") : std::nullopt;
         std::string problem;
         if (!state.is_object() || Whole(state, "schemaVersion") != uint64_t{1} || !activity || !revision || !available || !action || !label)
             problem = "expected {schemaVersion: 1, activity, revision, available, action, label}";
+        else if (map.value_or(false) && (!*available || *action == "Map" || !map_label || !Printable(*map_label, 1024, false)))
+            problem = "the world map offered beside no other action or without its caption";
         else if (*available && !OneOf(*action, {"Map", "Moor", "Board", "LandTroops", "Reload"}))
             problem = "unknown sea quick action '" + *action + "'";
         else if (*available && !Printable(*label, 1024, false))
@@ -836,6 +840,8 @@ class SeaQuickConsumer final : public HudConsumer
         next.available = *available;
         next.action = *available ? *action : std::string();
         next.label = *available ? *label : std::string();
+        next.map = map.value_or(false);
+        next.map_label = next.map ? *map_label : std::string();
         hud.Edit().sea_quick = std::move(next);
         return {};
     }

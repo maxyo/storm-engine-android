@@ -231,6 +231,8 @@ struct SeaQuick
     uint64_t activity = 0, revision = 0;
     bool available = false;
     std::string action, label; // Map, Moor, Board, LandTroops, Reload; the engine's caption
+    bool map = false;          // the world map can be entered too, beside `action`
+    std::string map_label;     // the engine's caption of Map
 };
 
 // Channel "worldMap": the world map's instruments, fleet and commands. Absent numbers are

@@ -11,7 +11,7 @@
 //   orders:1\t<sceneEpoch>\t<revision>\t<activityGeneration>\t<verb>\t<id>
 //   shiphud:<gameplayRevision>\t<mask>\t<hudRevision>   which of the engine's indicators our elements replace
 //   navigator:<gameplayRevision>\t<hudRevision>\t<navigatorGeneration>\t<prepare …|visible <id>|in|out|clear>
-//   shortcut:<mainmenu|character>
+//   shortcut:<mainmenu|shipscreen>
 #include "hud.h"
 
 #include <algorithm>
@@ -120,19 +120,19 @@ const char *ShipIcon(const std::string &type)
 namespace
 {
 
-// The engine's date line ends with the time of day ("12 мая 1665 11:42"): the minimap shows
-// the time only; a line without a time is shown as it is.
-std::string TimeOf(const std::string &date_time)
+// The engine's date line ends with the time of day ("12 мая 1665 11:42"): under the minimap
+// it reads «12 мая 1665 · 11:42»; a line without a time is shown as it is.
+std::string DateLine(const std::string &date_time)
 {
     const size_t colon = date_time.rfind(':');
     if (colon == std::string::npos || colon == 0)
         return date_time;
-    size_t from = colon, to = colon + 1;
+    size_t from = colon;
     while (from > 0 && date_time[from - 1] >= '0' && date_time[from - 1] <= '9')
         --from;
-    while (to < date_time.size() && date_time[to] >= '0' && date_time[to] <= '9')
-        ++to;
-    return from == colon || to == colon + 1 ? date_time : date_time.substr(from, to - from);
+    if (from == colon || from == 0 || date_time[from - 1] != ' ')
+        return date_time;
+    return date_time.substr(0, from - 1) + " · " + date_time.substr(from);
 }
 
 class SeaScene final : public Scene
@@ -184,8 +184,9 @@ class SeaScene final : public Scene
                 view.elements["log"]["offset"] = band_.top;
         }
 
-        view.elements["hero"] = Json::object();
-        input.On("hero", "click", [this](const Event &) { hud_.Send("shortcut", "character"); });
+        // At sea the person button is the ship's: it opens the ship screen (owner 2026-11-14).
+        view.elements["ship"] = Json::object();
+        input.On("ship", "click", [this](const Event &) { hud_.Send("shortcut", "shipscreen"); });
         view.elements["pause"] = Json::object();
         input.On("pause", "click", [this](const Event &) { hud_.Send("shortcut", "mainmenu"); });
         if (orders.known && orders.available)
@@ -390,17 +391,14 @@ class SeaScene final : public Scene
             input.On("minimap", "zoom", [this](const Event &) { Zoom(); });
             return;
         }
+        // Above the disc the place and the speed, under it the date and time; the wind is a
+        // picture in the disc (the engine's streamer, as on the world-map compass).
         if (!ship.location.empty())
             minimap["place"] = ship.location;
-        if (!ship.date_time.empty())
-            minimap["time"] = TimeOf(ship.date_time);
-        if (ship.speed >= 0.0 && ship.wind >= 0.0)
-        {
+        if (ship.speed >= 0.0)
             minimap["speed"] = Knots(ship.speed);
-            minimap["wind"] = Knots(ship.wind);
-        }
-        else
-            minimap["readout"] = false;
+        if (!ship.date_time.empty())
+            minimap["date"] = DateLine(ship.date_time);
         view.elements["minimap"] = std::move(minimap);
         input.On("minimap", "zoom", [this](const Event &) { Zoom(); });
     }
@@ -430,7 +428,7 @@ class SeaScene final : public Scene
             band.left = static_cast<int>(std::ceil((last.x + last.width - last.layer_x) / last.density)) + 8;
         // the top row: the buttons the band runs beside, and the minimap it runs under
         float row_left = 0.0f, row_bottom = 0.0f, map_left = 0.0f, layer_width = 0.0f, fleet_right = 0.0f;
-        for (const char *id : {"hero", "pause", "orders"})
+        for (const char *id : {"ship", "pause", "orders"})
         {
             Placement button;
             if (!shown.elements.contains(id) || !hud_.Measure(id, "", button))
@@ -580,15 +578,24 @@ class SeaScene final : public Scene
         if (!look) // the consumer admits the five actions of the table only
             return;
         view.elements["context"] = Json{{"icon", look->icon}, {"label", quick.label}, {"variant", look->label}};
-        input.On("context", "click", [this](const Event &) {
-            const SeaQuick &current = hud_.Current().sea_quick;
-            // Exactly the action that is drawn and acknowledged, once: a second tap on the same
-            // offer and a tap on an offer the engine has replaced since do nothing.
-            if (!hud_.Interactive() || !current.known || !current.available || quick_covered_owner_ != Owner(current) || quick_tapped_ == Owner(current))
-                return;
-            quick_tapped_ = Owner(current);
-            hud_.Send("seaquick", Owner(current) + "\tactivate\t" + current.action);
-        });
+        input.On("context", "click", [this](const Event &) { Quick(false); });
+        // The world map beside the action the script shows (moor, board…), when it allows both.
+        if (!quick.map)
+            return;
+        view.elements["map"] = Json{{"icon", "map"}, {"label", quick.map_label}, {"variant", "primary"}};
+        input.On("map", "click", [this](const Event &) { Quick(true); });
+    }
+
+    // Exactly an action of the offer that is drawn and acknowledged, once: a second tap on the
+    // same offer and a tap on an offer the engine has replaced since do nothing.
+    void Quick(bool map)
+    {
+        const SeaQuick &current = hud_.Current().sea_quick;
+        if (!hud_.Interactive() || !current.known || !current.available || (map && !current.map) || quick_covered_owner_ != Owner(current) ||
+            quick_tapped_ == Owner(current))
+            return;
+        quick_tapped_ = Owner(current);
+        hud_.Send("seaquick", Owner(current) + "\tactivate\t" + (map ? std::string("Map") : current.action));
     }
 
     // Every offer is answered once: drawn (1) or not (0). The engine keeps the word until the
@@ -745,8 +752,9 @@ class SeaScene final : public Scene
             mask |= prop("ammo", "badge") ? kAmmoCount | kPowder : 0;
             mask |= has("sail") ? kSailPosition : 0;
             mask |= has("fleet") ? kFleet : 0;
-            mask |= prop("minimap", "speed") ? kSpeed | kWind : 0;
-            mask |= prop("minimap", "time") ? kDateTime : 0;
+            mask |= prop("minimap", "speed") ? kSpeed : 0;
+            mask |= has("minimap") && ship->navigator ? kWind : 0; // the streamer in the engine's disc
+            mask |= prop("minimap", "date") ? kDateTime : 0;
             mask |= prop("minimap", "place") ? kLocation : 0;
         }
         const Ship &current = states.ship;

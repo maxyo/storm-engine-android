@@ -1,0 +1,10 @@
+{
+ "schemaVersion": 1,
+ "activity": 5,
+ "revision": 32,
+ "available": true,
+ "action": "Moor",
+ "label": "Причалить",
+ "map": true,
+ "mapLabel": "Выйти на карту"
+}

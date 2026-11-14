@@ -190,6 +190,7 @@ class ISLAND : public ISLAND_BASE
 
     bool OverheadContact(float x, float z, float fHeight);
     bool GetDepth(float x, float z, float *fRes = nullptr);
+    bool GetLandMap(IslandLandMap &out) override;
     bool GetDepthFast(float x, float z, float *fRes = nullptr);
     bool GetDepth(FRECT *pRect, float *fMinH, float *fMaxH);
 

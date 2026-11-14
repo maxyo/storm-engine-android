@@ -137,9 +137,9 @@ static void CheckSailing()
     Sail(bench);
     const Json &shown = mount.shown.elements;
     Expect(mount.visible && mount.shown.layout == "sea" && !mount.shown.modal && mount.shown.sheet.empty(), "sailing: the sea layout");
-    for (const char *id : {"fleet", "hero", "pause", "orders", "minimap", "sail", "helm", "context", "camera", "ammo", "fire"})
+    for (const char *id : {"fleet", "ship", "pause", "orders", "minimap", "sail", "helm", "context", "camera", "ammo", "fire"})
         Expect(mount.Has(id), std::string("sailing shows ") + id);
-    Expect(!mount.Has("spyglass") && !mount.Has("log") && !mount.Has("ammo-1"), "sailing: no spyglass off the deck, no event lines, no fan");
+    Expect(!mount.Has("spyglass") && !mount.Has("log") && !mount.Has("ammo-1") && !mount.Has("map"), "sailing: no spyglass off the deck, no event lines, no fan, no map beside the mooring");
     const Json &ships = shown["fleet"]["ships"];
     Expect(ships.size() == 4 && ships[0]["name"] == "Аделина" &&
                ships[0]["bars"] == Json::parse(R"([{"kind":"health","value":82},{"kind":"crew","value":90},{"kind":"sails","value":95}])"),
@@ -147,8 +147,8 @@ static void CheckSailing()
     Expect(ships[0]["texture"] == "battle_interface/ship_icons2" && ships[0]["uv"] == "0.5,0.125,0.5625,0.1875" && ships[1]["name"] == "Сокол" &&
                ships[3]["bars"][0]["value"] == 41 && ships[2]["name"] == "Ласточка" && ships[1]["tap"] == true,
            "then the companions, each the battle interface's ship picture: " + ships[1].dump());
-    Expect(shown["minimap"]["place"] == "Мартиника" && shown["minimap"]["time"] == "09:06" && shown["minimap"]["speed"] == "4" &&
-               shown["minimap"]["wind"] == "9" && shown["minimap"]["native"] == true,
+    Expect(shown["minimap"]["place"] == "Мартиника" && shown["minimap"]["date"] == "7 октября 1654 · 09:06" && shown["minimap"]["speed"] == "4" &&
+               !shown["minimap"].contains("wind") && !shown["minimap"].contains("time") && shown["minimap"]["native"] == true,
            "the minimap readouts: " + shown["minimap"].dump());
     Expect(shown["sail"]["value"] == 2 && shown["ammo"]["badge"] == "88" && shown["ammo"]["badgeTone"] == "gold" && shown["ammo"]["icon"] == "ammo" &&
                !shown["fire"].contains("fill"),
@@ -171,8 +171,8 @@ static void CheckSailing()
            "the indicator mask and the quick action are said once per revision, however far apart frames are");
 
     // shortcuts and tap controls
-    bench.Press("hero");
-    Expect(mount.Last() == "shortcut:character", "hero: " + mount.Last());
+    bench.Press("ship");
+    Expect(mount.Last() == "shortcut:shipscreen", "the ship button opens the ship screen: " + mount.Last());
     bench.Press("pause");
     Expect(mount.Last() == "shortcut:mainmenu", "menu: " + mount.Last());
     bench.Press("camera");
@@ -198,6 +198,7 @@ static void CheckSailing()
     Expect(mount.Last() == "seaquick:1\t5\t31\tactivate\tMoor", "the quick action activates exactly its action: " + mount.Last());
     bench.Press("context");
     Expect(Count(mount, "seaquick:1\t5\t31\tactivate\tMoor") == 1, "a second tap on the same offer does nothing");
+
     bench.Feed("seaQuickAction", "sea-quick-board");
     Expect(mount.shown.elements["context"]["icon"] == "grapple" && mount.shown.elements["context"]["variant"] == "combat", "another offer, another glyph");
     bench.Press("context");
@@ -307,7 +308,7 @@ static void CheckSailing()
         mount.boxes["fleet .item.ship:first-child"] = {10, 10, 56, 56, 0, 0, width, 360, 1, width, 360};
         mount.boxes["fleet .item.ship:last-child"] = {last_column, 10, 56, 56, 0, 0, width, 360, 1, width, 360};
         mount.boxes["time "] = {width - 320, 296, 48, 48, 0, 0, width, 360, 1, width, 360}; // at the bottom: not in the top row
-        mount.boxes["hero "] = {width - 356, 10, 48, 48, 0, 0, width, 360, 1, width, 360};
+        mount.boxes["ship "] = {width - 356, 10, 48, 48, 0, 0, width, 360, 1, width, 360};
         mount.boxes["pause "] = {width - 298, 10, 48, 48, 0, 0, width, 360, 1, width, 360};
         mount.boxes["orders "] = {width - 240, 10, 48, 48, 0, 0, width, 360, 1, width, 360};
         mount.boxes["minimap "] = {width - 182, 10, 172, 150, 0, 0, width, 360, 1, width, 360};
@@ -389,6 +390,28 @@ static void CheckSailing()
     Expect(!mount.Has("helm") && !mount.Has("camera") && mount.Has("fire") && mount.errors.size() == errors + 1, "a gameplay without a helm says so and shows none");
 }
 
+// Moor and the world map together (owner 2026-11-14): both buttons, each activates its own action, once.
+static void CheckMoorAndMap()
+{
+    Bench bench;
+    FakeMount &mount = bench.mount;
+    Sail(bench);
+    const Json &shown = mount.shown.elements;
+    bench.Frame();
+    bench.Feed("seaQuickAction", "sea-quick-moor-map");
+    Expect(mount.Has("context") && mount.Has("map") && shown["map"]["icon"] == "map" && shown["map"]["label"] == "Выйти на карту" &&
+               shown["context"]["icon"] == "moor",
+           "moor with the map beside it: " + shown["map"].dump());
+    bench.Press("map");
+    Expect(!Sent(mount, "seaquick:1\t5\t32\tactivate\tMap"), "the map button of an offer not drawn yet cannot be tapped");
+    bench.Frame();
+    bench.Press("map");
+    Expect(mount.Last() == "seaquick:1\t5\t32\tactivate\tMap", "the map button activates Map: " + mount.Last());
+    bench.Press("context");
+    Expect(Count(mount, "seaquick:1\t5\t32\tactivate\tMoor") == 0, "one tap per offer: the engine answers with a new revision");
+    Expect(mount.errors.empty(), "moor and map: no errors");
+}
+
 static void CheckBattle()
 {
     Bench bench;
@@ -401,7 +424,7 @@ static void CheckBattle()
     Expect(mount.shown.layout == "sea-battle" && mount.Has("spyglass") && shown["fleet"]["ships"].size() == 8, "battle: its layout, the spyglass on deck, the flagship and seven companions");
     Expect(shown["fire"]["fill"] == 65 && shown["fire"]["fillTone"] == "reload" && shown["fire"]["reloading"] == true, "guns that reload fill the fire button: " + shown["fire"].dump());
     Expect(shown["ammo"]["badge"] == "12" && shown["ammo"]["badgeTone"] == "danger" && shown["fleet"]["ships"][0]["bars"][0]["value"] == 27 && shown["sail"]["value"] == 1 &&
-               shown["minimap"]["time"] == "11:42",
+               shown["minimap"]["date"] == "7 октября 1654 · 11:42",
            "battle values");
     Expect(shown["time"]["badge"] == "×1.5" && shown["time"]["variant"] == "active", "an accelerated world: " + shown["time"].dump());
     bench.Press("time");
@@ -464,7 +487,7 @@ static void CheckOrders()
     Expect(!Sent(mount, "orders:1\t6\t15\t2\tack\t1"), "a built panel is not acknowledged");
     bench.Frame();
     Expect(mount.Last() == "orders:1\t6\t15\t2\tack\t1" && mount.slots.back() == "orders-ack", "the drawn panel is acknowledged: " + mount.Last());
-    Expect(Sent(mount, "shiphud:11\t51\t3"), "under the panel the bars and the fleet (the panel lists it) replace the engine's");
+    Expect(Sent(mount, "shiphud:11\t1075\t3"), "under the panel the bars, the fleet (the panel lists it) and the wind in the disc replace the engine's");
 
     // a tap acts at once: select, then activate against the revision that confirms the selection
     bench.Press("item-i1");
@@ -695,6 +718,7 @@ int main(int argc, char **argv)
     const std::string pack = argc > 2 ? argv[2] : "tests/pack";
     CheckConsumers();
     CheckSailing();
+    CheckMoorAndMap();
     CheckBattle();
     CheckOrders();
     CheckEmptyCategory();

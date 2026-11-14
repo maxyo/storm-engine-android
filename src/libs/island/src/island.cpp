@@ -390,6 +390,23 @@ bool ISLAND::GetDepth(float x, float z, float *fRes)
     return true;
 }
 
+bool ISLAND::GetLandMap(IslandLandMap &out)
+{
+    if (!mzDepth.isLoaded() || iDMapSize == 0 || mzDepth.GetSizeX() != iDMapSize)
+        return false;
+    out.size = iDMapSize;
+    out.stepX = fStepDX;
+    out.stepZ = fStepDZ;
+    // GetDepth: cell = (x - centre) / step + size / 2, truncated.
+    out.x0 = vBoxCenter.x - static_cast<float>(iDMapSize >> 1) * fStepDX;
+    out.z0 = vBoxCenter.z - static_cast<float>(iDMapSize >> 1) * fStepDZ;
+    out.land.assign(static_cast<size_t>(iDMapSize) * iDMapSize, 0);
+    for (uint32_t z = 0; z < iDMapSize; ++z)
+        for (uint32_t x = 0; x < iDMapSize; ++x)
+            out.land[static_cast<size_t>(z) * iDMapSize + x] = GetDepthNoCheck(x, z) > -0.04f ? 1 : 0; // HMAP_START = height 0
+    return true;
+}
+
 bool ISLAND::ActivateCamomileTrace(glm::vec3 &vSrc)
 {
     const float fRadius = 100.0f;

@@ -211,7 +211,7 @@
      "props": {}
     },
     {
-     "id": "hero",
+     "id": "ship",
      "component": "c-button",
      "rcss": "position: absolute; right: 310dp; top: 10dp; width: 48dp; height: 48dp;",
      "props": {}
@@ -258,6 +258,12 @@
      "id": "context",
      "component": "c-button",
      "rcss": "position: absolute; right: 96dp; bottom: 110dp; width: 64dp; height: 64dp;",
+     "props": {}
+    },
+    {
+     "id": "map",
+     "component": "c-button",
+     "rcss": "position: absolute; right: 168dp; bottom: 126dp; width: 56dp; height: 56dp;",
      "props": {}
     },
     {
@@ -331,7 +337,7 @@
      "props": {}
     },
     {
-     "id": "hero",
+     "id": "ship",
      "component": "c-button",
      "rcss": "position: absolute; right: 310dp; top: 10dp; width: 48dp; height: 48dp;",
      "props": {}
@@ -378,6 +384,12 @@
      "id": "context",
      "component": "c-button",
      "rcss": "position: absolute; right: 96dp; bottom: 110dp; width: 64dp; height: 64dp;",
+     "props": {}
+    },
+    {
+     "id": "map",
+     "component": "c-button",
+     "rcss": "position: absolute; right: 168dp; bottom: 126dp; width: 56dp; height: 56dp;",
      "props": {}
     },
     {

@@ -5,13 +5,19 @@
 
 namespace storm::android
 {
-// The one quick action ILogAndActions offers at sea (requirement U1). The complete target
+// The quick action ILogAndActions offers at sea (requirement U1). The complete target
 // identity stays native; the touch HUD receives a revision that fences that tuple.
+// The script offers one action at a time, by priority (BI_SetSeaState: Board, LandTroops,
+// Reload, Moor, Map). `map`: the script would also let the squadron go to the world map now
+// (its bMapEnter), so the HUD offers Map beside the action it shows (owner 2026-11-14: moor and
+// map together whenever both are possible); `mapLabel` is the script's caption of Map.
 struct SeaQuickActionFrame
 {
     uint64_t host = 0;
     bool sea = false, available = false, complete = false;
     std::string owner, action, label, target;
+    bool map = false;
+    std::string mapLabel;
     bool operator==(const SeaQuickActionFrame &) const = default;
 };
 inline bool knownSeaQuickAction(std::string_view action)
@@ -25,7 +31,8 @@ inline bool knownSeaQuickAction(std::string_view action)
 //             value 0: it is not (any more). Said once per revision; the word lasts until the
 //             revision changes or the other word comes (android_hud_presenter.hpp). A covered
 //             action, or one the presenting UI has not answered yet, hides the native icon.
-//   activate  value = the action id. Accepted once per revision, for the covered action only.
+//   activate  value = the action id: the frame's action, or Map when the frame offers it too.
+//             Accepted once per revision, for the covered frame only.
 class SeaQuickActionState
 {
     inline static std::atomic<uint64_t> nextActivity_{0};
@@ -34,6 +41,7 @@ class SeaQuickActionState
     uint64_t answered_ = 0; // the last revision the UI answered
     uint32_t pendingAt_ = 0;
     bool covered_ = false, pending_ = false;
+    std::string pendingAction_;
     static bool number(std::string_view text, uint64_t &out)
     {
         const auto parsed = std::from_chars(text.data(), text.data() + text.size(), out);
@@ -85,9 +93,11 @@ public:
             if (!covered_) pending_ = false;
             return fields[4] == "0" || covered_;
         }
-        if (fields[3] != "activate" || !valid() || fields[4] != frame_.action || pending_ || !covered_)
+        if (fields[3] != "activate" || !valid() || !(fields[4] == frame_.action || (fields[4] == "Map" && frame_.map)) || pending_ ||
+            !covered_)
             return false;
         pending_ = true;
+        pendingAction_ = fields[4];
         pendingAt_ = tick;
         return true;
     }
@@ -107,13 +117,15 @@ public:
         // The same action offered again after this is a new one to tap: an echo of this tap is stale.
         ++revision_;
         covered_ = false;
-        return frame_.action;
+        return std::move(pendingAction_);
     }
     std::string json() const
     {
         return "{\"schemaVersion\":1,\"activity\":" + std::to_string(activity_) + ",\"revision\":" + std::to_string(revision_) +
                ",\"available\":" + (valid() ? "true" : "false") + ",\"action\":" + gameplayJsonString(valid() ? frame_.action : "") +
-               ",\"label\":" + gameplayJsonString(valid() ? frame_.label : "") + "}";
+               ",\"label\":" + gameplayJsonString(valid() ? frame_.label : "") +
+               ",\"map\":" + (valid() && frame_.map ? "true" : "false") +
+               ",\"mapLabel\":" + gameplayJsonString(valid() && frame_.map ? frame_.mapLabel : "") + "}";
     }
 };
 inline SeaQuickActionState seaQuickAction;
