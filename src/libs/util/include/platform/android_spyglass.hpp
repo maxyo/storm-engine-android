@@ -116,6 +116,7 @@ class SpyglassState
         if (text.empty() || !end || *end != '\0' || generation != generation_ || !on_ || (word != "0" && word != "1"))
             return false;
         answered_ = generation_;
+        hudPresenters.answered("spyglass");
         covering_ = word == "1";
         return true;
     }

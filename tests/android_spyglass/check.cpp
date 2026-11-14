@@ -45,6 +45,7 @@ int main()
     const auto line = hudPresenters.watch("spyglass", s.awaiting(), tick);
     assert(line && line->find("HUD presenter spyglass withdrawn") != std::string::npos && !s.covered());
     assert(s.acknowledge("3\t1") && s.covered()); // a late answer still covers
+    assert(hudPresenters.watch("spyglass", s.awaiting(), tick + 16) && hudPresenters.spyglass); // and brings the presenter back
     s.clear();
     t.fort = true;
     s.target(t);

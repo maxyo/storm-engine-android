@@ -81,6 +81,7 @@ public:
             if (fields[4] != "0" && fields[4] != "1") return false;
             covered_ = fields[4] == "1" && valid();
             answered_ = revision_;
+            hudPresenters.answered("sea");
             if (!covered_) pending_ = false;
             return fields[4] == "0" || covered_;
         }

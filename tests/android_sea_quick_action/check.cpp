@@ -81,6 +81,9 @@ int main()
         assert(!hudPresenters.sea && !silent.covered(19)); // native back
         assert(!hudPresenters.watch("sea", silent.awaiting(), 60000)); // said once
         assert(silent.offer(request(silent, "ack", "1"), 60001) && silent.covered(19)); // a late answer still covers
+        // The UI answers again: the presenter comes back at the next watched frame, loudly.
+        const auto back = hudPresenters.watch("sea", silent.awaiting(), 60002);
+        assert(back && back->find("HUD presenter sea back") != std::string::npos && hudPresenters.sea);
 
         // Answers in time reset the watch; a UI runtime failure reported by the host withdraws at once.
         assert(hudPresenters.declare("sea"));

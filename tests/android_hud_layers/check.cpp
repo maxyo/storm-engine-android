@@ -50,7 +50,45 @@ int main()
         assert(line && ran == frames + 1 && !hudPresenters.sea && !legacyDrawRefused("sea interface", hudPresenters.sea));
         assert(line->find("HUD presenter sea withdrawn") != std::string::npos && line->find("frame time") != std::string::npos);
     }
+    // After a stall the UI comes back: the presenter returns once it answers and the current
+    // revision is answered, loudly; until then the legacy HUD draws.
+    assert(!hudPresenters.sea && !hudPresenters.watch("sea", true, tick += 16) && !hudPresenters.sea); // still silent
+    assert(!hudPresenters.watch("sea", false, tick += 16) && !hudPresenters.sea); // no revision waits, but no answer either
+    hudPresenters.answered("sea");                                                // the UI answers an old revision...
+    assert(!hudPresenters.watch("sea", true, tick += 16) && !hudPresenters.sea);  // ...a newer one is unanswered: wait for it
+    assert(!hudPresenters.watch("sea", false, tick += 16) && !hudPresenters.sea); // the earlier answer does not count
+    hudPresenters.answered("sea");
+    {
+        const auto back = hudPresenters.watch("sea", false, tick += 16);
+        assert(back && back->find("HUD presenter sea back") != std::string::npos && hudPresenters.sea);
+        assert(legacyDrawRefused("sea interface", hudPresenters.sea));
+    }
+    // Steady state: revisions come and are answered a frame later; the presenter never leaves,
+    // no line is logged and the legacy HUD never draws, for a minute of frames.
+    for (int frame = 0; frame < 3600; ++frame)
+    {
+        const bool waiting = frame % 3 != 2;
+        if (!waiting) hudPresenters.answered("sea");
+        assert(!hudPresenters.watch("sea", waiting, tick += 16) && hudPresenters.sea && legacyDrawRefused("sea interface", hudPresenters.sea));
+    }
+    // Stall again: withdrawn again, back again. A runtime failure is final: no answer brings it back.
+    for (uint32_t i = 0; i <= HudPresenters::kSilentMs / 16; ++i) hudPresenters.watch("sea", true, tick += 16);
+    assert(!hudPresenters.sea);
+    hudPresenters.answered("sea");
+    assert(hudPresenters.watch("sea", false, tick += 16) && hudPresenters.sea);
+    assert(!hudPresenters.lost().empty() && !hudPresenters.sea);
+    hudPresenters.answered("sea");
+    assert(!hudPresenters.watch("sea", false, tick += 16) && !hudPresenters.sea);
+    // Each HUD has its own watch: an answer at sea does not bring the world map back.
+    assert(hudPresenters.declare("worldmap"));
+    for (uint32_t i = 0; i <= HudPresenters::kSilentMs / 16; ++i) hudPresenters.watch("worldmap", true, tick += 16);
+    assert(!hudPresenters.worldMap);
+    hudPresenters.answered("sea");
+    assert(!hudPresenters.watch("worldmap", false, tick += 16) && !hudPresenters.worldMap);
+    hudPresenters.answered("worldmap");
+    assert(hudPresenters.watch("worldmap", false, tick += 16) && hudPresenters.worldMap);
+    hudPresenters.lost();
     for (const auto &layer : kLegacyLayers)
         assert(legacyLayer(layer.name) == &layer);
-    std::cout << "PASS hud layers: world-space ship bars and pointer shown at sea under the touch HUD, HUD panels refused (world map instruments and fleet too), unclassified refused; the presenter watchdog counts frame time (15 s backgrounds never withdraw, a stall with frames does)\n";
+    std::cout << "PASS hud layers: world-space ship bars and pointer shown at sea under the touch HUD, HUD panels refused (world map instruments and fleet too), unclassified refused; the presenter watchdog counts frame time (15 s backgrounds never withdraw, a stall with frames does; the UI's answer brings it back, no flicker in steady state, a runtime failure is final)\n";
 }

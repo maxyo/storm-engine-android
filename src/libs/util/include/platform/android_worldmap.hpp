@@ -89,7 +89,7 @@ public:
         const auto proof=modal.resumeAck();
         if(!proof.proof||proof.owner!=owner()||!frame_.available||(proof.mask&frame_.availableMask())!=proof.mask)return;
         if(proof.proof>=ackProof_ && tick-proof.at<=1000){
-            ackProof_=proof.proof;covered_=proof.mask;answered_=revision_;
+            ackProof_=proof.proof;covered_=proof.mask;answered_=revision_;hudPresenters.answered("worldmap");
         }
         if(ackProof_>=proof.proof&&covered(proof.mask,frame_.owner))modal.resumed(owner(),ackProof_);
     }
@@ -151,7 +151,7 @@ public:
             if(proof&&proof<ackProof_)return false;
             mask&=frame_.availableMask();
             if(!modal.ack(owner(),static_cast<uint32_t>(mask),proof,tick))return false;
-            covered_=static_cast<uint32_t>(mask);answered_=revision_;if(proof)ackProof_=proof;return true;
+            covered_=static_cast<uint32_t>(mask);answered_=revision_;hudPresenters.answered("worldmap");if(proof)ackProof_=proof;return true;
         }
         if(fields[2]=="prepare")
         {

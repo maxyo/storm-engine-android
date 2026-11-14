@@ -348,6 +348,7 @@ public:
         if (!parsed || generation.ec != std::errc() || generation.ptr != request.data() + request.size() ||
             hudRevision != hudRevision_ || parsed->first != revision_ || parsed->second > ShipAll || !frame_.valid) return false;
         answered_ = hudRevision_;
+        hudPresenters.answered("sea");
         return true;
     }
     bool offerSails(std::string_view request, uint32_t tick)
