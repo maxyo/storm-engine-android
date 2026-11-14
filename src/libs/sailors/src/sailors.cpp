@@ -214,7 +214,7 @@ int ShipMan::FindRandomPoint(SailorsPoints &sailorsPoints, ShipState &shipState)
     }
 
     // Looking for free masts
-    if (shipState.dead || rand() * 30 / static_cast<float>(RAND_MAX) <= 1)
+    if (shipState.dead || rand() / static_cast<float>(RAND_MAX) * 30.0f <= 1.0f)
     {
         for (auto m = 0; m < sailorsPoints.points.count; m++)
         {
@@ -860,7 +860,7 @@ void ShipWalk::OnHullHit(const glm::vec3 &v)
 {
     for (auto &man : shipMan)
     {
-        if (10 * rand() / RAND_MAX < 3 && man.mode != MAN_JUMP && man.mode != MAN_SWIM)
+        if (rand() / static_cast<float>(RAND_MAX) < 0.3f && man.mode != MAN_JUMP && man.mode != MAN_SWIM)
         {
             glm::vec3 pos;
             if (ship)

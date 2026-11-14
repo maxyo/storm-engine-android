@@ -44,11 +44,11 @@ bool BLAST::Init()
     char name[MAX_PATH];
     if (ini->ReadString("geo", "file", name, sizeof(name), ""))
     {
-        AddGeometry(name, RandomNum * rand() / RAND_MAX + 1);
+        AddGeometry(name, static_cast<int32_t>(RandomNum * (rand() / static_cast<float>(RAND_MAX))) + 1);
     }
     while (ini->ReadStringNext("geo", "file", name, sizeof(name)))
     {
-        AddGeometry(name, RandomNum * rand() / RAND_MAX + 1);
+        AddGeometry(name, static_cast<int32_t>(RandomNum * (rand() / static_cast<float>(RAND_MAX))) + 1);
     }
 
     Splash = core.GetEntityId("BallSplash");
