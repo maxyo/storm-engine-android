@@ -114,6 +114,15 @@ double Number(const Json &value, double fallback = 0.0)
     return value.is_number() ? value.get<double>() : fallback;
 }
 
+// The part of min…max an amount may take: the props `floor` and `ceiling` (c-quantity: what is already done, what
+// the purse allows) narrow it when set.
+std::pair<double, double> Reach(ComponentElement &self, double low, double high)
+{
+    const double lo = std::min(low, high), hi = std::max(low, high);
+    const double floor = std::clamp(Number(self.Prop("floor"), lo), lo, hi);
+    return {floor, std::clamp(Number(self.Prop("ceiling"), hi), floor, hi)};
+}
+
 void AllWith(Rml::Element *root, const char *attribute, std::vector<Rml::Element *> &out)
 {
     Rml::ElementList found;
@@ -333,7 +342,8 @@ class PressBehavior final : public Behavior
             const double high = Number(self.Prop("max"), 100.0);
             double next = part->HasAttribute("data-set") ? part->GetAttribute<float>("data-set", 0.0f)
                                                          : Number(self.Prop(prop)) + part->GetAttribute<float>("data-step", 0.0f);
-            next = std::clamp(next, std::min(low, high), std::max(low, high));
+            const auto [reach_low, reach_high] = Reach(self, low, high);
+            next = std::clamp(next, reach_low, reach_high);
             value = ToText(Json(next));
             self.SetProps(Json{{prop, next}});
         }
@@ -443,8 +453,11 @@ class RangeBehavior final : public Behavior
         const double low = Number(self.Prop("min"), 0.0);
         const double high = Number(self.Prop("max"), 100.0);
         const double step = std::max(1e-6, Number(self.Prop("step"), 1.0));
-        const double t = std::clamp((x - left_) / width_, 0.0f, 1.0f);
-        const double value = std::clamp(low + std::round(t * (high - low) / step) * step, std::min(low, high), std::max(low, high));
+        const auto [reach_low, reach_high] = Reach(self, low, high);
+        // The finger past a floor or a ceiling holds the knob there.
+        const double span = high != low ? high - low : 1.0;
+        const double t = std::clamp(double((x - left_) / width_), (reach_low - low) / span, (reach_high - low) / span);
+        const double value = std::clamp(low + std::round(t * (high - low) / step) * step, reach_low, reach_high);
         const bool changed = Number(self.Prop(prop_), low - 1.0) != value;
         at_ = float(t);
         if (self.Flag("active") != active)

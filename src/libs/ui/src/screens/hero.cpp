@@ -135,4 +135,26 @@ Json Subject(const Admission &admitted, Bindings &bindings, SubjectSwitch &subje
     });
 }
 
+std::string AfterColon(const std::string &text)
+{
+    const size_t colon = text.find(':');
+    return Trim(colon == std::string::npos ? text : text.substr(colon + 1));
+}
+
+Json CrewQuality(const Admission &admitted, Bindings &bindings, const char *table, const char *morale_text, const Widget *fact,
+                 const std::string &prefix)
+{
+    const auto value = [&](const char *field) { return std::clamp(Number(Field(fact, (prefix + field).c_str())), 0, 100); };
+    Json groups = Json::array();
+    const std::pair<const char *, const char *> fields[] = {{"Sailors", "sailors"}, {"Cannoners", "cannoners"}, {"Soldiers", "soldiers"}};
+    for (const Widget *row : admitted.All(table))
+        for (const auto &[id, field] : fields)
+            if (row->row_id == id)
+                groups.push_back(Json{{"label", Trim(row->CellText(1))}, {"value", value(field)}, {"word", LowerText(Trim(row->CellText(2)))}});
+    return Json{{"groups", groups},
+                {"moraleLabel", bindings.Text("ship.morale")},
+                {"morale", value("morale")},
+                {"moraleWord", LowerText(AfterColon(OneLine(admitted.Label(morale_text))))}};
+}
+
 } // namespace storm::ui::screens::hero

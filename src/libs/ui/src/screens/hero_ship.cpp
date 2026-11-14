@@ -91,13 +91,6 @@ std::pair<int, int> Pair(const std::string &text)
     return {Number(text), slash == std::string::npos ? -1 : Number(text.substr(slash + 1))};
 }
 
-// The text after "Caption:" of a game line ("Мораль команды: Повышенная" → "Повышенная").
-std::string AfterColon(const std::string &text)
-{
-    const size_t colon = text.find(':');
-    return Trim(colon == std::string::npos ? text : text.substr(colon + 1));
-}
-
 int Percent(int value, int maximum)
 {
     return maximum > 0 ? std::clamp(value * 100 / maximum, 0, 100) : 0;
@@ -610,18 +603,7 @@ class ShipScreen final : public Screen
         c["limits"] = bindings.Text("common.of") + " " + std::to_string(crew.full) + " \xC2\xB7 " + bindings.Text("ship.min_short") + " " + std::to_string(crew.least);
         c["value"] = Percent(crew.count, crew.full);
         c["mark"] = Percent(crew.least, crew.full);
-        Json groups = Json::array();
-        const std::pair<const char *, const char *> fields[] = {{"Sailors", "sailors"}, {"Cannoners", "cannoners"}, {"Soldiers", "soldiers"}};
-        for (const Widget *row : a_->All("TABLE_CREW"))
-            for (const auto &[id, field] : fields)
-                if (row->row_id == id)
-                    groups.push_back(Json{{"label", Trim(row->CellText(1))},
-                                          {"value", std::clamp(Number(Field(ship_, field)), 0, 100)},
-                                          {"word", LowerText(Trim(row->CellText(2)))}});
-        c["groups"] = groups;
-        c["moraleLabel"] = bindings.Text("ship.morale");
-        c["morale"] = std::clamp(Number(Field(ship_, "morale")), 0, 100);
-        c["moraleWord"] = LowerText(AfterColon(OneLine(a_->Label("CREW_MORALE_TEXT"))));
+        c.update(CrewQuality(*a_, bindings, "TABLE_CREW", "CREW_MORALE_TEXT", ship_));
         view["crew"] = has_ship ? c : Json(nullptr);
 
         // Food and upkeep: the game's lines.

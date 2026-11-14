@@ -526,7 +526,17 @@
      "imageRevision": 40,
      "width": 0,
      "height": 0,
-     "tintArgb": 4286611584
+     "tintArgb": 4286611584,
+     "source": {
+      "kind": "texture",
+      "image": "interfaces/gundeck",
+      "uv": [
+       0,
+       0,
+       1,
+       1
+      ]
+     }
     }
    ],
    "actions": [],
@@ -596,7 +606,7 @@
   {
    "node": "CANNONS_QTY_R",
    "type": "text",
-   "label": "4",
+   "label": "5",
    "value": "1",
    "index": 0,
    "enabled": true,
@@ -1439,7 +1449,7 @@
   {
    "node": "CANNONS_QTY_B",
    "type": "text",
-   "label": "2",
+   "label": "0",
    "value": "1",
    "index": 0,
    "enabled": true,
@@ -1463,7 +1473,7 @@
   {
    "node": "CANNONS_QTY_L",
    "type": "text",
-   "label": "4",
+   "label": "5",
    "value": "1",
    "index": 0,
    "enabled": true,

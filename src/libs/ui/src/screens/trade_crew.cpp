@@ -1,6 +1,8 @@
 // Crew hire (interface "hirecrew", mockup V2-Trade-CrewHire): the trade layout with one
 // row, the crew, whose quantity is always open; under it the experience and morale of the
-// ship's crew and of the men in the tavern. Fills the pack screen <s-crew>.
+// ship's crew and of the men in the tavern, drawn as the ship screen draws a crew (bars with the
+// game's words, hero::CrewQuality; the numbers are the adapter's ANDROID_CREWHIRE). Fills the
+// pack screen <s-crew>.
 //
 // As in the trade screens the amount is the player's until it is confirmed: nothing goes to the game while
 // it is chosen. The limits and the cost are hirecrew.c ChangeQTY_EDIT's: the men in the tavern, the ship's
@@ -8,6 +10,7 @@
 // (makeint(money / price)); the cost is makeint(price * men). «Нанять / Уволить N» sends the signed amount
 // and the game's OK in one flush.
 #include "controls.h"
+#include "hero.h"
 
 #include <algorithm>
 #include <cstdlib>
@@ -65,19 +68,6 @@ int Number(const std::string &text)
             break;
     }
     return digits.empty() ? 0 : std::atoi(digits.c_str());
-}
-
-// Skill rows of a crew table (picture, name, word) as label / value pairs.
-Json Facts(const Admission &admitted, const char *table, const char *morale)
-{
-    Json items = Json::array();
-    const std::string text = admitted.Label(morale); // "Мораль: хорошая"
-    if (const size_t colon = text.find(':'); colon != std::string::npos)
-        items.push_back(Json{{"k", text.substr(0, colon)}, {"v", text.substr(text.find_first_not_of(' ', colon + 1))}});
-    for (const Widget *row : admitted.All(table))
-        if (!row->CellText(1).empty())
-            items.push_back(Json{{"k", row->CellText(1)}, {"v", row->CellText(2)}});
-    return items;
 }
 
 class CrewScreen final : public Screen
@@ -223,8 +213,14 @@ class CrewScreen final : public Screen
                             {"rows", Json::array({row})}};
         view["shipLabel"] = bindings.Text("crew.on_ship");
         view["tavernLabel"] = bindings.Text("crew.in_tavern");
-        view["ship"] = Facts(admitted, "TABLE_CREW", "CREW_MORALE_TEXT");
-        view["tavern"] = Facts(admitted, "TABLE_CREW2", "CREW_MORALE_TEXT2");
+        // The adapter's crew numbers (android_hero.c AndroidCrewHire): the ship's as the ship screen's, the tavern's prefixed "town_".
+        if (limits && limits->context.find("morale") == limits->context.end() && reported_quality_ != admitted.model->opening)
+        {
+            reported_quality_ = admitted.model->opening;
+            bindings.Error("hirecrew: the interface adapter's ANDROID_CREWHIRE has no crew quality (morale, experience): the bars show 0");
+        }
+        view["ship"] = hero::CrewQuality(admitted, bindings, "TABLE_CREW", "CREW_MORALE_TEXT", limits);
+        view["tavern"] = hero::CrewQuality(admitted, bindings, "TABLE_CREW2", "CREW_MORALE_TEXT2", limits, "town_");
         std::string notes;
         for (const char *node : {"MONEY_SHIP", "FOOD_SHIP"})
             if (!admitted.Label(node).empty())
@@ -257,6 +253,7 @@ class CrewScreen final : public Screen
     int target_ = 0;
     double reason_at_ = -10.0;       // when the "cannot hire more" reason was last said
     uint64_t reported_opening_ = 0;  // the opening the missing adapter facts were reported for
+    uint64_t reported_quality_ = 0;  // the opening the missing crew quality was reported for
 };
 
 } // namespace

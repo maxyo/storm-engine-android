@@ -124,7 +124,7 @@
    "value": "0",
    "index": 0,
    "enabled": true,
-   "rowId": "",
+   "rowId": "Sailors",
    "images": [],
    "actions": [],
    "cells": [
@@ -155,7 +155,7 @@
    "value": "0",
    "index": 1,
    "enabled": true,
-   "rowId": "",
+   "rowId": "Cannoners",
    "images": [],
    "actions": [],
    "cells": [
@@ -186,7 +186,7 @@
    "value": "0",
    "index": 2,
    "enabled": true,
-   "rowId": "",
+   "rowId": "Soldiers",
    "images": [],
    "actions": [],
    "cells": [
@@ -241,7 +241,7 @@
    "value": "0",
    "index": 0,
    "enabled": true,
-   "rowId": "",
+   "rowId": "Sailors",
    "images": [],
    "actions": [],
    "cells": [
@@ -272,7 +272,7 @@
    "value": "0",
    "index": 1,
    "enabled": true,
-   "rowId": "",
+   "rowId": "Cannoners",
    "images": [],
    "actions": [],
    "cells": [
@@ -303,7 +303,7 @@
    "value": "0",
    "index": 2,
    "enabled": true,
-   "rowId": "",
+   "rowId": "Soldiers",
    "images": [],
    "actions": [],
    "cells": [
@@ -433,7 +433,15 @@
    "context": {
     "character": "1",
     "max": "94",
-    "space": "511"
+    "space": "511",
+    "morale": "62",
+    "sailors": "71",
+    "cannoners": "34",
+    "soldiers": "18",
+    "town_morale": "55",
+    "town_sailors": "22",
+    "town_cannoners": "30",
+    "town_soldiers": "12"
    }
   }
  ]

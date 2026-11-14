@@ -160,9 +160,12 @@ class RepairScreen final : public Screen
                                : needs > 0 ? bindings.Text(part.material) + " " + std::to_string(needs)
                                            : std::string();
             const std::string unit = part.masts ? std::string() : "%";
+            // The whole 0…full with the knob at the part's state: it cannot go below it nor past what the materials reach.
             Json q{{"value", value},
-                   {"min", now},
-                   {"max", std::max(now, top)},
+                   {"min", 0},
+                   {"max", full},
+                   {"floor", now},
+                   {"ceiling", std::max(now, top)},
                    {"unit", unit},
                    {"summary", part.masts ? bindings.Text("common.of") + " " + std::to_string(full) : std::string("-")},
                    {"steps", Json::array({1, 10})},
@@ -195,9 +198,9 @@ class RepairScreen final : public Screen
             }
             else if (state.send >= 0)
                 bindings.RebuildAfter(state.send_at - bindings.Now());
-            const auto set = [this, &bindings, p](const Event &event) {
+            const auto set = [this, &bindings, p, low = now, high = std::max(now, top)](const Event &event) {
                 State &state = state_[p];
-                state.target = state.send = std::atoi(event.value.c_str());
+                state.target = state.send = std::clamp(std::atoi(event.value.c_str()), low, high);
                 state.send_at = bindings.Now() + (event.verb == "commit" ? 0.0 : 0.4);
                 bindings.Rebuild();
             };

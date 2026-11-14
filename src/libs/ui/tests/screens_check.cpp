@@ -872,8 +872,17 @@ static void Crew(const std::string &models)
     Json row = surface.props["list"]["rows"][0];
     Expect(row["q"]["value"] == 40 && row["q"]["max"] == 61 && row["cells"][2]["text"] == "23", "crew on the ship, up to what the purse hires of the tavern, price per man");
     Expect(surface.props["primary"].is_null(), "nothing to confirm yet: no deal button");
-    Expect(surface.props["ship"].size() == 4 && surface.props["ship"][0]["v"] == "Хорошая" && surface.props["tavern"][1]["v"] == "неопытные",
-           "morale and experience of both crews");
+    {
+        // Both crews as the ship screen draws a crew (hero::CrewQuality): the adapter's numbers, the game's words.
+        const Json &ship = surface.props["ship"], &tavern = surface.props["tavern"];
+        Expect(ship["groups"].size() == 3 && ship["groups"][0]["label"] == "Матросы" && ship["groups"][0]["value"] == 71 &&
+                   ship["groups"][0]["word"] == "опытные" && ship["groups"][2]["value"] == 18 && ship["morale"] == 62 &&
+                   ship["moraleWord"] == "хорошая" && ship["moraleLabel"] == "<ship.morale>",
+               "the ship's crew: experience bars and morale with the game's words: " + ship.dump());
+        Expect(tavern["groups"].size() == 3 && tavern["groups"][0]["value"] == 22 && tavern["groups"][0]["word"] == "неопытные" &&
+                   tavern["groups"][1]["value"] == 30 && tavern["morale"] == 55,
+               "the tavern's men: their own numbers (town_*): " + tavern.dump());
+    }
     // hirecrew.json: 40 on the ship, 25 in the tavern, 23 a man, a purse of 500; the ship takes 94, its hold has room.
     // The amount is the player's: a drag sends nothing, the cost is hirecrew.c's makeint(price * men), the purse
     // stops the hire at makeint(500 / 23) = 21 men.
@@ -962,8 +971,9 @@ static void Repair(const std::string &models)
     router.SetInterface(model);
     Expect(router.Using() == "repair" && surface.tag == "s-repair" && surface.errors.empty(), "repair is drawn by the repair screen");
     const Json &parts = surface.props["parts"];
-    Expect(parts.size() == 3 && parts[0]["q"]["value"] == 75 && parts[0]["q"]["min"] == 62 && parts[0]["q"]["max"] == 80,
-           "hull: set 75 %, from 62 % now up to the 80 % the materials allow");
+    Expect(parts.size() == 3 && parts[0]["q"]["value"] == 75 && parts[0]["q"]["min"] == 0 && parts[0]["q"]["max"] == 100 &&
+               parts[0]["q"]["floor"] == 62 && parts[0]["q"]["ceiling"] == 80,
+           "hull: set 75 % on the whole 0…100 %, not below the 62 % it is now nor past the 80 % the materials allow");
     ExpectEqual(parts[0]["need"], "<repair.planks> 17", "the planks the set amount takes (linear in the full-repair need)");
     Expect(parts[2]["short"] == true && parts[2]["disabled"] == true, "sails without sailcloth: the row is off and says why");
     Expect(surface.props["stock"][0]["value"] == "40" && surface.props["stock"][1]["value"] == "0", "planks and sailcloth in stock");
@@ -1334,8 +1344,18 @@ static void Shipyard(const std::string &models)
 
     const InterfaceModel cannons = Load(models, "shipyard-cannons.json");
     router.SetInterface(cannons);
-    Expect(surface.props["sheet"]["kind"] == "cannons" && surface.props["sheet"]["port"][0]["v"] == "4" && surface.props["sheet"]["bow"][0]["k"] == "<yard.bow>",
-           "cannons window: the four sides");
+    {
+        // The stock window's plan: the game's deck picture (bow to the left), bow left, stern right, starboard (cannonr,
+        // CANNONS_QTY_R) above, port (cannonl, CANNONS_QTY_L) below. shipyard-cannons.json: a ketch with bow chasers only.
+        const Json &sheet = surface.props["sheet"];
+        Expect(sheet["kind"] == "cannons" && sheet["bow"]["value"] == "2" && sheet["bow"]["label"] == "<yard.bow>" && sheet["stern"]["value"] == "0" &&
+                   sheet["port"]["value"] == "5" && sheet["port"]["label"] == "<yard.port>" && sheet["starboard"]["value"] == "5" &&
+                   sheet["starboard"]["label"] == "<yard.starboard>",
+               "cannons window: each side with the game's count: " + sheet.dump());
+        Expect(sheet["plan"]["texture"] == "interfaces/gundeck" && sheet["plan"]["uv"] == "0,0.31,1,0.75" &&
+                   std::none_of(surface.errors.begin(), surface.errors.end(), [](const std::string &e) { return e.find("CANNONS_SHIP") != std::string::npos; }),
+               "the game's deck plan, cut to the ship's band: " + sheet["plan"].dump());
+    }
     router.OnEvent({"sheet-close", "click", ""});
     ExpectEqual(surface.Last(), Yard(cannons, "CANNONS_CANCEL", -1, "button", "press"), "closing it presses the game's cancel");
 
@@ -1344,6 +1364,64 @@ static void Shipyard(const std::string &models)
     Expect(surface.props["sheet"]["kind"] == "help" && surface.props["sheet"]["lines"].size() == 1, "help window with the game's text");
     router.OnEvent({"sheet", "dismiss", ""});
     ExpectEqual(surface.Last(), Yard(help, "ANDROID_SHIPYARD_CLOSE", -1, "shipyard_control", "close"), "the scrim closes help through the engine's close control");
+
+    {
+        // Repair with the game's prices (shipyard-repair.json, the adapter's ANDROID_YARDREPAIR): the hull at 50 %, the
+        // sails at 70 %, 2 500 in the purse; n % more hull cost makeint((4630 n + 99) / 100), sails makeint((1500 n + 99) / 100).
+        FakeSurface yard_surface;
+        Router yard(yard_surface);
+        InterfaceModel model = Load(models, "shipyard-repair.json");
+        yard.SetInterface(model);
+        const auto q = [&yard_surface](int part) { return yard_surface.props["sheet"]["parts"][part]["q"]; };
+        Expect(yard_surface.errors.empty() && q(0)["value"] == 50 && q(0)["min"] == 0 && q(0)["max"] == 100 && q(0)["floor"] == 50 &&
+                   q(0)["ceiling"] == 100 && q(1)["value"] == 70 && q(1)["floor"] == 70 && q(1)["ceiling"] == 100,
+               "the sliders run 0…100 %, start at the ship's state (50 %, 70 %) and the purse pays either part alone: " + q(0).dump() + q(1).dump());
+        yard_surface.commands.clear();
+        yard.OnEvent({"hull", "commit", "30"});
+        Expect(q(0)["value"] == 50 && yard_surface.commands.empty(), "below the ship's state: the slider stays at 50 %, nothing is sent");
+        yard.OnEvent({"hull", "commit", "100"});
+        Expect(q(0)["value"] == 100 && q(1)["ceiling"] == 82 && q(1)["moreReason"] == "<trade.no_money>",
+               "the whole hull (2 315) leaves 185: the sails can go to 82 %: " + q(1).dump());
+        yard.OnEvent({"sails", "commit", "95"});
+        Expect(q(1)["value"] == 82 && !yard_surface.toasts.empty() && yard_surface.toasts.back() == "<trade.no_money>",
+               "past what the purse pays: the sails stop at 82 % and say why");
+        yard.OnEvent({"hull", "commit", "90"});
+        Expect(q(1)["ceiling"] == 100 && q(0)["ceiling"] == 100, "less hull leaves the sails their whole way again");
+
+        // «Все»: as far as the purse goes, the hull first (the game's own REPAIR_ALL fills the sails first: 100 % sails, 94 % hull).
+        FakeSurface all_surface;
+        Router all(all_surface);
+        all.SetInterface(model);
+        all_surface.commands.clear();
+        all.OnEvent({"sheet-all", "click", ""});
+        const auto parts_of = [&all_surface](int part) { return all_surface.props["sheet"]["parts"][part]["q"]["value"]; };
+        Expect(parts_of(0) == 100 && parts_of(1) == 82, "«Все»: hull 100 %, sails 82 % with the rest");
+        Expect(all_surface.props["sheet"]["actions"][1]["sub"] == "2\xC2\xA0" "495", "the price of the order: 2 315 + 180");
+        Expect(all_surface.commands.size() == 1 && all_surface.commands[0].find("REPAIR_ALL") == std::string::npos &&
+                   all_surface.commands[0] == "widget:shipyard\tREPAIR_RIGHT_H\t-5\tyard@7:30:step5",
+               "the game is led there by its arrows, not by its own «all»: " + Json(all_surface.commands).dump());
+        // OK while the steps are on their way waits for them; the game answers each step with the next model.
+        all.OnEvent({"sheet-ok", "click", ""});
+        int hull = 50, sails = 70;
+        for (int round = 0; round < 40; ++round)
+        {
+            const std::string last = all_surface.commands.back();
+            if (last.find("REPAIR_OK") != std::string::npos)
+                break;
+            const int step = last.find("step5") != std::string::npos ? 5 : 1;
+            (last.find("REPAIR_RIGHT_H") != std::string::npos ? hull : sails) += step;
+            model.revision += 1;
+            Find(model, "REPAIR_QTY_H", "text")->label = std::to_string(hull) + "%";
+            Find(model, "REPAIR_QTY_S", "text")->label = std::to_string(sails) + "%";
+            all.SetInterface(model);
+        }
+        Expect(hull == 100 && sails == 82 && all_surface.commands.back() == "widget:shipyard\tREPAIR_OK\t-1\tyard@7:30:press",
+               "the game is stepped to 100 % / 82 %, then OK: " + std::to_string(hull) + " / " + std::to_string(sails));
+        size_t oks = 0;
+        for (const std::string &command : all_surface.commands)
+            oks += command.find("REPAIR_OK") != std::string::npos;
+        Expect(oks == 1, "OK went to the game once, after the last step");
+    }
 
     // Repair: the quantity asks for a percentage; one step per revision toward it.
     InterfaceModel repair = Load(models, "shipyard-main.json");
@@ -1370,9 +1448,12 @@ static void Shipyard(const std::string &models)
             widget.label = widget.node == "REPAIR_OK" ? "Починить" : widget.node == "REPAIR_ALL" ? "Чинить всё" : "Отмена";
     router.SetInterface(repair);
     const Json parts = surface.props["sheet"]["parts"];
-    Expect(surface.props["sheet"]["kind"] == "repair" && parts.size() == 2 && parts[0]["q"]["value"] == 88 && parts[0]["q"]["min"] == 88 &&
-               parts[0]["q"]["max"] == 100 && parts[0]["q"]["label"] == "Корпус",
-           "repair: hull and sails from what they are now to 100 %");
+    Expect(surface.props["sheet"]["kind"] == "repair" && parts.size() == 2 && parts[0]["q"]["value"] == 88 && parts[0]["q"]["min"] == 0 &&
+               parts[0]["q"]["floor"] == 88 && parts[0]["q"]["max"] == 100 && !parts[0]["q"].contains("ceiling") && parts[0]["q"]["label"] == "Корпус",
+           "repair without the adapter's prices: the whole 0…100 % with the knob at the ship's state, not below it: " + parts.dump());
+    Expect(std::count_if(surface.errors.begin(), surface.errors.end(), [](const std::string &e) { return e.find("ANDROID_YARDREPAIR") != std::string::npos; }) == 1,
+           "the missing prices are said aloud, once: " + Json(surface.errors).dump());
+    surface.errors.clear();
     surface.commands.clear();
     router.OnEvent({"hull", "commit", "100"});
     ExpectEqual(surface.Last(), "widget:shipyard\tREPAIR_RIGHT_H\t-5\tyard@7:9:step5", "far from the target: a step of 5");
