@@ -17,6 +17,7 @@
 #include "storm/render/pipelines.hpp"
 #include "storm/render/program_cache.hpp"
 
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
@@ -152,17 +153,29 @@ struct Renderer
     }
 };
 
-// Frames of `scene` (blend) until nothing is pending: how many draws were left out on the way.
-uint32_t settle(Device &d, int scene)
+using Clock = std::chrono::steady_clock;
+constexpr std::chrono::seconds kPatience{30}; // pipeline threads run at low priority: a loaded host makes them slow
+
+struct Settled
+{
+    uint32_t left_out; // draws left out on the way
+    uint32_t after;    // draws left out in the last frames, once nothing was pending
+};
+
+// Frames of `scene` (blend) until nothing is pending (by time, not by frame count: frames run far faster than a
+// starved pipeline thread).
+Settled settle(Device &d, int scene)
 {
     const uint32_t before = bgfx::getVkDrawsLeftOut();
     for (int i = 0; i < 4; ++i)
         frame(d, scene, 0, 0);
-    for (int i = 0; i < 2000 && bgfx::getVkPipelinesPending() != 0; ++i)
+    const auto end = Clock::now() + kPatience;
+    while (bgfx::getVkPipelinesPending() != 0 && Clock::now() < end)
         frame(d, scene, 0, 0);
+    const uint32_t settled = bgfx::getVkDrawsLeftOut();
     for (int i = 0; i < 4; ++i)
         frame(d, scene, 0, 0);
-    return bgfx::getVkDrawsLeftOut() - before;
+    return {bgfx::getVkDrawsLeftOut() - before, bgfx::getVkDrawsLeftOut() - settled};
 }
 
 bool vulkan(SDL_Window *window, const fs::path &root)
@@ -186,8 +199,8 @@ bool vulkan(SDL_Window *window, const fs::path &root)
         const uint32_t first = bgfx::getVkDrawsLeftOut() - before;
         ok &= expect(first == 1, "a new scene pipeline: its draw is left out, the interface drawn with it is not");
         std::printf("     left out in the first frame: %u\n", first);
-        const uint32_t later = settle(d, 3);
-        ok &= expect(later < 2000, "the scene draw appears once its pipeline exists");
+        const Settled later = settle(d, 3);
+        ok &= expect(later.after == 0, "the scene draw appears once its pipeline exists");
     }
     const fs::path sets = [&] {
         for (const auto &item : fs::recursive_directory_iterator(root))
@@ -202,14 +215,14 @@ bool vulkan(SDL_Window *window, const fs::path &root)
         Device &d = *r.device;
         render::BeginScenePipelines(kScene);
         int held = 0;
-        for (; held < 2000; ++held)
+        const auto end = Clock::now() + kPatience;
+        do
         {
             frame(d, -1, 0, 0); // the loading picture
-            if (!render::HoldSceneReveal())
-                break;
-        }
+            ++held;
+        } while (render::HoldSceneReveal() && Clock::now() < end);
         std::printf("     the fade-in waited %d frames\n", held);
-        ok &= expect(held < 2000, "the fade-in ends once the scene's pipelines exist");
+        ok &= expect(!render::HoldSceneReveal(), "the fade-in ends once the scene's pipelines exist");
         const uint32_t before = bgfx::getVkDrawsLeftOut();
         for (int i = 0; i < 4; ++i)
             frame(d, 3, 0, 0);
@@ -228,7 +241,7 @@ bool vulkan(SDL_Window *window, const fs::path &root)
         render::BeginScenePipelines(kScene);
         // Nothing recorded now, but the pipeline cache still holds the scene's pipeline: with pipeline creation
         // cache control it is taken from there at the draw, which is not left out.
-        const uint32_t left_out = settle(*r.device, 3);
+        const uint32_t left_out = settle(*r.device, 3).left_out;
         // lavapipe keeps no compiled pipelines in its pipeline cache: it always answers that a compile is required.
         const bool caching = shim::Context::instance().device_info().renderer.find("llvmpipe") == std::string::npos;
         if (bgfx::getVkPipelineCacheControl() && caching)
