@@ -85,6 +85,10 @@ static fs::path MakePack(const fs::path &base, const fs::path &font)
     components["components"].push_back(Json::parse(R"({
         "tag": "c-head", "behaviors": ["press", "columns", "reveal"], "constants": {"pressRoot": false},
         "template": "<div data-action=\"sort\" data-value=\"2\" data-tip=\"Buy price\" style=\"width: 60dp; height: 40dp;\">icon</div><div data-action=\"\" data-tip=\"Our stock\" style=\"width: 60dp; height: 40dp;\">icon</div>"})"));
+    // Column sizing must preserve the design minimum even when the headers are tiny icons.
+    components["components"].push_back(Json::parse(R"({
+        "tag": "c-cols", "behaviors": ["columns"], "constants": {"colMin": 56},
+        "template": "<div style=\"display: flex;\"><div id=\"h0\" data-col=\"0\" style=\"min-width: 56dp; min-height: 44dp; display: flex; align-items: flex-start;\"><span>x</span></div><div id=\"h1\" data-col=\"1\" style=\"min-width: 56dp; min-height: 44dp; display: flex; align-items: flex-start;\"><span>x</span></div></div><div style=\"display: flex;\"><div id=\"v0\" data-col=\"0\" style=\"min-width: 56dp; display: flex; align-items: flex-start;\"><span>1</span></div><div id=\"v1\" data-col=\"1\" style=\"min-width: 56dp; display: flex; align-items: flex-start;\"><span>2</span></div></div>"})"));
     Write(pack / "components.json", components.dump());
     Write(pack / "overlay.rml", "<rml><head><style>body { font-family: LatoLatin; width: 100%; height: 100%; pointer-events: none; z-index: 1000; } #tooltip { display: none; } #tooltip.open { display: block; position: absolute; }"
                                 " #toasts { position: absolute; left: 0; right: 0; top: 0; display: flex; flex-direction: column; }"
@@ -94,6 +98,7 @@ static fs::path MakePack(const fs::path &base, const fs::path &font)
     Write(pack / "rows.rml", "<rml><head><style>body { font-family: LatoLatin; font-size: 16dp; width: 800dp; height: 400dp; }"
                              " c-row { display: block; position: absolute; left: 0; width: 200dp; height: 48dp; }"
                              " c-fit { display: block; position: absolute; left: 0; width: 72dp; height: 40dp; }</style></head><body>"
+                             "<c-cols id=\"columns\" style=\"display: block; position: absolute; left: 220dp; top: 100dp; width: 160dp; height: 100dp;\"/>"
                              "<c-head id=\"headers\" style=\"display: flex; position: absolute; left: 220dp; top: 0; width: 120dp; height: 40dp;\"/>"
                              "<c-row id=\"short\" style=\"top: 0;\" hold=\"1\" title=\"Short\"/>"
                              "<c-row id=\"long\" style=\"top: 100dp;\" hold=\"1\" title=\"A reply far too long to fit in two lines of a narrow column, so it is cut and ends in an ellipsis\"/>"
@@ -271,6 +276,22 @@ int main(int argc, char **argv)
         host->Touch(TouchPhase::Up, 1, x, y);
         frames(0.1);
     };
+    {
+        Rml::Element *table = nullptr;
+        Rml::Context *context = Rml::GetContext("storm-ui");
+        for (int i = 0; context && i < context->GetNumDocuments(); ++i)
+            if (Rml::Element *found = context->GetDocument(i)->GetElementById("columns"))
+                table = found;
+        const auto column = [table](const char *id) { return table ? table->QuerySelector(std::string("#") + id) : nullptr; };
+        for (const auto &[head, value] : {std::pair{"h0", "v0"}, std::pair{"h1", "v1"}})
+        {
+            Rml::Element *h = column(head), *v = column(value);
+            Expect(h && v && h->GetBox().GetSize(Rml::BoxArea::Border).x >= 56.f && h->GetBox().GetSize(Rml::BoxArea::Border).y >= 44.f &&
+                       std::abs(h->GetBox().GetSize(Rml::BoxArea::Border).x - v->GetBox().GetSize(Rml::BoxArea::Border).x) < 0.01f &&
+                       std::abs(h->GetAbsoluteLeft() - v->GetAbsoluteLeft()) < 0.01f,
+                   "icon columns retain 56dp minimum and aligned numeric cells");
+        }
+    }
     hold(124);
     Expect(clicks.empty(), "a long press on a cut title opens its tooltip and sends nothing");
     hold(24);

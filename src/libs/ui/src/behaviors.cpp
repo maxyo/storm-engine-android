@@ -1158,6 +1158,9 @@ class ColumnsBehavior final : public Behavior
         Rml::ElementList cells;
         self.QuerySelectorAll(cells, "[data-col]");
         std::unordered_map<int, float> widest;
+        // Icon-only captions must not shrink the interactive columns below the design's
+        // minimum. Apply it to the entire column so headers and numeric cells stay aligned.
+        const float minimum = self.Spec().constants.value("colMin", 0.0f) * self.Host().Density();
         bool laid_out = !cells.empty();
         for (Rml::Element *cell : cells)
         {
@@ -1167,7 +1170,7 @@ class ColumnsBehavior final : public Behavior
             if (cell->GetNumChildren() > 0 && natural <= 0.0f)
                 laid_out = false;
             float &width = widest[cell->GetAttribute<int>("data-col", 0)];
-            width = std::max(width, natural);
+            width = std::max({width, natural, minimum});
         }
         if (laid_out)
         {

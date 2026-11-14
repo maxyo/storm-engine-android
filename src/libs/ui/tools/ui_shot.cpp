@@ -7,6 +7,7 @@
 //   message <target|-> <text> (a game log line, Host::GameMessage), timed (print what
 //                    each later command costs up to its finished frame),
 //                    props <element id> <json>, scroll <element id>,
+//                    bounds <CSS selector> (settled visible border boxes in dp),
 //                    device-reset (bgfx: device loss and restore, as after a lost EGL context)
 //
 // Draws through the UI's bgfx backend on bgfx's GLES 3.0 renderer (Mesa llvmpipe, headless),
@@ -49,6 +50,7 @@
 #include "storm_ui/ui.h"
 
 #include <bgfx/bgfx.h>
+#include <RmlUi/Core.h>
 #include <cstdarg>
 
 #include <plutovg.h>
@@ -722,6 +724,30 @@ int main(int argc, char **argv)
             words >> path;
             if (!capture->Shot(*host, path))
                 status = 6;
+        }
+        else if (verb == "bounds") // inspect the actual touch/layout boxes, independent of glyph size
+        {
+            std::string selector;
+            std::getline(words >> std::ws, selector);
+            std::printf("bounds selector=%s\n", selector.c_str());
+            run(0.1);
+            Rml::Context *context = Rml::GetContext("storm-ui");
+            for (int i = 0; context && i < context->GetNumDocuments(); ++i)
+            {
+                Rml::ElementList elements;
+                context->GetDocument(i)->QuerySelectorAll(elements, selector);
+                for (Rml::Element *element : elements)
+                {
+                    if (!element->IsVisible(true))
+                        continue;
+                    const auto position = element->GetAbsoluteOffset(Rml::BoxArea::Border);
+                    const auto size = element->GetBox().GetSize(Rml::BoxArea::Border);
+                    std::printf("bounds col=%d x=%.2f y=%.2f w=%.2f h=%.2f action=%s tip=%s\n",
+                                element->GetAttribute<int>("data-col", -1), position.x / density, position.y / density,
+                                size.x / density, size.y / density, element->GetAttribute<Rml::String>("data-action", "").c_str(),
+                                element->GetAttribute<Rml::String>("data-tip", "").c_str());
+                }
+            }
         }
         else if (verb == "seen") // seen <file.png>: what the last frame showed (shot settles the texture work first)
         {
