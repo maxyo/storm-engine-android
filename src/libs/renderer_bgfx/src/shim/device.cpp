@@ -1172,6 +1172,14 @@ namespace bgfx
 uint32_t getVkLastWaitingFrame();
 } // namespace bgfx
 
+namespace storm::render
+{
+uint32_t LastIncompleteFrame()
+{
+    return bgfx::getVkLastWaitingFrame(); // 0 unless the Vulkan backend left a draw out
+}
+} // namespace storm::render
+
 namespace storm::shim
 {
 

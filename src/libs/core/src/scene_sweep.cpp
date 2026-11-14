@@ -41,6 +41,8 @@ std::vector<std::string> variants; // STORM_SCENE_SWEEP_VARIANTS split at ';'
 int currentVariant = -1;
 storm::scene_sweep::VariantHook variantHook = nullptr;
 storm::scene_sweep::VariantReadyHook variantReadyHook = nullptr;
+storm::scene_sweep::IncompleteFrameHook incompleteFrameHook = nullptr;
+uint32_t windowIncompleteMark = 0; // incompleteFrameHook() when the window started
 
 void writeEvent(const std::string &text)
 {
@@ -72,6 +74,7 @@ uint32_t event(VS_STACK *stack)
     writeEvent(text->GetString());
     windowStart = Clock::now();
     windowFrames = 0;
+    windowIncompleteMark = incompleteFrameHook ? incompleteFrameHook() : 0;
     if (rendererWindow)
         rendererWindow();
     return IFUNCRESULT_OK;
@@ -133,6 +136,16 @@ uint32_t variant(VS_STACK *stack)
     return IFUNCRESULT_OK;
 }
 
+// 1 when no frame since the window started (the last event) was presented with scene draws left out.
+uint32_t windowComplete(VS_STACK *stack)
+{
+    auto *result = static_cast<VDATA *>(stack->Push());
+    if (!result)
+        return IFUNCRESULT_FAILED;
+    result->Set(static_cast<int32_t>(!incompleteFrameHook || incompleteFrameHook() == windowIncompleteMark ? 1 : 0));
+    return IFUNCRESULT_OK;
+}
+
 uint32_t variantReady(VS_STACK *stack)
 {
     auto *result = static_cast<VDATA *>(stack->Push());
@@ -186,6 +199,7 @@ class SceneSweepLibrary : public SCRIPT_LIBRIARY
         registerFunction("SceneSweepVariants", "int", 0, variantCount);
         registerFunction("SceneSweepVariant", "void", 1, variant);
         registerFunction("SceneSweepVariantReady", "int", 0, variantReady);
+        registerFunction("SceneSweepWindowComplete", "int", 0, windowComplete);
         if (const char *list = std::getenv("STORM_SCENE_SWEEP_VARIANTS"); list && *list)
         {
             const std::string text = list;
@@ -216,6 +230,11 @@ void storm::scene_sweep::setVariantHook(VariantHook hook, VariantReadyHook ready
 {
     variantHook = hook;
     variantReadyHook = ready;
+}
+
+void storm::scene_sweep::setIncompleteFrameHook(IncompleteFrameHook hook)
+{
+    incompleteFrameHook = hook;
 }
 
 void storm::scene_sweep::setRendererWindow(std::function<std::string()> window)

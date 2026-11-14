@@ -25,5 +25,11 @@ using VariantHook = void (*)(const char *options);
 using VariantReadyHook = bool (*)();
 void setVariantHook(VariantHook hook, VariantReadyHook ready);
 
+// Set by the renderer: a value that changes whenever a frame is presented with scene draws left out (Vulkan: draws
+// that wait for their pipelines, storm::render::LastIncompleteFrame). A capture window in which it changed did not
+// show the whole scene, and the script renders another one (SceneSweepWindowComplete).
+using IncompleteFrameHook = uint32_t (*)();
+void setIncompleteFrameHook(IncompleteFrameHook hook);
+
 } // namespace storm::scene_sweep
 #endif

@@ -245,6 +245,10 @@ void SetRenderBackend(Backend backend, const std::filesystem::path &state_direct
 // default: the draw appears a few frames later and no frame waits for the driver's compile) or the render thread
 // creates it at the draw (engine.ini vulkan_async_pipelines = 0, measurements). Any time.
 void SetVulkanAsyncPipelines(bool enabled);
+// Vulkan with async pipelines: one more than the bgfx frame number of the last frame in which a scene draw was left
+// out while its pipeline was being created; 0 while none was, and always on OpenGL ES. It changes whenever another
+// frame leaves a draw out: a frame shown after it stayed unchanged had every draw (tools/scene_sweep waits for that).
+uint32_t LastIncompleteFrame();
 // The backend the device runs and why, as logged; empty before the first device.
 const char *RenderBackendChoice();
 

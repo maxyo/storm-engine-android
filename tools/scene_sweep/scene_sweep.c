@@ -31,6 +31,7 @@ native int SceneSweepSettleMs();
 native int SceneSweepVariants();
 native void SceneSweepVariant(int index);
 native int SceneSweepVariantReady();
+native int SceneSweepWindowComplete();
 #libriary "SceneSweepLibrary"
 
 #event_handler("frame", "SceneSweep_Frame");
@@ -45,6 +46,7 @@ native int SceneSweepVariantReady();
 #define SS_VARIANT_WARM	4	// --variants: frames after the variant draws (it is prepared first) before the measured window
 #define SS_VARIANT_READY_TIMEOUT_MS	60000	// the renderer links the variant's programs and self-tests it first
 #define SS_VARIANT_FRAMES	12	// --variants: frames in the measured window
+#define SS_INCOMPLETE_TIMEOUT_MS	180000	// Vulkan: windows with draws still waiting for their pipelines, in all
 #define SS_FADE_TIMEOUT_MS	30000
 #define SS_LOAD_TIMEOUT_MS	360000
 #define SS_ENEMY_FIRE_TIMEOUT_MS	90000	// game time at sea before the battle enemy must have fired
@@ -57,6 +59,7 @@ int ssFrames = 0;
 int ssTime = 0;
 int ssStep = 0;
 int ssSettleTime = 0;
+int ssIncompleteTime = 0;	// this scene's windows that had draws waiting for their pipelines
 bool ssSteady = false;		// the fader is gone: the measured window has started
 bool ssFrozen = false;		// --variants in a location: the game's time stands still for every variant
 int ssVariant = 0;		// graphics settings variant of the next capture (--variants)
@@ -170,6 +173,7 @@ void SceneSweep_Frame()
 			ssVariant = 0;
 			if(SceneSweep_HasVariants()) SceneSweepVariant(0);
 			ssSettleTime = 0;
+			ssIncompleteTime = 0;
 			ssSteady = false;
 			break;
 		}
@@ -215,6 +219,21 @@ void SceneSweep_Frame()
 		if(ssFrames < SS_SETTLE_FRAMES) break;
 		if(SceneSweep_HasVariants() && ssFrames < SS_VARIANT_FRAMES) break;
 		if(ssTime < SceneSweepSettleMs()) break;
+		if(!SceneSweepWindowComplete())
+		{
+			// Vulkan: some draws of the window were left out while their pipelines were created off the render
+			// thread (they appear a few frames later): not the scene's picture, nor its frame time. Another window.
+			ssIncompleteTime += ssTime;
+			SceneSweepEvent("incomplete " + ssScene + " " + ssTime);
+			if(ssIncompleteTime > SS_INCOMPLETE_TIMEOUT_MS)
+			{
+				SceneSweep_Fail("draws still waiting for their pipelines after " + ssIncompleteTime + " ms");
+				break;
+			}
+			ssFrames = 0;
+			ssTime = 0;
+			break;
+		}
 		SceneSweepCapture();
 		if(SceneSweep_HasVariants() && ssVariant + 1 < SceneSweepVariants())
 		{

@@ -304,7 +304,40 @@ def read_frame(path, size):
     raise RuntimeError(f'{path} is not a {width}x{height} 32-bit framebuffer')
 
 
-def frame_reasons(image, previous_digest):
+# The game's own HUD, which every scene but the boot ones shows: the hero's portrait at the top left (gold rim) and,
+# at sea, the compass at the top right (gold ring). Boxes in fractions of the frame; calibrated on 1280x720 sweeps
+# (local-testing/gpu-sweep/calib): a drawn element has 6-8 % gold pixels in its box, a missing one none.
+NO_HUD_KINDS = ('menu', 'newgame')
+SEA_HUD_KINDS = ('sea', 'battle', 'dusk', 'dawn', 'ship', 'storm')
+PORTRAIT_BOX = (0.0, 0.0, 0.08, 0.14)
+COMPASS_BOX = (0.86, 0.0, 1.0, 0.22)
+HUD_GOLD_MIN = 0.02
+# A dialogue hides the portrait and shows its parchment panel across the bottom.
+DIALOGUE_BOX = (0.06, 0.86, 0.94, 0.95)
+DIALOGUE_TAN_MIN = 0.4
+
+
+def share(image, box, test, size=(80, 40)):
+    """The fraction of the pixels of `box` (fractions of the frame), resampled to `size`, for which test(r, g, b)."""
+    width, height = image.size
+    crop = image.crop((int(box[0] * width), int(box[1] * height), int(box[2] * width), int(box[3] * height)))
+    data = crop.convert('RGB').resize(size).tobytes()
+    return sum(1 for i in range(0, len(data), 3) if test(data[i], data[i + 1], data[i + 2])) / (len(data) // 3)
+
+
+def gold(r, g, b):
+    return r > 140 and g > 100 and b < 120 and r - b > 60
+
+
+def tan(r, g, b):
+    return r > 110 and g > 80 and b < 110 and r > g > b and r - b > 40
+
+
+def black(r, g, b):
+    return r <= 6 and g <= 6 and b <= 6
+
+
+def frame_reasons(image, previous_digest, kind):
     """Detects frames that cannot be a rendered scene. Returns (reasons, digest)."""
     small = image.convert('L').resize((160, 90))
     digest = hashlib.sha1(small.tobytes()).hexdigest()
@@ -317,7 +350,21 @@ def frame_reasons(image, previous_digest):
         reasons.append('black frame')
     elif high - low <= 8:
         reasons.append('blank frame (a single colour)')
-    if digest == previous_digest:
+    # Part of the scene not drawn: the lower part black at both sides under a lit upper part (a sea or ground that
+    # is missing; a dark interior is dark everywhere).
+    elif (share(image, (0.0, 0.55, 0.33, 0.95), black) >= 0.95 and share(image, (0.67, 0.55, 1.0, 0.95), black) >= 0.95
+          and share(image, (0.0, 0.05, 1.0, 0.45), black) <= 0.2):
+        reasons.append('black lower part under a lit upper part (part of the scene not drawn)')
+    if kind not in NO_HUD_KINDS:
+        missing = []
+        if share(image, PORTRAIT_BOX, gold) < HUD_GOLD_MIN and (
+                kind in SEA_HUD_KINDS or share(image, DIALOGUE_BOX, tan) < DIALOGUE_TAN_MIN):
+            missing.append('portrait')
+        if kind in SEA_HUD_KINDS and share(image, COMPASS_BOX, gold) < HUD_GOLD_MIN:
+            missing.append('compass')
+        if missing:
+            reasons.append(f'HUD not drawn ({" and ".join(missing)} missing)')
+    if previous_digest is not None and digest == previous_digest:
         reasons.append('frame identical to the previous scene (nothing new was drawn)')
     return reasons, digest
 
@@ -499,14 +546,22 @@ class Shard(threading.Thread):
                                     # Per-frame means of the renderer counters (storm/render/perf_stats.hpp).
                                     renderer={key: float(value) for key, value in
                                               (item.split('=') for item in renderer.split())})
+                    kind = current.split(':', 1)[0]
                     if variant is None or variant == '0':
                         # Later variants show the same scene: only the first is checked against the previous scene.
-                        reasons, previous_frame = frame_reasons(image, previous_frame)
+                        reasons, previous_frame = frame_reasons(image, previous_frame, kind)
                         metrics.update(measured)
-                        metrics['capture_reasons'] = reasons
+                        metrics.setdefault('capture_reasons', []).extend(reasons)
+                    else:
+                        reasons, _ = frame_reasons(image, None, kind)
+                        metrics.setdefault('capture_reasons', []).extend(f'variant {variant}: {reason}' for reason in reasons)
                     if variant is not None:
                         metrics.setdefault('variants', {})[variant] = measured
                     (control / 'ack').touch()
+                elif kind == 'incomplete':
+                    # A window in which draws waited for their pipelines (Vulkan): the script renders another.
+                    metrics['incomplete_windows'] = metrics.get('incomplete_windows', 0) + 1
+                    metrics['incomplete_ms'] = metrics.get('incomplete_ms', 0) + int(rest.rsplit(' ', 1)[1])
                 elif kind == 'end':
                     close(rest, [])
                     booted = booted or rest == inventory.BOOT_SCENES[-1]

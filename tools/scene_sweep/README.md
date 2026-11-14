@@ -37,7 +37,11 @@ the sweep fails (`inventory:tables`) when they differ from what `inventory.py` p
   `boarding.Loc.Hero` locator, other locations through their first door. A game day passes
   between locations so that phantom NPCs expire as in play.
 - For each scene it waits until the scene is loaded and the loading fader is gone, renders
-  at least 5 frames and 0.3 s, then asks the runner to capture the frame. The runner saves
+  at least 5 frames and 0.3 s, then asks the runner to capture the frame. On Vulkan a scene draw whose
+  pipeline is still being created off the render thread is left out of its frames (it appears a few frames
+  later); a window in which that happened is not captured: the script renders another one
+  (`SceneSweepWindowComplete`, `storm::render::LastIncompleteFrame`), counted in the report as
+  `incomplete_windows` / `incomplete_ms`, and fails the scene after 180 s of them. The runner saves
   the screenshot, frame time, draw calls and memory, and attributes the engine's log lines
   to the scene.
 - `run.py` splits the scenes into shards, one engine per shard, each with its own Xvfb
@@ -62,7 +66,12 @@ the sweep fails (`inventory:tables`) when they differ from what `inventory.py` p
 
 A scene fails on: a crash or fatal engine error, a timeout, a failed teleport to the entry locator, script errors (`error.log`),
 missing textures or models, engine/renderer errors in the logs, a fader that never goes,
-or a black, single-colour or unchanged frame.
+or a picture that cannot be the scene. Every capture is checked, every variant too (reasons `variant N: ...`):
+a black or single-colour frame, the lower part black at both sides under a lit upper part (a sea or ground not
+drawn), the game's HUD not drawn (the hero's portrait at the top left, at sea also the compass at the top right;
+in locations a dialogue's panel stands in for the portrait; not checked in `menu:main` and `newgame:intro`), or
+(first variant) a frame identical to the previous scene's. The HUD boxes and thresholds are calibrated on
+1280x720 sweeps.
 
 **Known game data defects.** A problem in the game's own files that the engine reports correctly and cannot fix
 (we never ship or patch game data) is listed in `known_defects.json`: the game version, the scene, the file at fault,

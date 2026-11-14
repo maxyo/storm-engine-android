@@ -507,6 +507,7 @@ void ConfigureGraphicsEffects(const std::function<int(const char *, int)> &iniVa
         spdlog::info("graphics effects: sweep variant '{}'", variant);
         ApplyEffects(preset, options);
     }, [] { return !storm::render::CurrentEffects().pending; });
+    storm::scene_sweep::setIncompleteFrameHook([] { return storm::render::LastIncompleteFrame(); });
 #endif
 }
 #ifdef __ANDROID__
