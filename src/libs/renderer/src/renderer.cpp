@@ -11,6 +11,7 @@
 #include "app_events.hpp"
 #include "core.h"
 #include "scene_sweep.hpp"
+#include <storm/render/far_lod_stats.hpp>
 
 #include "entity.h"
 #include "math_inlines.h"
@@ -711,7 +712,8 @@ bool Renderer::Init()
 #ifdef STORM_SCENE_SWEEP
         storm::scene_sweep::setRendererWindow([start = storm::render::PerfTotals()]() mutable {
             const storm::render::PerfCounters &totals = storm::render::PerfTotals();
-            std::string summary = totals.Since(start).Summary();
+            const storm::render::PerfCounters window = totals.Since(start);
+            std::string summary = window.Summary() + storm::render::far_lod::Take(window.frames);
             start = totals;
             return summary;
         });

@@ -8,8 +8,11 @@ Comments:
 Import library main file
 ******************************************************************************/
 #include "geom.h"
+#include <storm/render/far_lod_stats.hpp>
+#include <storm/render/perf_stats.hpp>
 #include <storm/config.hpp>
 
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -342,6 +345,20 @@ void GEOM::Draw(const PLANE *pl, int32_t np, MATERIAL_FUNC mtf) const
         if (cp < np)
             continue;
 
+        namespace far_lod = storm::render::far_lod;
+        const int category = far_lod::current.category;
+        if (category >= 0 && far_lod::cull_m > 0.f)
+        {
+            const float dx = object[o].center.x - far_lod::current.cam[0];
+            const float dy = object[o].center.y - far_lod::current.cam[1];
+            const float dz = object[o].center.z - far_lod::current.cam[2];
+            if (std::sqrt(dx * dx + dy * dy + dz * dz) - object[o].radius > far_lod::cull_m)
+            {
+                far_lod::totals.culled[category] += object[o].ntriangles;
+                continue;
+            }
+        }
+        const uint64_t draws_before = storm::render::PerfTotals().draws;
         auto *const vb = &vbuff[object[o].vertex_buff];
         srv.SetVertexBuffer(vb->stride, vb->dev_buff);
         srv.SetMaterial(material[object[o].material]);
@@ -349,6 +366,12 @@ void GEOM::Draw(const PLANE *pl, int32_t np, MATERIAL_FUNC mtf) const
             mtf(material[object[o].material]);
         srv.DrawIndexedPrimitive(object[o].start_vertex, object[o].num_vertices, vb->stride, object[o].striangle * 3,
                                  object[o].ntriangles);
+        if (category >= 0)
+        {
+            const uint64_t draws = storm::render::PerfTotals().draws - draws_before; // technique passes
+            far_lod::totals.draws[category][far_lod::pass] += draws;
+            far_lod::totals.triangles[category][far_lod::pass] += draws * object[o].ntriangles;
+        }
     }
 }
 

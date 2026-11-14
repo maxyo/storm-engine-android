@@ -3,6 +3,7 @@
 #include "entity.h"
 #include "core.h"
 #include "modelr.h"
+#include <storm/render/far_lod_stats.hpp>
 #include "string_compare.hpp"
 
 #include <algorithm>
@@ -416,7 +417,14 @@ void NODER::Draw()
             }
 
             // draw geos
+            namespace far_lod = storm::render::far_lod;
+            glm::vec3 camera, angles;
+            float perspective;
+            rs->GetCamera(camera, angles, perspective);
+            const glm::vec3 local = glm::vec3(glm::inverse(glob_mtx) * glm::vec4(camera, 1.f));
+            far_lod::current = {far_lod::CategoryOf(sys_modelName_base), {local.x, local.y, local.z}};
             geo->Draw(&TViewPlane[0], 4, geoMaterialFunc);
+            far_lod::current.category = -1;
         }
     }
 

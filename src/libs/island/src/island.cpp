@@ -1,4 +1,5 @@
 #include "island.h"
+#include <storm/render/far_lod_stats.hpp>
 #include "island_overhang.hpp"
 
 #include "core.h"
@@ -145,6 +146,7 @@ void ISLAND::Realize(uint32_t Delta_Time)
     int32_t j;
     for (j = static_cast<int32_t>(fMaxDistance / fOldFar); j >= 0; j--)
     {
+        ++storm::render::far_lod::totals.island_slices;
         if (j != 0)
             pRS->SetRenderState(D3DRS_ZWRITEENABLE, false);
         pRS->SetNearFarPlane((j == 0) ? fOldNear : fOldFar * static_cast<float>(j),

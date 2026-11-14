@@ -1,4 +1,5 @@
 #include "effects/effects.hpp"
+#include "storm/render/far_lod_stats.hpp"
 #include "effects/thermal.hpp"
 #include "effects/relief_generator.hpp"
 
@@ -297,6 +298,7 @@ void Host::apply()
     report_.preset = preset_;
     requested_ = fx::Settings::FromPreset(static_cast<fx::QualityPreset>(preset_));
     bool profile = false;
+    int farlod_cull = 0;
     caps_profile_ = fx::CapsProfile::Device;
     for (const auto &option : options_)
     {
@@ -304,6 +306,8 @@ void Host::apply()
             continue; // the preset's value
         if (option.name == "fx_gpu_profile")
             profile = option.value != 0;
+        else if (option.name == "fx_farlod_cull")
+            farlod_cull = option.value;
         else if (option.name == "fx_caps_profile")
             caps_profile_ = static_cast<fx::CapsProfile>(std::clamp(option.value, 0, static_cast<int>(fx::CapsProfile::Count) - 1));
         else if (const Option *known = find_option(option.name))
@@ -313,6 +317,9 @@ void Host::apply()
     }
     for (const auto &error : report_.errors)
         shim::logf("ERROR: effects: %s", error.c_str());
+    if (static_cast<float>(farlod_cull) != render::far_lod::cull_m)
+        shim::logf("effects: far-LOD ceiling cull %d m (fx_farlod_cull, measurement)", farlod_cull);
+    render::far_lod::cull_m = static_cast<float>(farlod_cull);
     if (device_ready_ && profile != profile_)
     {
         bgfx::setDebug(profile ? BGFX_DEBUG_PROFILER : BGFX_DEBUG_NONE);
@@ -694,12 +701,13 @@ void Host::end_frame(bool scene_frame, uint32_t frame)
                          profile_sum_rcas_ / profile_gpu_frames_);
             const Lighting::Counts counts = lighting_.last_frame();
             shim::logf("effects profile: preset %d scene=%ux%u display=%ux%u %s cpu_frame_ms=%.2f draws=%.0f post_views=%u lit_draws=%u "
-                       "baked_draws=%u coverage_draws=%u relief_draws=%u parallax_draws=%u gloss_draws=%u aerial_draws=%u shadowed_draws=%u casters=%u ao_draws=%u lamp_draws=%u lamp_casters=%u lamp_slots=%d lamp_static_faces=%d sun_static_tiles=%u sun_static_triangles=%u lightmapped_draws=%u town_relit_draws=%u town_wall_draws=%u",
+                       "baked_draws=%u coverage_draws=%u relief_draws=%u parallax_draws=%u gloss_draws=%u aerial_draws=%u shadowed_draws=%u casters=%u ao_draws=%u lamp_draws=%u lamp_casters=%u lamp_slots=%d lamp_static_faces=%d sun_static_tiles=%u sun_static_triangles=%u lightmapped_draws=%u town_relit_draws=%u town_wall_draws=%u%s",
                        preset_, last_post_size_[0], last_post_size_[1], last_post_size_[2], last_post_size_[3], gpu,
                        profile_sum_cpu_ / kProfileFrames, static_cast<double>(profile_draws_) / kProfileFrames,
                        last_post_views_, counts.lit, counts.baked, counts.coverage, counts.relief, counts.parallax, counts.glossy, counts.aerial, counts.shadowed, counts.casters, counts.ao, counts.lamp_lit, counts.lamp_casters,
                        lighting_.lamp_shadows().last_slots(), lighting_.lamp_shadows().last_static_faces(),
-                       lighting_.shadows().last_static_casters()[0], lighting_.shadows().last_static_casters()[1], lighting_.town_light().last_counts()[0], lighting_.town_light().last_counts()[1], counts.town_walls);
+                       lighting_.shadows().last_static_casters()[0], lighting_.shadows().last_static_casters()[1], lighting_.town_light().last_counts()[0], lighting_.town_light().last_counts()[1], counts.town_walls,
+                       render::far_lod::Take(kProfileFrames).c_str());
             profile_count_ = profile_gpu_frames_ = 0;
             profile_sum_frame_ = profile_sum_post_ = profile_sum_cpu_ = 0.0;
             profile_sum_smaa_ = profile_sum_easu_ = profile_sum_rcas_ = 0.0;
@@ -719,7 +727,8 @@ const std::vector<EffectsOptionInfo> &EffectsOptionNames()
         std::vector<EffectsOptionInfo> list{{"fx_preset", "0 Низкая, 1 Средняя, 2 Высокая"},
                                             {"fx_caps_profile", "0 device, 1 gles30-minimal, 2 mali-g5x, 3 mali-g7x, 4 adreno-6xx, "
                                                                 "5 adreno-7xx-8xx, 6 powervr, 7 xclipse (development)"},
-                                            {"fx_gpu_profile", "1: log GPU timer averages every 30 frames (measurements)"}};
+                                            {"fx_gpu_profile", "1: log GPU timer averages every 30 frames (measurements)"},
+                                            {"fx_farlod_cull", "metres: leave out model objects farther than this (far-LOD ceiling measurement), 0 off"}};
         for (const auto &option : effects::kOptions)
             list.push_back({option.name, option.values});
         return list;
