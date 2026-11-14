@@ -1,4 +1,5 @@
 #include "effects/effects.hpp"
+#include "storm/render/far_lod.hpp"
 #include "effects/thermal.hpp"
 #include "effects/relief_generator.hpp"
 
@@ -74,6 +75,8 @@ const Option kOptions[] = {
     {"fx_render_height", "the 3D scene's height in pixels on taller displays, upscaled by FSR 1: 360..4320, 0 = native",
      [](fx::Settings &s, int v) { s.render_height = static_cast<uint16_t>(std::clamp(v, 0, 4320)); }},
     {"fx_sharpen", "0 off, 1 on (FSR 1 RCAS)", [](fx::Settings &s, int v) { s.sharpen = on(v); }},
+    {"fx_far_lod", "tenths of a pixel the far LODs may differ by: 0 off (every model whole), 5..40",
+     [](fx::Settings &s, int v) { s.far_lod_pixels = v <= 0 ? 0.f : static_cast<float>(std::clamp(v, 5, 40)) / 10.f; }},
     {"fx_sharpness", "0..100 % RCAS strength (100 = the reference's maximum)",
      [](fx::Settings &s, int v) { s.sharpness = static_cast<float>(std::clamp(v, 0, 100)) / 100.0f; }},
     {"fx_ssao", "0 off, 1 on", [](fx::Settings &s, int v) { s.ssao = on(v); }},
@@ -412,6 +415,7 @@ void Host::apply()
 void Host::activate(const fx::Settings &settings, const fx::Support &support)
 {
     settings_ = settings;
+    render::far_lod::pixels = settings_.far_lod_pixels;
     support_ = support;
     const fx::RendererState state = fx::RendererStateFor(settings_);
     const bool depth_read = scene_depth_read();
@@ -694,12 +698,13 @@ void Host::end_frame(bool scene_frame, uint32_t frame)
                          profile_sum_rcas_ / profile_gpu_frames_);
             const Lighting::Counts counts = lighting_.last_frame();
             shim::logf("effects profile: preset %d scene=%ux%u display=%ux%u %s cpu_frame_ms=%.2f draws=%.0f post_views=%u lit_draws=%u "
-                       "baked_draws=%u coverage_draws=%u relief_draws=%u parallax_draws=%u gloss_draws=%u aerial_draws=%u shadowed_draws=%u casters=%u ao_draws=%u lamp_draws=%u lamp_casters=%u lamp_slots=%d lamp_static_faces=%d sun_static_tiles=%u sun_static_triangles=%u lightmapped_draws=%u town_relit_draws=%u town_wall_draws=%u",
+                       "baked_draws=%u coverage_draws=%u relief_draws=%u parallax_draws=%u gloss_draws=%u aerial_draws=%u shadowed_draws=%u casters=%u ao_draws=%u lamp_draws=%u lamp_casters=%u lamp_slots=%d lamp_static_faces=%d sun_static_tiles=%u sun_static_triangles=%u lightmapped_draws=%u town_relit_draws=%u town_wall_draws=%u%s",
                        preset_, last_post_size_[0], last_post_size_[1], last_post_size_[2], last_post_size_[3], gpu,
                        profile_sum_cpu_ / kProfileFrames, static_cast<double>(profile_draws_) / kProfileFrames,
                        last_post_views_, counts.lit, counts.baked, counts.coverage, counts.relief, counts.parallax, counts.glossy, counts.aerial, counts.shadowed, counts.casters, counts.ao, counts.lamp_lit, counts.lamp_casters,
                        lighting_.lamp_shadows().last_slots(), lighting_.lamp_shadows().last_static_faces(),
-                       lighting_.shadows().last_static_casters()[0], lighting_.shadows().last_static_casters()[1], lighting_.town_light().last_counts()[0], lighting_.town_light().last_counts()[1], counts.town_walls);
+                       lighting_.shadows().last_static_casters()[0], lighting_.shadows().last_static_casters()[1], lighting_.town_light().last_counts()[0], lighting_.town_light().last_counts()[1], counts.town_walls,
+                       render::far_lod::Take(kProfileFrames).c_str());
             profile_count_ = profile_gpu_frames_ = 0;
             profile_sum_frame_ = profile_sum_post_ = profile_sum_cpu_ = 0.0;
             profile_sum_smaa_ = profile_sum_easu_ = profile_sum_rcas_ = 0.0;

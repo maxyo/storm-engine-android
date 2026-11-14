@@ -3,6 +3,7 @@
 #include "entity.h"
 #include "core.h"
 #include "modelr.h"
+#include <storm/render/far_lod.hpp>
 #include "string_compare.hpp"
 
 #include <algorithm>
@@ -416,7 +417,9 @@ void NODER::Draw()
             }
 
             // draw geos
+            SetFarLodView();
             geo->Draw(&TViewPlane[0], 4, geoMaterialFunc);
+            storm::render::far_lod::view.valid = false;
         }
     }
 
@@ -424,6 +427,48 @@ void NODER::Draw()
     if (flags & VISIBLE_TREE)
         for (const auto &child : next)
             static_cast<NODER *>(child.get())->Draw();
+}
+
+// What the far LODs of this node's geometry see (storm/render/far_lod.hpp): the camera and its view direction in the
+// node's space, the scale, and the pixels of the target being drawn.
+void NODER::SetFarLodView() const
+{
+    namespace far_lod = storm::render::far_lod;
+    far_lod::View &view = far_lod::view;
+    view.valid = false;
+    if (far_lod::pixels <= 0.f)
+        return;
+    D3DVIEWPORT9 viewport;
+    if (rs->GetViewport(&viewport) != D3D_OK || viewport.Height == 0)
+        return;
+    glm::vec3 camera, angles;
+    float perspective;
+    rs->GetCamera(camera, angles, perspective);
+    const glm::mat4 to_node = glm::inverse(glob_mtx);
+    const glm::vec3 local = glm::vec3(to_node * glm::vec4(camera, 1.f));
+    // The view direction: view space looks along +z.
+    const glm::vec3 forward = glm::normalize(glm::vec3(glm::inverse(rs->GetView()) * glm::vec4(0.f, 0.f, 1.f, 0.f)));
+    const glm::vec3 local_forward = glm::vec3(to_node * glm::vec4(forward, 0.f));
+    view.scale = glm::length(glm::vec3(glob_mtx[0]));
+    if (view.scale <= 0.f)
+        return;
+    view.camera[0] = local.x, view.camera[1] = local.y, view.camera[2] = local.z;
+    // forward in node units per world metre: a depth in node units times `scale` is metres.
+    const glm::vec3 unit_forward = local_forward * view.scale;
+    view.forward[0] = unit_forward.x, view.forward[1] = unit_forward.y, view.forward[2] = unit_forward.z;
+    const glm::mat4 &projection = rs->GetProjection();
+    view.ortho = projection[3][3] == 1.f;
+    const float half_height = 0.5f * static_cast<float>(viewport.Height);
+    if (view.ortho)
+        view.pixels_per_unit = half_height * projection[1][1];
+    else
+    {
+        // From the screen's centre to its corner the same distance is up to this much nearer in depth.
+        const float tan_x = 1.f / projection[0][0], tan_y = 1.f / projection[1][1];
+        view.pixels_per_unit = half_height * projection[1][1] * std::sqrt(1.f + tan_x * tan_x + tan_y * tan_y);
+    }
+    rs->GetNearFarPlane(view.near_plane, view.far_plane);
+    view.valid = true;
 }
 
 //----------------------------------------------------------

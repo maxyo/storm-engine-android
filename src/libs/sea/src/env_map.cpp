@@ -1,4 +1,5 @@
 #include "core.h"
+#include <storm/render/far_lod.hpp>
 
 #include "entity.h"
 #include "math_inlines.h"
@@ -44,6 +45,12 @@ void SEA::EnvMap_GetSideMatrix(D3DCUBEMAP_FACES Face, glm::mat4 &mView)
 
 bool SEA::SunRoad_Render2()
 {
+    namespace far_lod = storm::render::far_lod;
+    struct PassScope // the far LODs choose for this target (storm/render/far_lod.hpp)
+    {
+        PassScope() { far_lod::pass = far_lod::Reflection; }
+        ~PassScope() { far_lod::pass = far_lod::Main; }
+    } pass_scope;
     glm::mat4 mOldView = rs->GetView();
     glm::mat4 mOldProjection = rs->GetProjection();
 
@@ -117,6 +124,12 @@ bool SEA::SunRoad_Render2()
 
 bool SEA::EnvMap_Render2()
 {
+    namespace far_lod = storm::render::far_lod;
+    struct PassScope // the far LODs choose for this target (storm/render/far_lod.hpp)
+    {
+        PassScope() { far_lod::pass = far_lod::Reflection; }
+        ~PassScope() { far_lod::pass = far_lod::Main; }
+    } pass_scope;
     glm::mat4 mOldView = rs->GetView();
     glm::mat4 mOldProjection = rs->GetProjection();
     rs->EndScene();
@@ -225,6 +238,12 @@ uint32_t SEA::CubeFacesDue()
 
 bool SEA::SunRoad_Render()
 {
+    namespace far_lod = storm::render::far_lod;
+    struct PassScope // the far LODs choose for this target (storm/render/far_lod.hpp)
+    {
+        PassScope() { far_lod::pass = far_lod::CubeFace; }
+        ~PassScope() { far_lod::pass = far_lod::Main; }
+    } pass_scope;
     glm::mat4 mOldView = rs->GetView();
     glm::mat4 mOldProjection = rs->GetProjection();
 
@@ -281,6 +300,12 @@ bool SEA::SunRoad_Render()
 
 bool SEA::EnvMap_Render()
 {
+    namespace far_lod = storm::render::far_lod;
+    struct PassScope // the far LODs choose for this target (storm/render/far_lod.hpp)
+    {
+        PassScope() { far_lod::pass = far_lod::CubeFace; }
+        ~PassScope() { far_lod::pass = far_lod::Main; }
+    } pass_scope;
     glm::mat4 mOldView = rs->GetView();
     glm::mat4 mOldProjection = rs->GetProjection();
     rs->EndScene();

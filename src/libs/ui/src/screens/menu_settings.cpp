@@ -204,6 +204,10 @@ class SettingsScreen final : public Screen
                     DebugSegment(bindings, debug, "fx_sharpen", "Резкость (RCAS)", {-1, 0, 1}, onOff);
                     DebugSegment(bindings, debug, "fx_gpu_profile", "Замер GPU", {-1, 1}, {"выкл", "вкл"});
                 }
+                // Far LODs of islands, ships and outdoor locations: the pixels a simplified level may differ by
+                // (src/libs/geometry/far_lod), in tenths of a pixel; «выкл» draws every model whole.
+                if (Known("fx_far_lod"))
+                    DebugSegment(bindings, debug, "fx_far_lod", "Дальние LOD", {-1, 0, 10, 20}, {"пресет", "выкл", "1 px", "2 px"});
                 // The lamps' relight of locations (f0265528, fb6f189e): how many lamps cast shadows, the
                 // shadow filter, how much brighter characters indoors are than the room, the lamp views.
                 if (Known("fx_lamp_shadows"))

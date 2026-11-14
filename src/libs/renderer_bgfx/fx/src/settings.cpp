@@ -20,6 +20,7 @@ Settings Settings::FromPreset(QualityPreset preset)
     if (preset == QualityPreset::Low)
     {
         s.render_height = kLowRenderHeight;
+        s.far_lod_pixels = 2.f;
         return s;
     }
 
@@ -46,6 +47,7 @@ Settings Settings::FromPreset(QualityPreset preset)
     if (preset == QualityPreset::Medium)
     {
         s.render_height = kMediumRenderHeight;
+        s.far_lod_pixels = 1.5f;
         s.bloom_downscale = 4;
         s.bloom_levels = 3;
         s.sea_band_limit = true;
@@ -70,6 +72,7 @@ Settings Settings::FromPreset(QualityPreset preset)
         return s;
     }
     s.render_height = kHighRenderHeight;
+    s.far_lod_pixels = 1.f;
     s.bloom_downscale = 2;
     s.bloom_levels = 4;
     s.anisotropy = 8;

@@ -123,6 +123,9 @@ struct Settings
     // game's interfaces drawn at the display size after it); a display this tall or smaller renders natively, so a
     // small phone is not scaled for nothing. 0 = native everywhere. RenderScale() gives the factor for a display.
     uint16_t render_height = 0;
+    // Far LODs of islands, ships and outdoor locations (src/libs/geometry/far_lod): the largest error a simplified
+    // level may show, in pixels of the target drawn; 0 = every model drawn whole. Not a look: on every preset.
+    float far_lod_pixels = 0.f;
     bool sharpen = false;         // FSR 1 RCAS (robust contrast-adaptive sharpening) after the EASU upscale
     float sharpness = 0.5f;       // 0..1: RCAS strength, 1 = the reference's maximum (0 stops), 0 = 2 stops softer
     bool sun_shafts = false;      // high end only

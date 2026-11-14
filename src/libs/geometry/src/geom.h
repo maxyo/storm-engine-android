@@ -11,6 +11,9 @@ Import library class
 
 #include "rdf.h"
 #include "geos.h"
+#include "geom_far_lod.hpp"
+
+#include <memory>
 
 #include <vector>
 
@@ -62,6 +65,7 @@ class GEOM : public GEOS
     int32_t lightmap_id_ = -1;    // the renderer's id of that texture
     int32_t traceid;
     glm::dvec3 src, dst;
+    std::unique_ptr<GeomFarLod> far_lod_; // islands, ships, outdoor locations (GeomFarLod::Wanted)
 
   public:
     GEOM(const char *fname, const char *lightname, GEOM_SERVICE &srv, int32_t flags);

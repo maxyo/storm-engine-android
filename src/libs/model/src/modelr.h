@@ -42,6 +42,7 @@ class NODER : public NODE
     NODER();
     ~NODER() override;
     void Draw();
+    void SetFarLodView() const;
     float Trace(const glm::vec3 &src, const glm::vec3 &dst) override;
     NODER *GetNode(int32_t n);
     NODER *FindNode(const char *cNodeName);

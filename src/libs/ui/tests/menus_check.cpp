@@ -397,7 +397,7 @@ static void Settings(const std::string &models)
                                 "render_backend", "render_thread", "render_overlap", "fx_bounce", "fx_bounce_debug",
                                 "fx_town_walls", "fx_gloss", "fx_gloss_strength",
                                 "fx_gloss_debug", "fx_sea_waves", "fx_sea_waves_lift",
-                                "fx_sea_wakes", "fx_sea_waves_debug"}) // GraphicsSettings.DEBUG_KEYS, -1 = the preset's
+                                "fx_sea_wakes", "fx_sea_waves_debug", "fx_far_lod"}) // GraphicsSettings.DEBUG_KEYS, -1 = the preset's
             reported[key] = -1;
         debug.SetState("appSettings", reported);
         debug.SetInterface(Load(models, "settings.json"));
@@ -416,6 +416,8 @@ static void Settings(const std::string &models)
         Expect(row("app-fx_render_height")["options"] == Json::array({"пресет", "720", "900", "1000", "1100", "экран"}) && row("app-fx_smaa")["label"] == "SMAA" &&
                    row("app-fx_sharpen").is_object() && row("app-fx_gpu_profile")["options"] == Json::array({"выкл", "вкл"}),
                "effects debug: scene height, SMAA, RCAS, GPU timing: " + rows.dump());
+        Expect(row("app-fx_far_lod")["options"] == Json::array({"пресет", "выкл", "1 px", "2 px"}),
+               "effects debug: far LODs: " + rows.dump());
         Expect(row("app-fx_lamp_shadows")["options"] == Json::array({"пресет", "выкл", "8", "16"}) && row("app-fx_lamp_soft").is_object() &&
                    row("app-fx_lamp_model_lift").is_object() && row("app-fx_lamp_debug").is_object(),
                "effects debug: lamp shadows 0/8/16, their filter, the characters' lift, the lamp views: " + rows.dump());

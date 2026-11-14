@@ -171,6 +171,11 @@ GEOM::GEOM(const char *fname, const char *lightname, GEOM_SERVICE &_srv, int32_t
         throw std::runtime_error(fmt::format("cannot create the index buffer of {} ({} triangles)", fname,
                                              rhead.ntriangles));
     srv.ReadFile(file, trg, sizeof(RDF_TRIANGLE) * rhead.ntriangles);
+    GeomFarLod::Source lod_source;
+    lod_source.name = fname;
+    if (rhead.ntriangles > 0)
+        lod_source.triangles.assign(reinterpret_cast<const uint16_t *>(trg),
+                                    reinterpret_cast<const uint16_t *>(trg) + 3 * size_t(rhead.ntriangles));
     srv.UnlockIndexBuffer(idx_buff);
 
     auto nvertices = 0;
@@ -189,6 +194,12 @@ GEOM::GEOM(const char *fname, const char *lightname, GEOM_SERVICE &_srv, int32_t
         nvertices += vbuff[v].nverts;
     }
     srv.free(rvb);
+    bool animated = false;
+    for (v = 0; v < rhead.nvrtbuffs; v++)
+        animated = animated || (vbuff[v].type & 4) != 0;
+    const bool lods = GeomFarLod::Wanted(fname, rhead.radius, animated) && rhead.ntriangles > 0;
+    if (!lods)
+        lod_source.triangles = {};
     // The game has no baked lighting of this model for this light set (weather): the model's own vertex colours are
     // drawn, as in the original engine. Reported for models with vertices (locator models have none).
     if (colMissing && nvertices > 0)
@@ -231,6 +242,12 @@ GEOM::GEOM(const char *fname, const char *lightname, GEOM_SERVICE &_srv, int32_t
                 ++itColData;
             }
         }
+        if (lods)
+        {
+            const auto *bytes = reinterpret_cast<const uint8_t *>(vrt);
+            lod_source.buffers.emplace_back(bytes, bytes + size_t(vbuff[v].nverts) * vbuff[v].stride);
+            lod_source.strides.push_back(static_cast<uint32_t>(vbuff[v].stride));
+        }
 
         srv.UnlockVertexBuffer(vbuff[v].dev_buff);
     }
@@ -264,6 +281,23 @@ GEOM::GEOM(const char *fname, const char *lightname, GEOM_SERVICE &_srv, int32_t
     }
 
     srv.CloseFile(file);
+
+    if (lods)
+    {
+        lod_source.objects.resize(rhead.nobjects);
+        for (int32_t o = 0; o < rhead.nobjects; o++)
+            lod_source.objects[o] = {static_cast<uint32_t>(object[o].vertex_buff), static_cast<uint32_t>(object[o].start_vertex),
+                                     static_cast<uint32_t>(object[o].num_vertices), static_cast<uint32_t>(object[o].striangle),
+                                     static_cast<uint32_t>(object[o].ntriangles)};
+        std::vector<uint32_t> vertex_counts;
+        for (const auto &buffer : lod_source.buffers)
+            vertex_counts.push_back(static_cast<uint32_t>(buffer.size() / lod_source.strides[vertex_counts.size()]));
+        if (const auto problem = storm::geometry::far_lod::CheckMeshLayout(lod_source.objects, vertex_counts,
+                                                                           lod_source.triangles))
+            spdlog::warn("far LOD: {} gets none: {}", fname, *problem);
+        else
+            far_lod_ = std::make_unique<GeomFarLod>(std::move(lod_source), srv);
+    }
 
     for (int32_t t = 0; t < rhead.ntextures; t++)
     {
@@ -325,6 +359,7 @@ GEOM::~GEOM()
 void GEOM::Draw(const PLANE *pl, int32_t np, MATERIAL_FUNC mtf) const
 {
     srv.SetIndexBuffer(idx_buff);
+    const bool lods = far_lod_ && far_lod_->Ready();
     for (int32_t o = 0; o < rhead.nobjects; o++)
     {
         if (!(object[o].flags & VISIBLE))
@@ -347,6 +382,11 @@ void GEOM::Draw(const PLANE *pl, int32_t np, MATERIAL_FUNC mtf) const
         srv.SetMaterial(material[object[o].material]);
         if (mtf != nullptr)
             mtf(material[object[o].material]);
+        if (lods && far_lod_->Draw(o, object[o], vb->stride))
+        {
+            srv.SetIndexBuffer(idx_buff);
+            continue;
+        }
         srv.DrawIndexedPrimitive(object[o].start_vertex, object[o].num_vertices, vb->stride, object[o].striangle * 3,
                                  object[o].ntriangles);
     }
