@@ -182,17 +182,38 @@ uint32_t variantReady(VS_STACK *stack)
     return IFUNCRESULT_OK;
 }
 
-uint32_t settleMs(VS_STACK *stack)
+// A millisecond setting of the runner (run.py sets every one of them).
+int runnerMs(const char *name)
 {
-    static const int value = [] {
-        const char *text = std::getenv("STORM_SCENE_SWEEP_SETTLE_MS");
-        return text && *text ? std::atoi(text) : 300;
-    }();
+    const char *text = std::getenv(name);
+    if (!text || !*text)
+    {
+        spdlog::critical("Scene sweep: {} is not set (run.py sets it)", name);
+        return 0;
+    }
+    return std::atoi(text);
+}
+
+uint32_t pushInt(VS_STACK *stack, int value)
+{
     auto *result = static_cast<VDATA *>(stack->Push());
     if (!result)
         return IFUNCRESULT_FAILED;
     result->Set(static_cast<int32_t>(value));
     return IFUNCRESULT_OK;
+}
+
+uint32_t settleMs(VS_STACK *stack)
+{
+    static const int value = runnerMs("STORM_SCENE_SWEEP_SETTLE_MS");
+    return pushInt(stack, value);
+}
+
+// How long a scene may load before the script fails it with its own reason: below the runner's kill timeout.
+uint32_t loadTimeoutMs(VS_STACK *stack)
+{
+    static const int value = runnerMs("STORM_SCENE_SWEEP_LOAD_TIMEOUT_MS");
+    return pushInt(stack, value);
 }
 
 void registerFunction(const char *name, const char *returns, uint32_t arguments, SIMPORTFUNC address)
@@ -223,6 +244,7 @@ class SceneSweepLibrary : public SCRIPT_LIBRIARY
         registerFunction("SceneSweepEvent", "void", 1, event);
         registerFunction("SceneSweepCapture", "void", 0, capture);
         registerFunction("SceneSweepSettleMs", "int", 0, settleMs);
+        registerFunction("SceneSweepLoadTimeoutMs", "int", 0, loadTimeoutMs);
         registerFunction("SceneSweepVariants", "int", 0, variantCount);
         registerFunction("SceneSweepVariant", "void", 1, variant);
         registerFunction("SceneSweepVariantReady", "int", 0, variantReady);

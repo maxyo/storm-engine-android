@@ -74,7 +74,7 @@ in locations a dialogue's panel stands in for the portrait; not checked in `menu
 1280x720 sweeps.
 
 **Known game data defects.** A problem in the game's own files that the engine reports correctly and cannot fix
-(we never ship or patch game data) is listed in `known_defects.json`: the game version, the scene, the file at fault,
+(we never ship or patch game data) is listed in `known_defects.json`: the game version, the scene (a shell pattern), the file at fault,
 the exact error text the sweep sees and the reason. A scene whose only problems match its entries is reported as
 `KNOWN` (progress line, `status: known` in the report, its own section of the summary), not as failed; any other
 problem still fails it. Remove an entry once its cause is gone.
@@ -113,6 +113,8 @@ python3 tools/scene_sweep/run.py --game <game dir> --engine <build>/engine --out
 - `--program-cache DIR` keeps the engines' program and pipeline cache in DIR between runs (`--jobs 1`): the first
   sweep measures a cold cache, the next ones a warm one (Vulkan: the pipeline cache and the scenes' recorded pipelines,
   `src/libs/renderer_bgfx/src/shim/pipeline_sets.hpp`).
+- `--timeout S` seconds a scene may take before its engine is killed (default 240); the script fails a scene that
+  has not loaded 30 s before that with its own reason (`not loaded after ... ms`).
 - `--settle MS` how long each scene renders after its fader before the capture (default 300).
   Frame time and the renderer counters are means over this window: raise it (e.g. 5000) with
   `--only` on a few scenes and `--jobs 1` for performance measurements.

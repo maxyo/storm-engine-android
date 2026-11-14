@@ -1,5 +1,5 @@
 {
-  "comment": "Defects of the game's own data that the engine reports correctly and cannot fix (we never ship or patch game data files). A scene whose only problems match an entry here is reported as KNOWN, not as failed; anything else still fails it. Each entry: the game version, the scene (or \"*\": any scene, for a defect of the game's timed scripts that shows wherever the sweep happens to be), the game file at fault, the exact text the sweep sees (a substring of the reason), and why it cannot be fixed. Remove an entry once its cause is gone.",
+  "comment": "Defects of the game's own data that the engine reports correctly and cannot fix (we never ship or patch game data files). A scene whose only problems match an entry here is reported as KNOWN, not as failed; anything else still fails it. Each entry: the game version, the scene (a shell pattern: \"*\" any scene, for a defect of the game's timed scripts that shows wherever the sweep happens to be), the game file at fault, the exact text the sweep sees (a substring of the reason), and why it cannot be fixed. Remove an entry once its cause is gone.",
   "defects": [
     {
       "game": "TEHO 1.7.3",
@@ -21,6 +21,27 @@
       "file": "PROGRAM/scripts/PsHero.c",
       "error": "RUNTIME ERROR in scripts\\PsHero.c(924)",
       "reason": "The game's script that moves the free captains (PsHero) between towns when a day passes picks a destination t<rand(iNum-1)>; when the captain's town has no travel paths iNum is 0, the script itself traces \"Can't find travel path\", falls back to t0 and reads arDest.t0.town, which does not exist: missed attribute t0, null ap, no rAP data, all at line 924. It is the game's own script on the state of a new game with days passing (the sweep passes a day between locations); it fires on the day change, whatever scene is loading, and the scene still renders. Seen once so far, at loc:Plantation_F1 at midnight; not checked whether a played game reaches the same state."
+    },
+    {
+      "game": "TEHO 1.7.3",
+      "scene": "loc:OldWorld_*",
+      "file": "PROGRAM/locations/init/OldWorld.c",
+      "error": "missing model: resource\\models\\Locations\\OldWorld\\",
+      "reason": "The game's scripts define the OldWorld locations (PROGRAM/locations/init/OldWorld.c: OldWorld_Port, OldWorld_Town_Part1..4, OldWorld_Town_Exit), but the game ships none of their models (no RESOURCE/MODELS/Locations/OldWorld) and nothing else in its scripts leads there: unfinished, unreachable content. Entering one, the engine reports the model file it cannot open."
+    },
+    {
+      "game": "TEHO 1.7.3",
+      "scene": "loc:OldWorld_*",
+      "file": "PROGRAM/locations/init/OldWorld.c",
+      "error": "not loaded after ",
+      "reason": "The game's scripts define the OldWorld locations (PROGRAM/locations/init/OldWorld.c: OldWorld_Port, OldWorld_Town_Part1..4, OldWorld_Town_Exit), but the game ships none of their models (no RESOURCE/MODELS/Locations/OldWorld) and nothing else in its scripts leads there: unfinished, unreachable content. Without its model the game's loader gives up (locations_loader.c: MSG_LOCATION_ADD_MODEL returns 0) and no location ever loads; the engine keeps running frames (checked: a 900 s run, the main thread in its frame loop), the sweep fails the scene when its load time is up."
+    },
+    {
+      "game": "TEHO 1.7.3",
+      "scene": "loc:OldWorld_*",
+      "file": "PROGRAM/scripts/PsHero.c",
+      "error": "script error: RUNTIME ERROR in scripts\\PsHero.c(",
+      "reason": "The game's scripts define the OldWorld locations (PROGRAM/locations/init/OldWorld.c: OldWorld_Port, OldWorld_Town_Part1..4, OldWorld_Town_Exit), but the game ships none of their models (no RESOURCE/MODELS/Locations/OldWorld) and nothing else in its scripts leads there: unfinished, unreachable content. While the sweep waits for a location that never loads, game days pass and the game's own PsHero day-change script (the \"*\" entry above, there at line 924) fails at its neighbouring lines (929-934) on the same missing travel path."
     }
   ]
 }

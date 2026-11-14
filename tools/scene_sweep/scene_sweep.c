@@ -28,6 +28,7 @@ native string SceneSweepNext();
 native void SceneSweepEvent(string text);
 native void SceneSweepCapture();
 native int SceneSweepSettleMs();
+native int SceneSweepLoadTimeoutMs();
 native int SceneSweepVariants();
 native void SceneSweepVariant(int index);
 native int SceneSweepVariantReady();
@@ -48,7 +49,6 @@ native int SceneSweepWindowComplete();
 #define SS_VARIANT_FRAMES	12	// --variants: frames in the measured window
 #define SS_INCOMPLETE_TIMEOUT_MS	180000	// Vulkan: windows with draws still waiting for their pipelines, in all
 #define SS_FADE_TIMEOUT_MS	30000
-#define SS_LOAD_TIMEOUT_MS	360000
 #define SS_ENEMY_FIRE_TIMEOUT_MS	90000	// game time at sea before the battle enemy must have fired
 #define SS_ENEMY_DISTANCE	350.0	// metres from the hero to the battle enemy; cannons reach ~700
 #define SS_ENEMY_GROUP		"SceneSweepEnemy"
@@ -177,7 +177,7 @@ void SceneSweep_Frame()
 			ssSteady = false;
 			break;
 		}
-		if(ssTime > SS_LOAD_TIMEOUT_MS) SceneSweep_Fail("not loaded after " + ssTime + " ms, step " + ssStep);
+		if(ssTime > SceneSweepLoadTimeoutMs()) SceneSweep_Fail("not loaded after " + ssTime + " ms, step " + ssStep);
 		break;
 	case SS_SETTLE:
 		// The loading picture fades out first; the capture must show the scene itself.

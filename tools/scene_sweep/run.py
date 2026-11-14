@@ -54,7 +54,8 @@ REPOSITORY = HERE.parents[1]
 LOG_RULES = [
     (r'error\.log', r'.', 'script error'),
     (r'.', r"Can't load texture .*[^\\/\s]\.tx", 'missing texture'),  # the game also asks for textures with no name
-    (r'.', r"Invalid model|Can't load model|can't open file|Can't find model|No geometry", 'missing model'),
+    (r'.', r"Invalid model|Can't load model|can't open file|can't open geometry file|Can't find model|No geometry",
+     'missing model'),
     (r'compile\.log', r'Main character <.*> error teleportation', 'teleport failed'),  # characters_login.c
     (r'.', r'\[(critical|error)\]', 'engine error'),
     # The renderer's lines: in system.log once the engine set its log sink (storm/render/log.hpp), on stdout before.
@@ -77,12 +78,13 @@ KNOWN_DEFECTS = json.loads((HERE / 'known_defects.json').read_text(encoding='utf
 
 
 def classify(scene, reasons):
-    """Splits a scene's reasons into (failing, known): a reason is known when an entry for this scene (or for
-    any scene, "*": a defect of the game's timed scripts shows wherever the sweep happens to be) matches it."""
+    """Splits a scene's reasons into (failing, known): a reason is known when an entry whose scene pattern matches
+    this scene ("*": any scene, a defect of the game's timed scripts shows wherever the sweep happens to be;
+    "loc:OldWorld_*": the scenes of one unshipped island) matches it."""
     failing, known = [], []
     for reason in reasons:
         match = next((defect for defect in KNOWN_DEFECTS
-                      if defect['scene'] in (scene, '*') and defect['error'] in reason), None)
+                      if fnmatch.fnmatchcase(scene, defect['scene']) and defect['error'] in reason), None)
         (known if match else failing).append(f"{reason} [known: {match['file']}]" if match else reason)
     return failing, known
 
@@ -501,6 +503,8 @@ class Shard(threading.Thread):
         environment = dict(os.environ, DISPLAY=f':{self.display}', XDG_DATA_HOME=str(run / 'data'),
                            SDL_VIDEODRIVER='x11', SDL_AUDIODRIVER='dummy', STORM_SCENE_SWEEP_DIR=str(control),
                            STORM_SCENE_SWEEP_SETTLE_MS=str(self.arguments.settle),
+                           # The script fails a scene that does not load with its own reason before the kill.
+                           STORM_SCENE_SWEEP_LOAD_TIMEOUT_MS=str(max(10, self.arguments.timeout - 30) * 1000),
                            STORM_SCENE_SWEEP_VARIANTS=self.arguments.variants)
         if self.arguments.render == 'llvmpipe':
             environment.update(LIBGL_ALWAYS_SOFTWARE='1', LP_NUM_THREADS=str(self.arguments.gl_threads))
@@ -529,7 +533,8 @@ class Shard(threading.Thread):
         tail = LogTail(stdout, run / 'data/Akella/Sea Dogs/Logs')
         position = 0
         current = None          # scene between its "begin" and "end"/"fail"
-        begun = loaded = time.monotonic()
+        # `ended`: when the last scene ended (or the engine started): the time between scenes counts from there.
+        begun = loaded = ended = time.monotonic()
         booted = False
         finished = False
         pending = []            # log lines not yet attributed to a scene
@@ -539,11 +544,12 @@ class Shard(threading.Thread):
         render_checked = False
 
         def close(scene, reasons):
-            nonlocal current, pending
+            nonlocal current, pending, ended
             reasons = reasons + metrics.pop('capture_reasons', []) + log_reasons(pending)
             self.record(scene, reasons, seconds=round(time.monotonic() - begun, 2), **metrics)
             pending = []
             current = None
+            ended = time.monotonic()
             if scene in self.queue:
                 self.queue.remove(scene)
 
@@ -633,7 +639,7 @@ class Shard(threading.Thread):
                 fatal = FATAL.search(stdout.read_text(errors='replace')[-4000:])
                 if fatal:
                     problem = f'fatal engine error: {fatal[1]}'
-            if not problem and now - (begun if current else loaded) > self.arguments.timeout:
+            if not problem and now - (begun if current else ended) > self.arguments.timeout:
                 problem = f'timeout: no result within {self.arguments.timeout} s'
             if not problem and self.context['stop'].is_set():
                 return
