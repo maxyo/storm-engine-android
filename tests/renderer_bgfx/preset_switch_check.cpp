@@ -341,6 +341,21 @@ int main()
             const int again = frames_until_active(frames, last, kept);
             ok &= expect(again == 1, "«Высокая» again: active at the next Present (programs kept, self-test passed)");
 
+            // «Высокая» with SMAA as well (fx_smaa=1; SMAA also replaces MSAA where that is unavailable): the most
+            // programs a preset prepares (14: PostChain::Prepare once wrote them past a 13-entry list).
+            {
+                ok &= expect(render::ConfigureEffects(2, {{"fx_smaa", 1}}).pending, "«Высокая» + SMAA: pending");
+                const int smaa = frames_until_active(frames, last, kept);
+                const fx::Settings &s = effects::Host::instance().settings();
+                std::printf("     «Высокая» + SMAA active after %d frames\n", smaa);
+                ok &= expect(smaa < kMaxSwitchFrames && s.smaa && s.ssao && s.bloom && s.sun_shafts && s.lens_flare &&
+                                 s.render_height && s.sharpen,
+                             "«Высокая» + SMAA: every program of its chain prepared, then active");
+                render::ConfigureEffects(2, {});
+                const int back = frames_until_active(frames, last, kept);
+                ok &= expect(back < kMaxSwitchFrames, "«Высокая» without SMAA again");
+            }
+
             // PowerVR profile: no MSAA, so no readable multisampled depth (ambient occlusion, the sea's soft edges).
             const effects::Host &host = effects::Host::instance();
             ok &= expect(host.settings().msaa > 1 && host.support().msaa_depth, "«Высокая»: MSAA with a readable depth");

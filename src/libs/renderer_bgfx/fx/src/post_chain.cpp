@@ -5,6 +5,7 @@
 #include "storm/fx/log.hpp"
 
 #include <algorithm>
+#include <bitset>
 #include <cmath>
 #include <cstring>
 
@@ -175,45 +176,47 @@ bgfx::ProgramHandle PostChain::CopyProgram()
 bool PostChain::Prepare(const Settings &settings, int &budget)
 {
     // The programs Submit() picks for these settings (a frame with the scene depth and the sun on screen).
-    int needed[13];
-    int count = 0;
-    needed[count++] = kWobble; // underwater, on every preset
-    needed[count++] = kCopy;   // a frame at the display size without post effects (or a scale that is 1 there)
+    // A set over the program enum, not a list: it holds every program at most once, so no preset can overflow it.
+    // std::bitset::set checks the index, so a new program past kCount fails loudly instead of writing the stack.
+    static_assert(Programs::kCount == kFlare + 1, "Programs::kCount must cover the program enum");
+    std::bitset<Programs::kCount> needed;
+    needed.set(kWobble); // underwater, on every preset
+    needed.set(kCopy);   // a frame at the display size without post effects (or a scale that is 1 there)
     if (settings.render_height && SupportsLut3d())
     {
-        needed[count++] = kEasu;
+        needed.set(kEasu);
         if (settings.sharpen)
-            needed[count++] = kRcas;
+            needed.set(kRcas);
     }
     if (!settings.PostIsIdentity() && SupportsLut3d())
     {
         if (settings.ssao)
-            needed[count++] = kSsao;
+            needed.set(kSsao);
         if (settings.bloom)
         {
-            needed[count++] = kBloomPrefilter;
-            needed[count++] = kBloomDown;
-            needed[count++] = kBloomUp;
+            needed.set(kBloomPrefilter);
+            needed.set(kBloomDown);
+            needed.set(kBloomUp);
             if (settings.sun_shafts)
-                needed[count++] = kShafts;
+                needed.set(kShafts);
         }
         if (NeedsComposite(settings))
-            needed[count++] = kComposite + (settings.bloom ? 1 : 0) + (settings.tonemap ? 2 : 0) + (settings.ssao ? 4 : 0);
+            needed.set(kComposite + (settings.bloom ? 1 : 0) + (settings.tonemap ? 2 : 0) + (settings.ssao ? 4 : 0));
         if (settings.smaa)
         {
-            needed[count++] = kSmaaEdges;
-            needed[count++] = kSmaaWeights;
-            needed[count++] = kSmaaBlend;
+            needed.set(kSmaaEdges);
+            needed.set(kSmaaWeights);
+            needed.set(kSmaaBlend);
         }
         if (settings.lens_flare)
-            needed[count++] = kFlare;
+            needed.set(kFlare);
     }
-    for (int i = 0; i < count; ++i)
-        if (!bgfx::isValid(programs_->handles[needed[i]]))
+    for (int index = 0; index < Programs::kCount; ++index)
+        if (needed.test(index) && !bgfx::isValid(programs_->handles[index]))
         {
             if (budget <= 0)
                 return false;
-            Program(needed[i]);
+            Program(index);
             --budget;
         }
     return true;
