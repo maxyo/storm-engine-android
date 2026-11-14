@@ -4374,11 +4374,11 @@ void Character::UpdateAnimation()
                           }
                         }
                  */
-                const char *pWeaponID;
+                std::string weapon_id = "blade";
                 VDATA *pdat = core.Event("eGetWeaponID", "s", characterID);
                 if (pdat)
                 {
-                    pWeaponID = pdat->GetString();
+                    weapon_id = pdat->GetString();
                 }
                 VDATA *vd = nullptr;
                 float recoilDist;
@@ -4402,7 +4402,7 @@ void Character::UpdateAnimation()
                     }
                     break;
                 case fgt_attack_force: // Slash and lunge with a slashing blow
-                    if (storm::iEquals(pWeaponID, "topor") && fgtSetIndex == 3)
+                    if (storm::iEquals(weapon_id, "topor") && fgtSetIndex == 3)
                     {
                         // if with an ax, then the lunge is changed to a chopping blow
                         fgtSetIndex = rand() % 2;
@@ -4577,7 +4577,7 @@ void Character::UpdateAnimation()
                 }
                 case fgt_block: // Saber protection
                     core.Send_Message(blade, "ll", MSG_BLADE_TRACE_OFF, 0);
-                    if (storm::iEquals(pWeaponID, "topor"))
+                    if (storm::iEquals(weapon_id, "topor"))
                     {
                         if (!(isSet = SetAction(blockaxe.name, blockaxe.tblend, 0.0f, 5.0f, true)))
                         {
@@ -4600,7 +4600,7 @@ void Character::UpdateAnimation()
                             break; // boal doesn't always break into animation
                     }
                     core.Send_Message(blade, "ll", MSG_BLADE_TRACE_OFF, 0);
-                    if (storm::iEquals(pWeaponID, "topor"))
+                    if (storm::iEquals(weapon_id, "topor"))
                     {
                         if (!(isSet = SetAction(blockaxehit.name, blockaxehit.tblend, 0.0f, 2.0f, true)))
                         {
