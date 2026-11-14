@@ -130,6 +130,14 @@ static fs::path MakePack(const fs::path &base, const fs::path &font)
                                    "<c-live-slide id=\"live\" value=\"10\"/></body></rml>");
     Write(pack / "slide-fine.rml", "<rml><head><style>body { font-family: LatoLatin; font-size: 16dp; width: 800dp; height: 400dp; }</style></head><body>"
                                    "<c-slide id=\"fine\" max=\"4000\"/></body></rml>");
+    // A list whose open row shows its amount under itself (C-TradeList): behaviour reveal.
+    components["components"].push_back(Json::parse(R"({
+        "tag": "c-open-list", "behaviors": ["reveal"],
+        "props": {"open": {"type": "int", "default": -1}, "amount": {"type": "int", "default": 0}},
+        "template": "<div id=\"olist\" style=\"position: absolute; left: 0; top: 0; width: 400dp; height: 200dp; overflow-y: auto;\"><t-for each=\"range(20)\" as=\"r\"><t-if test=\"r == open\"><div data-reveal=\"{{r}}\" style=\"display: block; height: 108dp;\">{{r}} {{amount}}</div><t-else/><div style=\"display: block; height: 48dp;\">{{r}}</div></t-if></t-for></div>"})"));
+    Write(pack / "open-list.rml", "<rml><head><style>body { font-family: LatoLatin; font-size: 16dp; width: 800dp; height: 400dp; }"
+                                  " .scroll-fade { position: absolute; left: 0; right: 0; height: 26dp; display: none; } .scroll-below > .scroll-fade { display: block; }"
+                                  "</style></head><body><c-open-list id=\"opener\"/></body></rml>");
     Write(pack / "components.json", components.dump());
     {
         Json rows = Json::array();
@@ -814,6 +822,39 @@ int main(int argc, char **argv)
         const auto [least, most] = drag(true);
         Expect(least > 8.1f && most < 8.6f, "placed for the frame's time it moves evenly: 8.33 px in every frame (" + std::to_string(least) + " to " +
                                                 std::to_string(most) + ")");
+    }
+
+    // A row that opens is scrolled into view whole, clear of the bottom fade while more rows follow
+    // (20 rows of 48 dp in a 200 dp list; the open one is 108 dp); a row that stays open is left
+    // where the player scrolled it.
+    Expect(host->LoadDocument("open-list.rml"), "the open-list document loads");
+    frames(0.1);
+    {
+        Rml::Element *list = nullptr;
+        if (Rml::Context *context = Rml::GetContext("storm-ui"))
+            for (int i = 0; i < context->GetNumDocuments() && !list; ++i)
+                list = context->GetDocument(i)->GetElementById("olist");
+        Expect(list != nullptr, "the open list is there");
+        const auto open = [&](int row, int amount = 0) {
+            Expect(host->SetProps("opener", Json{{"open", row}, {"amount", amount}}.dump()), "row " + std::to_string(row) + " opens");
+            frames(1.0);
+            return list ? list->GetScrollTop() : -1.0f;
+        };
+        const auto near = [](float a, float b) { return std::fabs(a - b) < 1.0f; };
+        float top = open(1);
+        Expect(near(top, 0.0f), "a row that opens inside the view does not move the list (" + std::to_string(top) + ")");
+        top = open(3);
+        Expect(near(top, 78.0f), "a row that opens past the bottom edge comes up whole, 26 dp of fade under it (" + std::to_string(top) + ", want 78)");
+        list->SetScrollTop(0.0f);
+        frames(0.1);
+        top = open(3, 7);
+        Expect(near(top, 0.0f), "the open row's amount changes: the list stays where the player scrolled it (" + std::to_string(top) + ")");
+        top = open(15);
+        Expect(near(top, 654.0f), "a row far below opens: the least scroll that shows it (" + std::to_string(top) + ", want 654)");
+        top = open(19);
+        Expect(near(top, 820.0f), "the last row opens: the list goes to its end, no fade to clear (" + std::to_string(top) + ", want 820)");
+        top = open(0);
+        Expect(near(top, 0.0f), "a row above the view opens: its top comes to the top edge (" + std::to_string(top) + ")");
     }
 
     host.reset();

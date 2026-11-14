@@ -15,6 +15,9 @@
 //           then given a common min-width), so numeric columns line up without the
 //           screen guessing widths
 //
+//   reveal  data-reveal="key" on a part that opens (a row with its amount under it): a key new
+//           in a render is scrolled into its closest scrolling box, whole and clear of the fade
+//
 //   panzoom data-panzoom on the viewport (clips), data-plane on the picture plane inside it;
 //           props base [w, h] and view [x0, y0, x1, y1] (the part shown first) in the units the
 //           game measures the picture in. One finger pans, two pinch; a tap reports
@@ -1185,8 +1188,85 @@ class ColumnsBehavior final : public Behavior
     int attempts_ = 0;
 };
 
+// A part that opens is brought into view: a key of data-reveal that was not in the previous
+// render (a list row that opened its amount under itself) is scrolled into its closest scrolling
+// box once it is laid out (Rebuilt runs inside the context update that lays it out, so the next
+// Tick sees its final box). The scroll is the least move that shows the whole part (its top when
+// it is taller than the box), clear of the bottom edge's fade (.scroll-fade) while more content
+// follows. A key that stays open never scrolls again: the amount changing under the finger or
+// the player's own scroll away from the row are left alone.
+class RevealBehavior final : public Behavior
+{
+  public:
+    void Rebuilt(ComponentElement &self) override
+    {
+        std::vector<Rml::Element *> parts;
+        AllWith(&self, "data-reveal", parts);
+        std::set<std::string> keys;
+        for (Rml::Element *part : parts)
+            keys.insert(Attr(part, "data-reveal"));
+        for (const std::string &key : keys)
+            if (!shown_.count(key))
+                pending_.insert(key);
+        for (auto it = pending_.begin(); it != pending_.end();)
+            it = keys.count(*it) ? std::next(it) : pending_.erase(it);
+        shown_ = std::move(keys);
+        if (!pending_.empty())
+            self.Host().RequestTicks(self, true);
+    }
+
+    void Tick(ComponentElement &self, double) override
+    {
+        std::vector<Rml::Element *> parts;
+        AllWith(&self, "data-reveal", parts);
+        for (Rml::Element *part : parts)
+            if (pending_.erase(Attr(part, "data-reveal")))
+                Reveal(part);
+        pending_.clear();
+        self.Host().RequestTicks(self, false);
+    }
+
+  private:
+    static void Reveal(Rml::Element *part)
+    {
+        Rml::Element *box = part->GetParentNode();
+        for (; box; box = box->GetParentNode())
+        {
+            const auto overflow = box->GetComputedValues().overflow_y();
+            if (overflow == Rml::Style::Overflow::Auto || overflow == Rml::Style::Overflow::Scroll)
+                break;
+        }
+        if (!box)
+            return; // not in a scrolling box: always in view
+        const float view = box->GetClientHeight();
+        const float range = box->GetScrollHeight() - view;
+        if (range <= 0.5f)
+            return;
+        const float scroll = box->GetScrollTop();
+        // The part's edges in the box's content (its border box against the box's padding edge).
+        const float top = part->GetAbsoluteOffset(Rml::BoxArea::Border).y - box->GetAbsoluteOffset(Rml::BoxArea::Padding).y + scroll;
+        const float bottom = top + part->GetBox().GetSize(Rml::BoxArea::Border).y;
+        float fade = 0.0f;
+        for (int i = 0; i < box->GetNumChildren(); ++i)
+            if (box->GetChild(i)->IsClassSet("scroll-fade"))
+                fade = box->GetChild(i)->GetOffsetHeight();
+        const float below = bottom < box->GetScrollHeight() - 0.5f ? fade : 0.0f; // the fade covers what is not the end
+        float target = scroll;
+        if (top < scroll)
+            target = top;
+        else if (bottom + below > scroll + view)
+            target = std::min(top, bottom + below - view);
+        target = std::clamp(target, 0.0f, range);
+        if (std::fabs(target - scroll) >= 0.5f)
+            box->ScrollTo({box->GetScrollLeft(), target}, Rml::ScrollBehavior::Smooth);
+    }
+
+    std::set<std::string> shown_, pending_;
+};
+
 void RegisterBuiltinBehaviors()
 {
+    RegisterBehavior("reveal", &Make<RevealBehavior>);
     RegisterBehavior("press", &Make<PressBehavior>);
     RegisterBehavior("toast", &Make<ToastBehavior>);
     RegisterBehavior("range", &Make<RangeBehavior>);
