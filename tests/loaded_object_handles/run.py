@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run actual save-reader methods with real DATA/ATTRIBUTES/EntityManager."""
+"""Run the actual save reader (save_state.hpp) with real DATA/ATTRIBUTES/EntityManager."""
 import argparse
 import os
 from pathlib import Path
@@ -14,17 +14,9 @@ a = p.parse_args()
 r = a.source_root.resolve()
 deps = a.dependency_sources.resolve()
 test_dir = Path(__file__).resolve().parent
-source = (r/'src/libs/core/src/compiler.cpp').read_text()
-# Extract complete, unchanged production methods. The fixture supplies only the
-# compiler's surrounding variable table, codec, buffer and diagnostic plumbing;
-# it does not contain a second implementation of the object deserializer.
-methods = ['bool COMPILER::ReadData(', 'uint32_t COMPILER::ReadVDword()',
-           'char *COMPILER::ReadString()', 'bool COMPILER::ReadVariable(',
-           'void COMPILER::ReadAttributesData(']
+# The save reader is save_state.hpp (included by check.cpp); the fixture supplies only the
+# compiler's surrounding variable table, codec and diagnostic plumbing.
 parts = []
-for start in methods:
-    offset = source.index(start)
-    parts.append(source[offset:source.index('\n}', offset) + 2].replace('COMPILER::', 'SaveReader::'))
 
 # Script DeleteEntity runs COMPILER::DeleteScriptEntity, also extracted unchanged.
 functions = (r/'src/libs/core/src/internal_functions.cpp').read_text()

@@ -18,6 +18,7 @@
 #include "platform/path_fingerprint.hpp"
 #include "save_file.hpp"
 #include "save_references.hpp"
+#include "save_state.hpp"
 #include "script_cache.h"
 #include "script_cache_files.hpp"
 #include "storm_assert.h"
@@ -6047,36 +6048,6 @@ void COMPILER::SaveData(const void *data_PTR, uint32_t data_size)
     dwCurPointer += data_size;
 }
 
-bool COMPILER::ReadData(void *data_PTR, uint32_t data_size)
-{
-    if (data_PTR == nullptr)
-    {
-        dwCurPointer += data_size;
-        return true;
-    }
-    if (dwCurPointer + data_size > dwMaxSize)
-        return false;
-
-    /*    if (data_size < 16)
-      {
-        char * pReadBuffer = &pBuffer[dwCurPointer];
-        _asm
-        {
-          mov ecx, data_size
-          mov edi, data_PTR
-          mov esi, pReadBuffer
-
-          rep movsb
-        }
-      }
-      else*/
-    memcpy(data_PTR, &pBuffer[dwCurPointer], data_size);
-
-    dwCurPointer += data_size;
-
-    return true;
-}
-
 void COMPILER::WriteVDword(uint32_t v)
 {
     /*    BYTE nbv;
@@ -6109,25 +6080,6 @@ void COMPILER::WriteVDword(uint32_t v)
     }
 }
 
-uint32_t COMPILER::ReadVDword()
-{
-    uint8_t nbv;
-    uint16_t nwv;
-    uint32_t v;
-    ReadData(&nbv, 1);
-    if (nbv < 0xfe)
-    {
-        return nbv;
-    }
-    if (nbv == 0xfe)
-    {
-        ReadData(&nwv, sizeof(nwv));
-        return nwv;
-    }
-    ReadData(&v, sizeof(uint32_t));
-    return v;
-}
-
 void COMPILER::SaveString(const char *pS)
 {
     if (pS == nullptr)
@@ -6138,243 +6090,6 @@ void COMPILER::SaveString(const char *pS)
     const uint32_t n = strlen(pS) + 1;
     WriteVDword(n);
     SaveData(pS, n);
-}
-
-char *COMPILER::ReadString()
-{
-    const uint32_t n = ReadVDword();
-    if (n == 0)
-        return nullptr;
-
-    char *pBuffer = new char[n];
-    ReadData(pBuffer, n);
-    if (!utf8::IsValidUtf8(pBuffer))
-    {
-        spdlog::warn("Deserializing invalid utf8 string: {}", pBuffer);
-    }
-    return pBuffer;
-}
-
-bool COMPILER::ReadVariable(char *name, /* DWORD code,*/ bool bDim, uint32_t a_index)
-{
-    int32_t nLongValue;
-    uintptr_t ptrValue;
-    float fFloatValue;
-    char *pString;
-    uint32_t var_index;
-    uint32_t array_index;
-    uint32_t nElementsNum;
-    ATTRIBUTES *pA;
-    S_TOKEN_TYPE eType;
-    const VarInfo *real_var;
-    const VarInfo *real_var_ref;
-    DATA *pV;
-    DATA *pVRef;
-    entid_t eid;
-    uint32_t var_code;
-    bool bSkipVariable;
-
-    bSkipVariable = false;
-    var_code = VarTab.FindVar(name);
-    if (var_code == INVALID_VAR_CODE)
-    {
-        SetError("Load warning - variable: '%s' not found", name);
-        bSkipVariable = true;
-    }
-    else
-    {
-        real_var = VarTab.GetVarX(var_code);
-        if (real_var == nullptr)
-        {
-            SetError("Load warning - variable: '%s' has invalid var code", name);
-            bSkipVariable = true;
-        }
-        else
-        {
-            pV = real_var->value.get();
-        }
-    }
-
-    if (!bDim) // skip this info for array elements
-    {
-        // trace("Read[%d]: %s",code,vi.name);
-        ReadData(&eType, sizeof(eType));
-        Assert(eType < S_TOKEN_TYPE::TOKEN_TYPES_COUNT);
-        if (!bSkipVariable)
-            if (real_var->type != eType)
-            {
-                SetError("load type mismatch");
-                return false;
-            }
-        ReadData(&nElementsNum, sizeof(nElementsNum));
-        if (!bSkipVariable)
-            if (real_var->elements != nElementsNum)
-            {
-                // ???
-                // SetError("load size mismatch");
-                // return false;
-                real_var->value->SetElementsNum(nElementsNum);
-                if (!VarTab.SetElementsNum(var_code, nElementsNum))
-                {
-                    core_internal.Trace("Unable to set elements num for %s", real_var->name.c_str());
-                }
-            }
-    }
-    else
-    {
-        if (bSkipVariable)
-        {
-            SetError("Load - lost element");
-            return false;
-        }
-        nElementsNum = 1;
-        eType = pV->GetType();
-        pV = pV->GetArrayElement(a_index);
-    }
-
-    if (nElementsNum > 1) // array
-    {
-        // load array elements
-        for (uint32_t n = 0; n < nElementsNum; n++)
-        {
-            if (bSkipVariable)
-            {
-                if (eType == S_TOKEN_TYPE::VAR_INTEGER)
-                    ReadData(nullptr, sizeof(int32_t));
-                else if (eType == S_TOKEN_TYPE::VAR_FLOAT)
-                    ReadData(nullptr, sizeof(float));
-                else if (eType == S_TOKEN_TYPE::VAR_STRING)
-                    ReadString();
-                else if (eType == S_TOKEN_TYPE::VAR_OBJECT)
-                {
-                    ReadData(nullptr, sizeof(uint64_t));
-                    ATTRIBUTES TA(&SCodec);
-                    ReadAttributesData(&TA, nullptr);
-                }
-                else
-                    Assert(false);
-                continue;
-            }
-
-            if (!ReadVariable(name, /*code,*/ true, n))
-                return false;
-        }
-        return true;
-    }
-
-    switch (eType)
-    {
-    case VAR_INTEGER:
-        ReadData(&nLongValue, sizeof(nLongValue));
-        if (bSkipVariable)
-            break;
-        pV->Set(nLongValue);
-        break;
-    case VAR_PTR:
-        ReadData(&ptrValue, sizeof(ptrValue));
-        if (bSkipVariable)
-            break;
-        pV->SetPtr(ptrValue);
-        break;
-    case VAR_FLOAT:
-        ReadData(&fFloatValue, sizeof(fFloatValue));
-        if (bSkipVariable)
-            break;
-        pV->Set(fFloatValue);
-        break;
-    case VAR_STRING:
-        pString = ReadString();
-        if (pString)
-        {
-            if (!bSkipVariable)
-                pV->Set(pString);
-            delete[] pString;
-        }
-        break;
-    case VAR_OBJECT:
-        ReadData(&eid, sizeof(eid));
-        if (!bSkipVariable)
-        {
-            // Saves contain script attributes, not the runtime entities they
-            // once referenced. OnLoad recreates those entities explicitly.
-            // Keep consuming the legacy handle for file compatibility, but
-            // never bind it to an unrelated entity in this process.
-            pV->Set(invalid_entity);
-
-            if (pV->AttributesClass == nullptr)
-                pV->AttributesClass = new ATTRIBUTES(&SCodec);
-            ReadAttributesData(pV->AttributesClass, nullptr);
-        }
-        else
-        {
-            ATTRIBUTES *pTA = new ATTRIBUTES(&SCodec);
-            ReadAttributesData(pTA, nullptr);
-            delete pTA;
-        }
-        break;
-    case VAR_REFERENCE:
-        var_index = ReadVDword();
-        if (var_index == 0xffffffff)
-            break; // uninitialized ref
-        array_index = ReadVDword();
-        if (bSkipVariable)
-            break;
-        real_var_ref = VarTab.GetVarX(var_index);
-        if (real_var_ref == nullptr)
-        {
-            SetError("State read error");
-            return false;
-        }
-
-        pVRef = real_var_ref->value.get();
-        if (array_index != 0xffffffff)
-        {
-            pVRef = pVRef->GetArrayElement(array_index);
-        }
-        pV->SetReference(pVRef);
-        break;
-    case VAR_AREFERENCE:
-        pA = nullptr;
-        var_index = ReadVDword();
-        if (var_index == 0xffffffff)
-            break;
-        array_index = ReadVDword();
-        pString = ReadString();
-        if (bSkipVariable)
-        {
-            delete[] pString;
-            break;
-        }
-
-        real_var_ref = VarTab.GetVarX(var_index);
-        if (real_var_ref == nullptr)
-        {
-            delete[] pString;
-            SetError("State read error");
-            return false;
-        }
-
-        pVRef = real_var_ref->value.get();
-        if (array_index != 0xffffffff)
-        {
-            pVRef = pVRef->GetArrayElement(array_index);
-        }
-
-        if (pVRef->AttributesClass == nullptr)
-            pVRef->AttributesClass = new ATTRIBUTES(&SCodec);
-        if (pString)
-        {
-            pA = pVRef->AttributesClass->CreateSubAClass(pVRef->AttributesClass, pString);
-            delete[] pString;
-        }
-        pV->SetAReference(pA);
-
-        break;
-    default:
-        SetError("Unknown token type: %i", eType);
-    }
-
-    return true;
 }
 
 void COMPILER::SaveVariable(DATA *pV, bool bdim)
@@ -6406,11 +6121,44 @@ void COMPILER::SaveVariable(DATA *pV, bool bdim)
 
     if (pV->IsArray())
     {
-        for (n = 0; n < pV->GetElementsNum(); n++)
+        // Elements carry no type of their own in the save: the load reads each with the array's
+        // type. An element whose type changed at run time (`a[i] += 0.5` in an int array,
+        // DATA::Plus) is written converted to it, or every value after it would be misread.
+        const S_TOKEN_TYPE arrayType = pV->GetType();
+        for (n = 0; n < pV->GetArraySize(); n++)
         {
-            // sprintf_s(gs,"    [index : %d]\n",n);
-            // OutputDebugString(gs);
-            SaveVariable(pV->GetArrayElement(n), true);
+            DATA *element = pV->GetArrayElement(n);
+            const S_TOKEN_TYPE elementType = element->GetType();
+            if (elementType == arrayType)
+            {
+                SaveVariable(element, true);
+                continue;
+            }
+            DATA converted(arrayType);
+            converted.SetVCompiler(this);
+            const bool scalar = [&] {
+                const auto isScalar = [](S_TOKEN_TYPE type) {
+                    return type == VAR_INTEGER || type == VAR_FLOAT || type == VAR_STRING;
+                };
+                return isScalar(arrayType) && isScalar(elementType);
+            }();
+            if (scalar)
+            {
+                int32_t integer;
+                float real;
+                const char *text;
+                if (elementType == VAR_INTEGER && element->Get(integer))
+                    converted.Set(integer);
+                else if (elementType == VAR_FLOAT && element->Get(real))
+                    converted.Set(real);
+                else if (elementType == VAR_STRING && element->Get(text))
+                    converted.Set(text);
+                converted.Convert(arrayType);
+            }
+            SetError("Save: element %u of '%s' is %s in an array of %s; saved %s", n, save_variable_name_,
+                     storm::save::typeName(elementType), storm::save::typeName(arrayType),
+                     scalar ? "converted" : "as an empty value");
+            SaveVariable(&converted, true);
         }
         return;
     }
@@ -6597,45 +6345,24 @@ bool COMPILER::SaveState(std::vector<char> &image)
     return built;
 }
 
-// `raw` is the already validated, uncompressed script state (see save_file.hpp).
-// Validation happens before the caller erases the running game, so a corrupt
-// file can no longer destroy the current session.
-bool COMPILER::LoadState(const std::vector<char> &raw)
+// `raw` is the uncompressed script state (save_file.hpp) and `state` its structure, both
+// checked before the caller erased the running game (save_state.hpp): from here on nothing of
+// the file can fail. What remains is the program itself (a segment that does not compile).
+bool COMPILER::LoadState(const std::vector<char> &raw, const storm::save::ParsedState &state)
 {
-    uint32_t n;
-    char *pString;
-
-    delete[] pBuffer;
-    pBuffer = nullptr;
-    if (raw.empty())
-    {
-        return false;
-    }
-
-    pBuffer = new char[raw.size()];
-    memcpy(pBuffer, raw.data(), raw.size());
-    dwMaxSize = static_cast<uint32_t>(raw.size());
-    dwCurPointer = 0;
-
     // Release all data
     Release();
 
     // 1. Program Directory
-    ProgramDirectory = ReadString();
-
-    // 4. SCodec data
-    const uint32_t nSCStringsNum = ReadVDword();
-    for (n = 0; n < nSCStringsNum; n++)
+    if (state.programDirectory)
     {
-        pString = ReadString();
-        if (pString)
-        {
-            SCodec.Convert(pString);
-            delete[] pString;
-        }
+        ProgramDirectory = new char[state.programDirectory->size() + 1];
+        memcpy(ProgramDirectory, state.programDirectory->c_str(), state.programDirectory->size() + 1);
     }
 
-    const uint32_t nSegments2Load = ReadVDword();
+    // 4. SCodec data: in saved order, which gives every name its saved code
+    for (const auto &name : state.codec)
+        SCodec.Convert(name.c_str());
 
     // 3.  Segments names
     // 3.a Initialize internal functions
@@ -6643,80 +6370,20 @@ bool COMPILER::LoadState(const std::vector<char> &raw)
     InitInternalFunctions();
     LoadPreprocess();
 
-    for (n = 0; n < nSegments2Load; n++)
+    for (const auto &segment : state.segments)
     {
-        char *pSegmentName = ReadString();
-        if (!BC_LoadSegment(pSegmentName))
+        if (!BC_LoadSegment(segment.c_str()))
             return false;
-        delete[] pSegmentName;
     }
 
     // 5. Variables table, all variables created during previous step, just read value
-    const uint32_t nVarNum = ReadVDword();
-    for (n = 0; n < nVarNum; n++)
-    {
-        pString = ReadString();
-        if (pString == nullptr || strcmp(pString, "") == 0)
-        {
-            SetError("missing variable name");
-            return false;
-        }
-        ReadVariable(pString /*,n*/);
-
-        delete[] pString;
-    }
+    storm::save::applyVariables(raw.data(), raw.size(), state.variables, VarTab, &SCodec,
+                                [this](const std::string &line) { SetError("%s", line.c_str()); });
 
     // call to script function "OnLoad()"
     OnLoad();
 
-    delete[] pBuffer;
-    pBuffer = nullptr;
-
     return true;
-}
-
-void COMPILER::ReadAttributesData(ATTRIBUTES *pRoot, ATTRIBUTES *pParent)
-{
-    uint32_t nSubClassesNum;
-    uint32_t n;
-    uint32_t nNameCode;
-    // char * pName;
-    char *pValue;
-
-    if (pRoot == nullptr)
-    {
-        nSubClassesNum = ReadVDword();
-        nNameCode = ReadVDword();
-
-        // DTrace(SCodec.Convert(nNameCode));
-        pValue = ReadString();
-        pParent->SetAttribute(nNameCode, pValue);
-        pRoot = pParent->GetAttributeClassByCode(nNameCode);
-        delete[] pValue;
-        for (n = 0; n < nSubClassesNum; n++)
-        {
-            ReadAttributesData(nullptr, pRoot);
-        }
-
-        return;
-    }
-
-    nSubClassesNum = ReadVDword();
-    nNameCode = ReadVDword();
-    pValue = ReadString();
-    // pRoot->SetAttribute(nNameCode,pValue);
-
-    pRoot->SetNameCode(nNameCode);
-    pRoot->SetValue(pValue);
-
-    for (n = 0; n < nSubClassesNum; n++)
-    {
-        // ReadAttributesData(pRoot->GetAttributeClass(n));
-        ReadAttributesData(nullptr, pRoot);
-    }
-
-    // if(pName) delete pName;
-    delete[] pValue;
 }
 
 void COMPILER::SaveAttributesData(ATTRIBUTES *pRoot)

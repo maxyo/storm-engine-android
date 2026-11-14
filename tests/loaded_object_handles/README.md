@@ -30,13 +30,12 @@ checks message delivery and visibility through both restored reference types.
 The receiver fixture uses the group string protocol; it does not substitute for
 an on-device test of the full location AI.
 
-To keep this check bounded, the runner extracts the complete production bodies
-of `ReadVariable`, `ReadAttributesData`, `ReadData`, `ReadVDword` and `ReadString`
-from `compiler.cpp`. Only their class qualifier is renamed to `SaveReader`.
-The surrounding fixture supplies a buffer, codec and diagnostics. It links the
-real `DATA`, `ATTRIBUTES`, `VarTable`, `EntityManager` and `MESSAGE` implementations.
-The temporary copy of `data.cpp` replaces its unused `core_impl.h` include to
-avoid instantiating the inline full-engine singleton. No production method body
+To keep this check bounded, it runs the production save reader of
+`src/libs/core/src/save_state.hpp` (`parseVariables`, `applyVariables`: the code
+`COMPILER::LoadState` runs) around a fixture that supplies a codec and diagnostics.
+It links the real `DATA`, `ATTRIBUTES`, `VarTable`, `EntityManager` and `MESSAGE`
+implementations. The temporary copy of `data.cpp` replaces its unused `core_impl.h`
+include to avoid instantiating the inline full-engine singleton. No production code
 is replaced or reimplemented.
 
 In the stock script lifecycle, location AI saves group relations to attributes

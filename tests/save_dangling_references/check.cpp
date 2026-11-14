@@ -14,6 +14,7 @@
 #include "utf8.h"
 #ifndef STORM_SAVE_BASELINE
 #include "save_references.hpp"
+#include "save_state.hpp"
 #endif
 
 namespace
@@ -92,12 +93,12 @@ class COMPILER final : public VIRTUAL_COMPILER
     bool FindReferencedVariable(DATA *, uint32_t &, uint32_t &);
     bool FindReferencedVariableByRootA(ATTRIBUTES *, uint32_t &, uint32_t &);
     ATTRIBUTES *TraceARoot(ATTRIBUTES *, const char *&);
-#endif
     bool ReadData(void *, uint32_t);
     uint32_t ReadVDword();
     char *ReadString();
     bool ReadVariable(char *, bool = false, uint32_t = 0);
     void ReadAttributesData(ATTRIBUTES *, ATTRIBUTES *);
+#endif
 
     DATA &add(const char *name, S_TOKEN_TYPE type, uint32_t count = 1)
     {
@@ -111,6 +112,7 @@ class COMPILER final : public VIRTUAL_COMPILER
     // The variables part of COMPILER::SaveState.
     std::vector<char> save()
     {
+        WriteVDword(VarTab.GetVarNum());
 #ifndef STORM_SAVE_BASELINE
         const storm::save::ReferenceIndex references(VarTab);
         save_references_ = &references;
@@ -126,6 +128,7 @@ class COMPILER final : public VIRTUAL_COMPILER
         }
         return {pBuffer, pBuffer + dwCurPointer};
     }
+#ifdef STORM_SAVE_BASELINE
     void load(std::vector<char> bytes)
     {
         delete[] pBuffer;
@@ -133,6 +136,7 @@ class COMPILER final : public VIRTUAL_COMPILER
         memcpy(pBuffer, bytes.data(), bytes.size());
         dwCurPointer = 0;
         dwMaxSize = bytes.size();
+        ReadVDword(); // the variable count
         for (size_t n = 0; n < VarTab.GetVarNum(); ++n)
         {
             char *name = ReadString();
@@ -142,6 +146,19 @@ class COMPILER final : public VIRTUAL_COMPILER
         }
         require(dwCurPointer == dwMaxSize, "the saved stream has a different length than the reader consumed");
     }
+#else
+    // The variables part of COMPILER::LoadState and of the check before it (save_state.hpp).
+    void load(const std::vector<char> &bytes)
+    {
+        storm::save::StateReader in(bytes.data(), bytes.size());
+        std::vector<storm::save::SavedVariable> variables;
+        std::string error;
+        require(storm::save::parseVariables(in, variables, error), "the saved variables do not parse");
+        require(in.Remaining() == 0, "the saved stream has a different length than the reader consumed");
+        storm::save::applyVariables(bytes.data(), bytes.size(), variables, VarTab, &SCodec,
+                                    [this](const std::string &line) { errors.push_back(line); });
+    }
+#endif
 };
 
 #include "methods.inc"
@@ -230,6 +247,7 @@ void danglingReferences()
     require(loaded.arefs.GetArrayElement(0)->AttributesClass == nullptr, "the dangling array aref was not saved empty");
     require(loaded.arefs.GetArrayElement(1)->AttributesClass == at(loadedTown, "id") &&
                 at(loadedTown, "id")->GetValue() == "Town", "a live aref of an array element was lost");
+    require(loaded.heroRoot.AttributesClass == loaded.hero.GetAClass(), "an aref to an object's root was not restored");
     require(loaded.cannons.AttributesClass == at(loaded.hero, "ship.cannons") &&
                 loaded.cannons.AttributesClass->GetValue() == "16", "a live aref was lost");
     require(loaded.localAttribute.AttributesClass == nullptr && loaded.unset.AttributesClass == nullptr &&

@@ -31,7 +31,8 @@ def build(root, directory, baseline):
     source = (root / 'src/libs/core/src/compiler.cpp').read_text()
     parts = []
     # Complete, unchanged production methods of COMPILER; check.cpp declares that class around them.
-    for start in WRITER + READER + (BASELINE if baseline else []):
+    # The fixed tree reads with save_state.hpp; the baseline with its reader methods.
+    for start in WRITER + (READER + BASELINE if baseline else []):
         offset = source.index(start)
         parts.append(source[offset:source.index('\n}', offset) + 2])
     b = Path(directory)

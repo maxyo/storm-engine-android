@@ -122,6 +122,12 @@ class DATA : public VDATA
     {
         return bArray;
     };
+    // The elements of this variable itself; GetElementsNum of a `ref` follows the reference
+    // (an array of refs answers 0 there).
+    uint32_t GetArraySize() const
+    {
+        return bArray ? Number_of_elements : 1;
+    }
     bool IsReference() override;
     bool IsAReference() override;
     DATA *GetVarPointer() override;

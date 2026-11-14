@@ -12,6 +12,7 @@
 #include "entity_manager.h"
 #include "message.h"
 #include "s_vartab.h"
+#include "save_state.hpp"
 #include "utf8.h"
 #include "vma.hpp"
 
@@ -58,24 +59,16 @@ struct EntityCore
     void EraseEntity(entid_t id) { entities->EraseEntity(id); }
 } core;
 
-// A bounded compiler fixture: the reader methods below come verbatim from the
-// selected production compiler.cpp, including recursive objects/arrays/refs.
+// A bounded compiler fixture around the production save reader (save_state.hpp, the code
+// COMPILER::LoadState runs) and DeleteScriptEntity, which run.py extracts verbatim.
 class SaveReader final : public VIRTUAL_COMPILER
 {
 public:
     Codec SCodec;
     VarTable VarTab;
-    std::vector<char> input;
-    char *pBuffer{};
-    uint32_t dwCurPointer{}, dwMaxSize{};
     SaveReader() { VarTab.SetVCompiler(this); }
     VSTRING_CODEC *GetVSC() override { return &SCodec; }
     void SetError(const char *, ...) override { throw std::runtime_error("unexpected reader error"); }
-    bool ReadData(void *, uint32_t);
-    uint32_t ReadVDword();
-    char *ReadString();
-    bool ReadVariable(char *, bool = false, uint32_t = 0);
-    void ReadAttributesData(ATTRIBUTES *, ATTRIBUTES *);
     void DeleteScriptEntity(DATA &object);
     DATA &add(const char *name, S_TOKEN_TYPE type, uint32_t count = 1)
     {
@@ -86,14 +79,20 @@ public:
         info.segment_id = 0;
         return *VarTab.GetVarX(VarTab.AddVar(info))->value;
     }
-    void load(const char *name, std::vector<char> bytes)
+    // `bytes` is one saved variable without its name: the variables section holding only it.
+    void load(const char *name, const std::vector<char> &bytes)
     {
-        input = std::move(bytes);
-        pBuffer = input.data();
-        dwCurPointer = 0;
-        dwMaxSize = input.size();
-        require(ReadVariable(const_cast<char *>(name)), "reader rejected variable");
-        require(dwCurPointer == dwMaxSize, "legacy stream alignment changed");
+        const uint32_t length = strlen(name) + 1;
+        std::vector<char> input{1, static_cast<char>(length)};
+        input.insert(input.end(), name, name + length);
+        input.insert(input.end(), bytes.begin(), bytes.end());
+        storm::save::StateReader in(input.data(), input.size());
+        std::vector<storm::save::SavedVariable> variables;
+        std::string error;
+        require(storm::save::parseVariables(in, variables, error), "reader rejected variable");
+        require(in.Remaining() == 0, "legacy stream alignment changed");
+        storm::save::applyVariables(input.data(), input.size(), variables, VarTab, &SCodec,
+                                    [](const std::string &line) { throw std::runtime_error("reader reported: " + line); });
     }
 };
 

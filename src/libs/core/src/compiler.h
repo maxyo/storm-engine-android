@@ -86,6 +86,7 @@ class CoreImpl;
 namespace storm::save
 {
 class ReferenceIndex;
+struct ParsedState;
 }
 
 class COMPILER : public VIRTUAL_COMPILER
@@ -218,20 +219,15 @@ class COMPILER : public VIRTUAL_COMPILER
     void ProcessEvent(const char *event_name, MESSAGE *pMs);
 
     bool SaveState(std::vector<char> &image);
-    bool LoadState(const std::vector<char> &raw);
+    bool LoadState(const std::vector<char> &raw, const storm::save::ParsedState &state);
     bool OnLoad();
     void SaveDataDebug(char *data_PTR, ...);
     void SaveData(const void *data_PTR, uint32_t data_size);
-    bool ReadData(void *data_PTR, uint32_t data_size);
     void SaveString(const char *pS);
-    char *ReadString();
 
     void SaveVariable(DATA *pV, bool bdim = false);
-    bool ReadVariable(char *name, /*DWORD code,*/ bool bdim = false, uint32_t a_index = 0);
     void SaveAttributesData(ATTRIBUTES *pRoot);
-    void ReadAttributesData(ATTRIBUTES *pRoot, ATTRIBUTES *pParent);
     void WriteVDword(uint32_t v);
-    uint32_t ReadVDword();
 
     void AddPostEvent(S_EVENTMSG *pEM);
 

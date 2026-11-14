@@ -12,6 +12,7 @@
 #include "platform/host_hooks.hpp"
 #include "profiler.hpp"
 #include "save_file.hpp"
+#include "save_state.hpp"
 #include "save_trash.hpp"
 
 #include <fstream>
@@ -712,6 +713,9 @@ std::string CoreImpl::StateFileProblem(const char *file_name)
         return error.empty() ? std::string("unreadable") : error;
     if (source == storm::save::Source::Backup)
         spdlog::warn("Save '{}': {}", file_name, error);
+    storm::save::ParsedState state;
+    if (!storm::save::parseState(raw.data(), raw.size(), state, error))
+        return "the script state is damaged: " + error;
     return {};
 }
 
@@ -762,11 +766,23 @@ void CoreImpl::ProcessStateLoading()
         return;
     }
     image = {};
+    // The whole script state is read before the game is erased: a state that does not parse
+    // costs nothing but this load (save_state.hpp).
+    storm::save::ParsedState state;
+    if (!storm::save::parseState(raw.data(), raw.size(), state, error))
+    {
+        spdlog::error("Save '{}' has a damaged script state, load cancelled: {}", State_file_name, error);
+        storm::loadWatch().Refused(State_file_name, "the script state is damaged: " + error);
+        delete[] State_file_name;
+        State_file_name = nullptr;
+        State_loading = false;
+        return;
+    }
 
     State_loading = true;
     EraseEntities();
 
-    if (!Compiler->LoadState(raw))
+    if (!Compiler->LoadState(raw, state))
     {
         spdlog::error("Save '{}' could not be applied", State_file_name);
         storm::loadWatch().Refused(State_file_name, "the game could not apply the record");

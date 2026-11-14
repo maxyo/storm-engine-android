@@ -12,7 +12,7 @@ def member(signature):
 methods='\n'.join(member(name) for name in ['void COMPILER::ResetAndroidUiAdapter()', 'void COMPILER::LoadAndroidUiAdapter()', 'bool COMPILER::Run()', 'bool COMPILER::OnLoad()'])
 release=member('void COMPILER::Release()');restore=member('bool COMPILER::LoadState(')
 assert release.index('ResetAndroidUiAdapter();')<release.index('EventTab.Release();')
-assert restore.index('Release();')<restore.index('BC_LoadSegment(pSegmentName)')<restore.index('OnLoad();')
+assert restore.index('Release();')<restore.index('BC_LoadSegment(segment.c_str())')<restore.index('OnLoad();')
 assert source.count('if (executed) LoadAndroidUiAdapter();')==2
 with tempfile.TemporaryDirectory(prefix='android-ui-bootstrap-') as temp:
  cpp=Path(temp)/'check.cpp';binary=Path(temp)/'check'
