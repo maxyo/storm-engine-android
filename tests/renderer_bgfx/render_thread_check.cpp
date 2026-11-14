@@ -4,7 +4,8 @@
 //      the backend self-test passes;
 //   2. frames present with the game thread taking turns with the render thread, and overlapping it;
 //   3. a surface release from another thread (Android's surfaceDestroyed) returns only when no frame is in flight,
-//      presentation stops, and resumes after the surface is restored: many times, at any point of a frame;
+//      presentation stops, and resumes after the surface is restored: many times, at any point of a frame; a restore
+//      asked for before the surface was destroyed again is dropped, the next one restores;
 //   4. the renderer shuts down and starts again.
 #include "device.hpp"
 #include "storm/render/frame_owner.hpp"
@@ -104,6 +105,19 @@ bool run(SDL_Window *window, bool render_thread)
         context.surface_restored();
         present(context, 5);
         ok &= expect(context.ready() && presented > 40, mode, "presentation resumes after the last restore");
+
+        // surfaceChanged, then surfaceDestroyed again before the game thread took the restore (fold, split screen,
+        // lock/unlock): the window SDL still hands out is the one being destroyed, so that restore is dropped; the
+        // next surfaceChanged restores.
+        context.request_surface_release();
+        present(context, 2);
+        context.request_surface_restore();
+        context.request_surface_release();
+        present(context, 3);
+        ok &= expect(!context.ready(), mode, "a restore asked for before the surface was destroyed again is dropped");
+        context.request_surface_restore();
+        present(context, 3);
+        ok &= expect(context.ready(), mode, "the next surfaceChanged restores");
         context.shutdown();
         ok &= expect(!context.initialised() && !context.frames_in_flight(), mode, "the renderer shuts down");
     }

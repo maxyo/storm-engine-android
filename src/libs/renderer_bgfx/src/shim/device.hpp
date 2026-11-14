@@ -96,7 +96,8 @@ class Context final : public render::FrameOwner
     void refresh_reset_flags();
     // Any thread: the display density changed; the game thread re-reads it at its next safe point.
     void request_density_refresh();
-    // Any thread: Android handed over a surface; restore once SDL holds its native window.
+    // Any thread: Android handed over a surface; restore once SDL holds its native window. A surfaceDestroyed after
+    // this request drops it (the window SDL may still hand out is the one going away): the next one restores.
     void request_surface_restore();
     // The game picture on the surface as of the last composite (game thread).
     render::PictureRect picture_rect() const { return picture_rect_; }
@@ -112,7 +113,8 @@ class Context final : public render::FrameOwner
     // Marks the surface for re-attachment; the actual bgfx reset happens once SDL holds a native window.
     void surface_restored();
     // Any thread (Android UI thread, before it destroys the surface): stops further presenting frames and
-    // blocks until the render thread has finished those handed over, or the timeout expires.
+    // blocks until the render thread has finished those handed over and a restore in progress has given the window
+    // to bgfx and Swappy, or the timeout expires.
     void request_surface_release();
     // Game thread, at safe points: honours a pending release request and retries a pending restore.
     void poll_surface();
@@ -192,8 +194,9 @@ class Context final : public render::FrameOwner
     uint32_t reset_flags() const;
     // Render thread (bgfx::setRenderFrameDone): frame `frame` is rendered and presented.
     static void render_frame_done(uint32_t frame);
-    // True when the render thread has finished every frame handed over; release_mutex_ held.
-    bool render_idle() const { return !in_frame_ && (!frames_handed_ || done_frame_ == handed_frame_); }
+    // True when the render thread has finished every frame handed over and no restore holds a native window it
+    // read; release_mutex_ held.
+    bool render_idle() const { return !in_frame_ && !restoring_ && (!frames_handed_ || done_frame_ == handed_frame_); }
     // Waits for render_idle(); `lock` holds release_mutex_. False after `what` was logged as an error (3 s).
     bool wait_render_idle(std::unique_lock<std::mutex> &lock, const char *what);
     // Game thread, after presenting frame `number` was handed to the render thread: waits for the frame that
@@ -218,6 +221,9 @@ class Context final : public render::FrameOwner
     std::atomic<bool> surface_in_use_{false};
     // Guarded by release_mutex_; release_done_ is notified when any of them changes.
     bool in_frame_ = false;       // the game thread is inside bgfx::frame()
+    bool restoring_ = false;      // try_restore holds a native window it read (until bgfx and Swappy have it)
+    uint64_t surface_destroys_ = 0; // request_surface_release calls (Android's surfaceDestroyed)
+    uint64_t restore_destroys_ = 0; // surface_destroys_ when the pending restore was asked for
     bool frames_handed_ = false;  // handed_frame_ is a frame of this device
     uint32_t handed_frame_ = 0;   // number of the last frame bgfx::frame() handed to the render thread
     uint32_t done_frame_ = 0;     // number of the last frame the render thread finished

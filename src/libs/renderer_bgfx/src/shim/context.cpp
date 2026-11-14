@@ -831,6 +831,8 @@ void Context::request_density_refresh()
 
 void Context::request_surface_restore()
 {
+    std::lock_guard lock(release_mutex_);
+    restore_destroys_ = surface_destroys_;
     restore_requested_ = true;
 }
 
@@ -875,7 +877,8 @@ void Context::surface_lost()
 void Context::request_surface_release()
 {
     std::unique_lock lock(release_mutex_);
-    if (!surface_in_use_)
+    ++surface_destroys_; // a restore asked for before this one must not take the window SDL still hands out
+    if (!surface_in_use_ && !restoring_)
         return;
     release_requested_ = true;
     // The EGL surface is touched by the frames handed to the render thread, until each is presented; no new
@@ -942,6 +945,10 @@ void Context::surface_restored()
 {
     if (!initialised_ || surface_.valid)
         return;
+    {
+        std::lock_guard lock(release_mutex_);
+        restore_destroys_ = surface_destroys_;
+    }
     restore_pending_ = true;
     try_restore();
 }
@@ -949,10 +956,24 @@ void Context::surface_restored()
 void Context::try_restore()
 {
     bgfx::SwapChain chain;
+    // From the read of the native window until bgfx and Swappy hold it, a surfaceDestroyed waits for this restore
+    // (render_idle); one that came after the restore was asked for drops it below, before the window is used.
+    auto window_released = [this] {
+        {
+            std::lock_guard lock(release_mutex_);
+            restoring_ = false;
+        }
+        release_done_.notify_all();
+    };
+    {
+        std::lock_guard lock(release_mutex_);
+        restoring_ = true;
+    }
     // SDL drops its native window when Android destroys the surface and holds a new one only after
     // surfaceCreated; until then there is nothing to attach to and the restore stays pending.
     if (!native_handles(window_, &chain.nwh, &chain.ndt))
     {
+        window_released();
         if (!restore_wait_logged_)
             logf("surface restore is waiting for the new native window");
         restore_wait_logged_ = true;
@@ -977,12 +998,21 @@ void Context::try_restore()
     // bgfx re-create the EGL surface on every restore.
     surface_epoch_flag_ = !surface_epoch_flag_;
     {
+        std::unique_lock lock(release_mutex_);
+        if (surface_destroys_ != restore_destroys_)
+        {
+            lock.unlock();
+            window_released();
+            logf("surface restore dropped: the surface was destroyed again after it was handed over (the window read "
+                 "may be the destroyed one); the next surface restores");
+            return;
+        }
         // From here on a new surfaceDestroyed waits for our frames.
-        std::lock_guard lock(release_mutex_);
         surface_in_use_ = true;
     }
     bgfx::reset(reset_flags(), &chain);
     FramePacing::instance().set_window(chain.nwh);
+    window_released();
     if (frame_aborted_)
     {
         // Draws submitted before the surface went away belong to a frame that was never finished.
