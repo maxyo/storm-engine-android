@@ -100,6 +100,7 @@ void SHIP::InitSailState()
 
 SHIP::~SHIP()
 {
+    storm::render::ClearEffectsPlayerPosition(this);
     if (const auto pShipsLights = static_cast<IShipLights *>(core.GetEntityPointer(shipLights)))
         pShipsLights->Release(this);
     core.EraseEntity(GetModelEID());
@@ -793,6 +794,11 @@ void SHIP::Execute(uint32_t DeltaTime)
     AddWaveSource(fDeltaTime);
 
     RecalculateWorldOffset();
+    if (bMainCharacter)
+    {
+        const auto player_position = GetPos();
+        storm::render::SetEffectsPlayerPosition({player_position.x, player_position.y, player_position.z}, this);
+    }
     mRoot = storm::math::eulerMatrix(vAng.x + vCurDeadDir.x, vAng.y, vAng.z + vCurDeadDir.z, vPos.x + fXOffset, vPos.y - State.fShipImmersion - SP.fWaterLine, vPos.z + fZOffset);
     SetMatrix(mRoot);
 
@@ -1553,6 +1559,7 @@ bool SHIP::Mount(ATTRIBUTES *_pAShip)
                    static_cast<const char *>(GetACharacter()->GetAttribute("id")));
         // GetACharacter()->Dump(GetACharacter(), 0);
         bMounted = false;
+        storm::render::ClearEffectsPlayerPosition(this);
         return false;
     }
 

@@ -15,6 +15,8 @@
 // of textures up to the map's size are made from their ×2 whatever this setting (src/libs/relief).
 #pragma once
 
+#include "effects/generation_priority.hpp"
+
 #include "storm/fx/upscale.hpp"
 
 #include <bgfx/bgfx.h>
@@ -51,6 +53,9 @@ struct UpscaleEntry
         Resident, // `handle` is valid
         Failed,   // logged; drawn at its own size
     };
+    GenerationPriority priority; // nearest player distance across observed instances
+    uint16_t queued_scene = 0;
+    uint64_t queued_after = 0; // generator admission counter, under its queue mutex
     std::atomic<int> state{Unknown};
     std::string name; // normalized texture path
     std::filesystem::path file;

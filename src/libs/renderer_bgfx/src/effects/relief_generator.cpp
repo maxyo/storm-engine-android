@@ -55,6 +55,7 @@ void ReliefGenerator::configure(ReliefSetup setup)
     stats_ = {};
     model_failed_ = false;
     next_upscale_ = false;
+    admitted_ = 0;
     rest_.clear();
     rest_at_ = 0;
     rest_listed_ = rest_done_ = false;
@@ -99,6 +100,8 @@ bool ReliefGenerator::request_upscale(const std::shared_ptr<UpscaleEntry> &entry
         std::erase_if(upscales_, [](const std::weak_ptr<UpscaleEntry> &weak) { return weak.expired(); });
         if (upscales_.size() >= kUpscaleQueue)
             return false;
+        entry->queued_after = admitted_;
+        entry->queued_scene = generation_focus().snapshot().scene;
         upscales_.push_back(entry);
     }
     wake_.notify_all();
@@ -122,6 +125,8 @@ void ReliefGenerator::request(const std::shared_ptr<NormalMapEntry> &entry, std:
             entry->state = NormalMapEntry::Missing;
             return;
         }
+        entry->queued_after = admitted_;
+        entry->queued_scene = generation_focus().snapshot().scene;
         requests_.push_back({entry, std::move(file), order_++});
         last_request_ = Clock::now();
     }
@@ -149,21 +154,50 @@ ReliefGenerator::Stats ReliefGenerator::stats()
     return stats;
 }
 
+namespace
+{
+template<class Entry> auto rank(const std::shared_ptr<Entry> &entry, GenerationSnapshot at, uint64_t admitted)
+{
+    auto value = entry ? generation_rank(entry->priority, at, admitted - entry->queued_after)
+                       : std::pair<uint32_t, float>{UINT32_MAX, std::numeric_limits<float>::infinity()};
+    if (entry && value.first == UINT32_MAX && entry->queued_scene == at.scene)
+        --value.first; // unseen current-scene load before retained entries from a previous scene
+    return value;
+}
+}
+
 std::optional<ReliefGenerator::Request> ReliefGenerator::next_request()
 {
-    // Textures unloaded meanwhile are dropped: they are requested again when loaded again.
     std::erase_if(requests_, [](const Request &request) { return request.entry.expired(); });
     if (requests_.empty())
         return std::nullopt;
-    // On screen now first: the most recently drawn, then the load order (the current location's textures).
-    const auto best = std::min_element(requests_.begin(), requests_.end(), [](const Request &a, const Request &b) {
-        const std::shared_ptr<NormalMapEntry> ea = a.entry.lock(), eb = b.entry.lock();
+    const auto at = generation_focus().snapshot();
+    const auto best = std::min_element(requests_.begin(), requests_.end(), [&](const Request &a, const Request &b) {
+        const auto ea = a.entry.lock(), eb = b.entry.lock();
+        const auto ra = rank(ea, at, admitted_), rb = rank(eb, at, admitted_);
+        if (ra != rb) return ra < rb;
+        if (ra.second < 0.0f) return a.order < b.order; // oldest admitted-waiter first
         const uint32_t da = ea ? ea->drawn.load() : 0, db = eb ? eb->drawn.load() : 0;
         return da != db ? da > db : a.order < b.order;
     });
     Request request = std::move(*best);
     requests_.erase(best);
     return request;
+}
+
+std::shared_ptr<UpscaleEntry> ReliefGenerator::next_upscale()
+{
+    if (upscales_.empty()) return {};
+    const auto at = generation_focus().snapshot();
+    const auto best = std::min_element(upscales_.begin(), upscales_.end(), [&](const auto &a, const auto &b) {
+        const auto ea = a.lock(), eb = b.lock();
+        const auto ra = rank(ea, at, admitted_), rb = rank(eb, at, admitted_);
+        if (ra != rb) return ra < rb;
+        return ra.second < 0.0f && ea && eb && ea->queued_after < eb->queued_after;
+    });
+    auto result = best->lock();
+    upscales_.erase(best);
+    return result;
 }
 
 void ReliefGenerator::reconcile_upscales()
@@ -208,17 +242,31 @@ void ReliefGenerator::run()
                 const Clock::time_point now = Clock::now();
                 const bool rest = active_ && !rest_done_ && !model_failed_;
                 reconcile_upscales();
-                // Small normal-map inputs may produce a display texture as a side effect, but larger inputs do not.
-                // Give standalone upscales a turn after one relief job, rather than after every loaded normal map.
-                if (!next_upscale_ || upscales_.empty())
-                    request = next_request();
-                while (!request && !upscales_.empty() && !upscale)
+                // Reselect from fresh 500 ms player-distance observations before every job. In-flight work is
+                // never restarted. Alternate only within the same proximity band; background work remains last.
+                request = next_request();
+                upscale = next_upscale();
+                if (request && upscale)
                 {
-                    upscale = upscales_.front().lock();
-                    upscales_.pop_front();
+                    const auto normal = request->entry.lock();
+                    const auto at = generation_focus().snapshot();
+                    const auto nr = rank(normal, at, admitted_), ur = rank(upscale, at, admitted_);
+                    bool choose_upscale = next_upscale_;
+                    if (nr.first != ur.first) choose_upscale = ur.first < nr.first;
+                    else if ((nr.second < 0.0f) != (ur.second < 0.0f)) choose_upscale = ur.second < 0.0f;
+                    else if (nr.second < 0.0f && normal && normal->queued_after != upscale->queued_after)
+                        choose_upscale = upscale->queued_after < normal->queued_after;
+                    if (choose_upscale)
+                    {
+                        requests_.push_front(std::move(*request));
+                        request.reset();
+                    }
+                    else
+                    {
+                        upscales_.push_front(upscale);
+                        upscale.reset();
+                    }
                 }
-                if (!request && !upscale)
-                    request = next_request();
                 if (request || upscale || (rest && now - last_request_ >= kRestQuiet))
                     break;
                 // Nothing due: a request wakes the worker; the rest waits for a quiet spell; with no work left at
@@ -248,7 +296,10 @@ void ReliefGenerator::run()
                 continue;
             }
             if (request || upscale)
+            {
                 next_upscale_ = request.has_value(); // pauses and cache-only completion consume no turn
+                ++admitted_;
+            }
             stats_.working = true;
         }
         if (!open_session())

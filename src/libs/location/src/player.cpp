@@ -9,6 +9,7 @@
 //============================================================================================
 
 #include "player.h"
+#include "storm/render/effects.hpp"
 
 #include "location.h"
 #include "location_camera.h"
@@ -43,6 +44,7 @@ Player::Player()
 
 Player::~Player()
 {
+    storm::render::ClearEffectsPlayerPosition(this);
     entid_t peid;
     if (peid = core.GetEntityId("ShootGunParticles"))
         core.EraseEntity(peid);
@@ -469,6 +471,7 @@ void Player::Update(float dltTime)
     // Character * c = FindGunTarget(kDist);
     // if(c) c->Select();
     NPCharacter::Update(dltTime);
+    storm::render::SetEffectsPlayerPosition({curPos.x, curPos.y, curPos.z}, this);
 #ifdef __ANDROID__
     TraceAndroidMovement(dltTime);
 #endif

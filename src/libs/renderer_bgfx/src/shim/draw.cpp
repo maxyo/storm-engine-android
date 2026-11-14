@@ -1416,7 +1416,7 @@ HRESULT Device::draw(const DrawCall &call)
     // The draw's distance from the camera (its vertices' bounding sphere), for the textures with a neural ×2
     // (effects/upscale.hpp): computed at the first such texture.
     effects::Upscales &upscales = effects::upscales();
-    float upscale_distance = -2.0f;
+    float upscale_distance = -2.0f, player_distance = -1.0f;
     const auto draw_distance = [&] {
         if (upscale_distance > -2.0f)
             return upscale_distance;
@@ -1426,16 +1426,19 @@ HRESULT Device::draw(const DrawCall &call)
         {
             const D3DMATRIX &w = s.world, &v = s.view;
             float scale = 0.0f, d2 = 0.0f;
+            std::array<float, 3> device_center{};
             for (int r = 0; r < 3; ++r)
                 scale = std::max(scale, std::sqrt(w.m[r][0] * w.m[r][0] + w.m[r][1] * w.m[r][1] + w.m[r][2] * w.m[r][2]));
             for (int k = 0; k < 3; ++k)
             {
                 const float world = center[0] * w.m[0][k] + center[1] * w.m[1][k] + center[2] * w.m[2][k] + w.m[3][k];
                 // The camera: -t R^T of the view's rotation R and translation t.
+                device_center[k] = world;
                 const float eye = -(v.m[3][0] * v.m[k][0] + v.m[3][1] * v.m[k][1] + v.m[3][2] * v.m[k][2]);
                 d2 += (world - eye) * (world - eye);
             }
             upscale_distance = std::max(0.0f, std::sqrt(d2) - radius * scale);
+            player_distance = effects::generation_focus().distance(device_center, radius * scale);
         }
         return upscale_distance;
     };
@@ -1465,6 +1468,22 @@ HRESULT Device::draw(const DrawCall &call)
                 unit = 12;
             else
                 continue;
+        }
+        const auto normal_pending = [](const std::shared_ptr<effects::NormalMapEntry> &entry) {
+            if (!entry) return false;
+            const int state = entry->state.load();
+            return state == effects::NormalMapEntry::Waiting || state == effects::NormalMapEntry::Pending;
+        };
+        const bool pending_normal = normal_pending(store->normal_map), pending_gloss = normal_pending(store->gloss_map);
+        const bool pending_upscale = upscales.active() && store->upscale &&
+            store->upscale->state != effects::UpscaleEntry::Resident && store->upscale->state != effects::UpscaleEntry::Failed;
+        if (pending_normal || pending_gloss || pending_upscale)
+        {
+            draw_distance(); // reuse cached vertex-buffer bounds, only while generation is pending
+            const auto generation_at = effects::generation_focus().snapshot();
+            if (pending_normal) store->normal_map->priority.observe(player_distance, generation_at);
+            if (pending_gloss) store->gloss_map->priority.observe(player_distance, generation_at);
+            if (pending_upscale) store->upscale->priority.observe(player_distance, generation_at);
         }
         const uint32_t flags = sampler_flags(stage, *store);
         bgfx::TextureHandle handle = store->handle;

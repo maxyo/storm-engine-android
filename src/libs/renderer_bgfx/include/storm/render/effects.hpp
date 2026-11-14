@@ -116,6 +116,12 @@ void SetEffectsTechnique(const char *name);
 // absolute world data (the location's geometry, lamps, dynamic lights, lightmaps) converts with it.
 void SetEffectsWorldOrigin(const std::array<float, 3> &origin);
 
+// The actual controlled character/main ship, in absolute world coordinates: prioritises pending texture generation.
+// Separate from the camera (third-person, dialogue and free-camera views must not move the priority anchor).
+// `owner` is identity only; clearing an old owner must not clear its replacement's position.
+void SetEffectsPlayerPosition(const std::array<float, 3> &position, const void *owner);
+void ClearEffectsPlayerPosition(const void *owner);
+
 // The legacy sea (Sea2), every frame it draws, before its draws: what makes waves on it this frame
 // (Settings::sea_waves: ripples around the camera; Settings::sea_wakes: Kelvin wakes behind the hulls under way).
 struct EffectsWaveSource

@@ -22,6 +22,8 @@
 // requested or derived) when it is switched on, like one loaded then.
 #pragma once
 
+#include "effects/generation_priority.hpp"
+
 #include "storm/fx/gloss_map.hpp"
 #include "storm/fx/normal_map.hpp"
 #include "storm/fx/parallax_exclusions.hpp"
@@ -88,6 +90,9 @@ struct NormalMapEntry
         Uploaded, // `handle` is valid
         Failed,
     };
+    GenerationPriority priority; // nearest player distance across observed instances
+    uint16_t queued_scene = 0;
+    uint64_t queued_after = 0; // generator admission counter, under its queue mutex
     std::atomic<int> state{Unqueued};
     std::atomic<bool> wanted{false}; // a draw asked for it: the worker keeps the map in memory for the upload
     std::atomic<uint32_t> drawn{0};  // the frame a draw last asked for it (the generator makes those on screen first)

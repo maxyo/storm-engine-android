@@ -829,6 +829,17 @@ void SetEffectsSeaFrame(const EffectsSeaFrame &frame)
 void SetEffectsWorldOrigin(const std::array<float, 3> &origin)
 {
     effects::Host::instance().lighting().set_world_origin(origin);
+    effects::generation_focus().set_origin(origin);
+}
+
+void SetEffectsPlayerPosition(const std::array<float, 3> &position, const void *owner)
+{
+    effects::generation_focus().set_player(position, owner);
+}
+
+void ClearEffectsPlayerPosition(const void *owner)
+{
+    effects::generation_focus().clear_player(owner);
 }
 
 void SetEffectsLightmaps(std::string_view name, std::span<const std::array<float, 3>> positions,
@@ -850,6 +861,7 @@ void SetEffectsLightmaps(std::string_view name, std::span<const std::array<float
 
 void SetEffectsLocationGeometry(const EffectsLocationGeometry &geometry)
 {
+    effects::generation_focus().set_scene(geometry.name);
     effects::Host::instance().location_changed();
     effects::Host::instance().lighting().lamp_shadows().set_geometry(geometry);
     effects::Host::instance().bounce().set_geometry(geometry);

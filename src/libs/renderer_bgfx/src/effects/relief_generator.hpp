@@ -3,8 +3,9 @@
 //
 //   * A loaded colour texture of a relief class without its map, or of a gloss class without its gloss map, is requested
 //     (NormalMaps::on_texture_loaded); one preparation makes both (PBRify's normal, height and roughness networks). The
-//     requests alternate with standalone upscale requests. Within the relief lane, the one drawn most recently goes
-//     first (on screen now), then load order (the current location). When its map is written the texture's entry
+//     requests are reselected from recent player-distance observations before each job, alternating with standalone
+//     upscales within the same 10 m band. Unobserved entries fall back to draw/load order; old-scene entries follow
+//     current-scene work. Live work ages after 16 other admissions. When its map is written the texture's entry
 //     becomes Stored: the draw reads and uploads it and the relief fades in (NormalMaps::handle).
 //   * With no request for 30 s (not while a location loads), while relief is on, the rest of the game's relief textures (relief::List, by name) are
 //     made from their files, one at a time, so later locations find them ready.
@@ -99,6 +100,7 @@ class ReliefGenerator
     };
     void run();
     std::optional<Request> next_request(); // under mutex_
+    std::shared_ptr<UpscaleEntry> next_upscale(); // under mutex_: nearest live candidate
     void reconcile_upscales(); // under mutex_: publish completed files; prune expired/stale requests
     bool open_session();
     void prepare_request(const Request &request);
@@ -118,7 +120,7 @@ class ReliefGenerator
     std::deque<std::weak_ptr<UpscaleEntry>> upscales_;
     bool display_ = false, display_bc_ = false;
     std::filesystem::path display_directory_;
-    uint64_t order_ = 0;
+    uint64_t order_ = 0, admitted_ = 0;
     bool next_upscale_ = false; // a live lane never waits behind the entire other queue
     std::chrono::steady_clock::time_point last_request_{}, idle_since_{};
     Stats stats_;

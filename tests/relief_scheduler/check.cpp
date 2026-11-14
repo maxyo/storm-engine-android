@@ -140,6 +140,49 @@ int main(int argc,char **argv) {
         for(size_t i=0;i<events.size();++i)expect(events[i][0]==(i%2?'U':'N'),"normal and upscale lanes alternate while both live");
     }
     g.shutdown();
+    // Movement reprioritises pending work across both lanes without cancelling the active job.
+    reset();status=1;forecast=0.5f;block_job=true;configure(g);
+    auto active=normal("active",600,1);g.request(active,"active");
+    until([&]{return started==1;},"first normal inference is running");
+    auto near_after_move=normal("moves-near",601,1);
+    auto formerly_near=upscale("moves-far",602), middle=upscale("moves-middle",603);
+    auto at=effects::generation_focus().snapshot();
+    near_after_move->priority.observe(100.0f,at);
+    formerly_near->priority.observe(2.0f,at);middle->priority.observe(80.0f,at);
+    g.request(near_after_move,"moves-near");
+    expect(g.request_upscale(formerly_near) && g.request_upscale(middle),"movement candidates queued");
+    until([&]{return effects::generation_focus().snapshot().window!=at.window;},"next spatial refresh window");
+    at=effects::generation_focus().snapshot();
+    near_after_move->priority.observe(1.0f,at);
+    formerly_near->priority.observe(80.0f,at);middle->priority.observe(40.0f,at);
+    expect(started==1 && !cancelled,"priority refresh never restarts in-flight inference");
+    block_job=false;
+    until([&]{return g.stats().made==2 && g.stats().upscaled==2;},"movement candidates complete");
+    {
+        std::lock_guard lock(events_mutex);
+        expect(events==std::vector<std::string>{"N:active","N:moves-near","U:moves-middle","U:moves-far"},
+               "near normal beats the upscale turn, and upscales reorder after movement");
+    }
+    g.shutdown();
+    // Continuous nearby work cannot starve still-observed far work. Age is admissions, not time spent hot.
+    reset();status=1;forecast=0.5f;block_job=true;configure(g);
+    active=normal("age-active",610,1);g.request(active,"age-active");
+    until([&]{return started==1;},"ageing setup active job started");
+    auto far=normal("age-far",611,1);at=effects::generation_focus().snapshot();
+    far->priority.observe(100.0f,at);g.request(far,"age-far");
+    std::vector<std::shared_ptr<effects::NormalMapEntry>> crowd;
+    for(int i=0;i<20;++i) {
+        const auto name=std::string("age-near")+std::to_string(i);
+        auto entry=normal(name.c_str(),620+i,1);entry->priority.observe(1.0f,at);
+        crowd.push_back(entry);g.request(entry,name);
+    }
+    block_job=false;
+    until([&]{return g.stats().made==22;},"finite live queue drains with ageing");
+    {
+        std::lock_guard lock(events_mutex);
+        expect(events.size()==22 && events[17]=="N:age-far","far live texture gets a turn after 16 other admissions");
+    }
+    g.shutdown();
     // A real inference failure is terminal for that entry and does not starve the other lane.
     reset();status=0;forecast=0.5f;hot=false;configure(g);
     auto failed=upscale("fail",500), good=upscale("good",501);
