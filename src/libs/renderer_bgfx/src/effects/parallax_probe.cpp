@@ -202,7 +202,7 @@ void ParallaxProbe::end_frame(bool scene_frame, NormalMaps &normal_maps)
         }
     batch = Batch{};
     // The target's relief comes on the GPU, or its verdict changes, while it stays under the centre.
-    if (!state_.target.empty() && ++refresh_frames_ >= 30)
+    if (!state_.target.empty() && ++refresh_frames_ >= 10)
         refresh(normal_maps, false);
 }
 
