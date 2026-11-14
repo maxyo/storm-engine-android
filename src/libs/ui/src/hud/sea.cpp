@@ -473,12 +473,15 @@ class SeaScene final : public Scene
             view.elements["fire"] = std::move(fire);
             input.On("fire", "click", [this](const Event &) { Control("Ship_Fire"); });
         }
+        // A kind can be loaded when the engine binds its control and the hold is not known to be
+        // empty of it (an absent count is not an empty hold).
+        const auto loadable = [&](size_t i) { return gameplay.Has("hk_charge" + std::to_string(i + 1)) && ship->ammo_counts[i] != 0.0; };
         int loaded = -1, others = 0;
         for (size_t i = 0; i < std::size(kAmmo); ++i)
         {
             if (ship && ship->ammo == kAmmo[i].key)
                 loaded = static_cast<int>(i);
-            else if (gameplay.Has("hk_charge" + std::to_string(i + 1)))
+            else if (ship && loadable(i))
                 ++others;
         }
         if (loaded < 0 || others == 0)
@@ -490,7 +493,11 @@ class SeaScene final : public Scene
         {
             ammo["badge"] = Count(ship->ammo_count);
             // No powder fires nothing either: the badge warns for both, the engine's powder line steps aside.
-            ammo["badgeTone"] = ship->ammo_low || ship->powder_out ? "danger" : "gold";
+            ammo["badgeTone"] = ship->ammo_low || ship->powder_out || ship->ammo_count == 0.0 ? "danger" : "gold";
+            // The loaded kind ran out but another is in the hold: its 0 is a count, the switch stays live
+            // (a 0 badge alone greys a HUD button and lets no tap through).
+            if (ship->ammo_count == 0.0 && others > 0)
+                ammo["countOnly"] = true;
         }
         view.elements["ammo"] = std::move(ammo);
         if (others == 0)
@@ -512,10 +519,16 @@ class SeaScene final : public Scene
             if (static_cast<int>(i) == loaded)
                 continue;
             const std::string element = "ammo-" + std::to_string(++slot), control = "hk_charge" + std::to_string(i + 1);
-            Json option = {{"icon", kAmmo[i].icon}, {"label", hud_.Text(kAmmo[i].label)}, {"disabled", !gameplay.Has(control)}};
+            // Every other kind is shown with its count; one the hold lacks is greyed with its 0.
+            Json option = {{"icon", kAmmo[i].icon}, {"label", hud_.Text(kAmmo[i].label)}, {"disabled", !loadable(i)}};
             if (ship->ammo_counts[i] >= 0.0)
                 option["badge"] = Count(ship->ammo_counts[i]);
             view.elements[element] = std::move(option);
+            if (!loadable(i))
+            {
+                input.Ignore(element, "click");
+                continue;
+            }
             input.On(element, "click", [this, control](const Event &) {
                 fan_open_ = false;
                 Control(control);
