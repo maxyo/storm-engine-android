@@ -83,7 +83,8 @@ target_link_libraries(program_cache_check PRIVATE storm_bgfx storm_check_sdl)
 # ao_volume_check: the interior AO volume end to end on OpenGL ES (an X display, like skinning_check): baked floor
 # under a table top, «Низкая» untouched, the baked variant without the volume unchanged, levels 1..3 darker under it.
 add_executable(ao_volume_check ao_volume_check.cpp)
-target_include_directories(ao_volume_check PRIVATE "${CMAKE_CURRENT_LIST_DIR}/../../src/libs/renderer_bgfx/src/shim")
+target_include_directories(ao_volume_check PRIVATE "${CMAKE_CURRENT_LIST_DIR}/../../src/libs/renderer_bgfx/src/shim"
+    "${CMAKE_CURRENT_LIST_DIR}/../../src/libs/renderer_bgfx/src")
 target_compile_definitions(ao_volume_check PRIVATE NOMINMAX)
 target_compile_options(ao_volume_check PRIVATE -fsigned-char)
 target_link_libraries(ao_volume_check PRIVATE storm_bgfx storm_check_sdl)

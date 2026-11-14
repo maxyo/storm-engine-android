@@ -6,6 +6,7 @@
 //   «Высокая» with fx_ao_volume=0: the baked variant must reproduce exactly that colour;
 //   fx_ao_volume=1..3: under the table clearly darker, the open floor unchanged, stronger levels darker.
 #include "device.hpp"
+#include "effects/effects.hpp"
 #include "check_backend.hpp"
 
 #include <SDL2/SDL.h>
@@ -173,18 +174,23 @@ float mean(const std::vector<uint8_t> &p, float u, float v)
     return sum / static_cast<float>(count);
 }
 
-bool settle(Harness &harness, int preset, const std::vector<render::EffectsOption> &options)
+// `volume`: also until the AO volume is bound (it bakes on the bake thread, after whatever bake runs there: the
+// location's visibility first; a fixed number of frames was not enough on a loaded host).
+bool settle(Harness &harness, int preset, const std::vector<render::EffectsOption> &options, bool volume = false)
 {
     render::ConfigureEffects(preset, options);
-    // The previous settings draw until the new ones are prepared; the volume bakes on a texture worker.
-    for (int frame = 0; frame < 400; ++frame)
+    // The previous settings draw until the new ones are prepared.
+    auto settled = [&] {
+        return !render::CurrentEffects().pending && (!volume || effects::Host::instance().ao_volume() != nullptr);
+    };
+    for (int frame = 0; frame < 2000; ++frame)
     {
         harness.render();
-        if (!render::CurrentEffects().pending && frame > 30)
+        if (settled() && frame > 30)
             return true;
         SDL_Delay(5);
     }
-    return !render::CurrentEffects().pending;
+    return settled();
 }
 
 } // namespace
@@ -247,9 +253,9 @@ int main()
             float previous = 1e9f;
             for (int level = 1; level <= 3; ++level)
             {
-                if (!settle(harness, 2, {{"fx_ao_volume", level}}))
+                if (!settle(harness, 2, {{"fx_ao_volume", level}}, true))
                 {
-                    std::printf("FAIL: «Высокая», fx_ao_volume=%d still pending\n", level);
+                    std::printf("FAIL: «Высокая», fx_ao_volume=%d still pending or without its volume\n", level);
                     ok = false;
                 }
                 const auto on = harness.render();
