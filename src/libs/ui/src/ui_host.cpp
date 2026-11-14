@@ -1973,7 +1973,7 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
         if ((states.spyglass.known && states.spyglass.on) || hud_->InGameplay())
             return false;
         const std::string &why = states.gameplay.blocked;
-        return why == "starting" || why == "loading" || why == "no-scene" || why == "interface";
+        return why == "starting" || why == "loading" || why == "transition" || why == "no-scene" || why == "interface";
     }
 
     // What decided a held or dropped touch, for the log (the player's shared log shows a state

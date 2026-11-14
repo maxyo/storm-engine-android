@@ -381,6 +381,35 @@ void Hud::Present(bool visible, bool menu_only)
     Send("presence", !visible ? "hidden" : menu_only ? "menu" : "shown");
 }
 
+void Hud::ExpectTransition(const std::string &what)
+{
+    transition_until_ = mount_.Now() + kTransitionWait;
+    transition_what_ = what;
+    changed_ = true;
+}
+
+// A scene change hides the HUD: nothing of it may show over the fader or between a closing
+// panel and the fader (owner, 2026-11-14: «мелькает интерфейс суши»). The engine reports the
+// fader in its own frame (gameplay blocked "transition"); the platform's loading flag comes a
+// thread hop later and is not waited for.
+bool Hud::InTransition(double now)
+{
+    const std::string &why = states_.gameplay.blocked;
+    if (why == "transition" || why == "loading")
+    {
+        transition_until_ = -1.0; // the game took over
+        return true;
+    }
+    if (transition_until_ < 0.0)
+        return false;
+    if (now < transition_until_)
+        return true;
+    Error("HUD: " + transition_what_ + " was to change the scene, but the game started no transition in " + std::to_string(kTransitionWait) +
+          " s; the HUD is back");
+    transition_until_ = -1.0;
+    return false;
+}
+
 void Hud::Refresh()
 {
     changed_ = false;
@@ -427,7 +456,7 @@ void Hud::Refresh()
     else if (dialogue_since_ < 0.0)
         dialogue_since_ = now;
     const bool dialogue = shown.dialogue && now - dialogue_since_ >= kDialogueWait;
-    const bool free = shown.known && shown.screen.empty() && !shown.loading && !dialogue && !interface_;
+    const bool free = shown.known && shown.screen.empty() && !shown.loading && !dialogue && !interface_ && !InTransition(now);
     const bool full = free && (scene_ || spyglass) && !shown.cinematic;
     if (!free)
     {
@@ -536,6 +565,16 @@ double Hud::Tick()
         if (line.held < 0.0)
             next = std::min(next, std::max(0.0, (line.leaving >= 0.0 ? line.leaving + kLeaveSeconds : line.until) - now));
     next = std::min(next, WatchDialogue(now));
+    if (transition_until_ >= 0.0)
+    {
+        if (now >= transition_until_)
+        {
+            Refresh(); // reports the change that did not come and shows the HUD again
+            next = 0.0;
+        }
+        else
+            next = std::min(next, transition_until_ - now);
+    }
     // A dialogue whose panel has not come: the HUD goes at kDialogueWait.
     if (visible_ && states_.presentation.dialogue && dialogue_since_ >= 0.0 && !interface_)
     {

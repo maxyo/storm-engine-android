@@ -20,7 +20,8 @@
    "label": "Лечебное зелье",
    "source": "potion1",
    "enabled": true,
-   "cooldown": 1.0
+   "cooldown": 1.0,
+   "picture": "landcommands:4"
   },
   {
    "id": "p2",
@@ -28,7 +29,8 @@
    "label": "Эликсир",
    "source": "potion2",
    "enabled": true,
-   "cooldown": 1.0
+   "cooldown": 1.0,
+   "picture": "landcommands:4"
   },
   {
    "id": "p3",
@@ -36,7 +38,8 @@
    "label": "Противоядие",
    "source": "potion3",
    "enabled": true,
-   "cooldown": 1.0
+   "cooldown": 1.0,
+   "picture": "landcommands:4"
   },
   {
    "id": "a1",
@@ -44,7 +47,8 @@
    "label": "Рывок",
    "source": "BI_ActivateRush",
    "enabled": false,
-   "cooldown": 0.4
+   "cooldown": 0.4,
+   "picture": "landcommands:4"
   },
   {
    "id": "x",
@@ -52,7 +56,16 @@
    "label": "Отмена",
    "source": "",
    "enabled": true,
-   "cooldown": 1.0
+   "cooldown": 1.0,
+   "picture": ""
   }
+ ],
+ "offered": [
+  "BI_FastReload",
+  "BI_ItemsUse",
+  "BI_TalkSelf",
+  "BI_ItemsChange",
+  "BI_Alchemy",
+  "BI_MapAtlas"
  ]
 }

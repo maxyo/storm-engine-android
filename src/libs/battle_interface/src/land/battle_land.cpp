@@ -9,6 +9,7 @@
 #include "message.h"
 #include "string_compare.hpp"
 #include "shared/battle_interface/msg_control.h"
+#include "shared/messages.h"
 
 BATTLE_LAND_INTERFACE::BATTLE_LAND_INTERFACE() : m_bShowCommandos(false)
 {
@@ -290,7 +291,12 @@ void pollLandCommands(bool ready)
 {
     auto *battle = landOwner();
     const bool changed = battle && battle->TakeAndroidLandChanged();
-    if (landRefresh.due(ready, battle ? battle->GetId() : 0, changed))
+    bool fight = false;
+    if (ready && battle) {
+        const auto player = core.GetEntityId("Player");
+        fight = player != invalid_entity && core.Send_Message(player, "ls", MSG_CHARACTER_EX_MSG, "IsFightMode") != 0;
+    }
+    if (landRefresh.due(ready, battle ? battle->GetId() : 0, changed, fight))
         refreshLandCommands(ready);
 }
 void refreshLandCommands(bool ready)

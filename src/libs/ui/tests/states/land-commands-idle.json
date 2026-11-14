@@ -13,5 +13,13 @@
  "selectedItemId": "",
  "canBack": false,
  "canClose": false,
- "items": []
+ "items": [],
+ "offered": [
+  "BI_FastReload",
+  "BI_ItemsUse",
+  "BI_TalkSelf",
+  "BI_ItemsChange",
+  "BI_Alchemy",
+  "BI_MapAtlas"
+ ]
 }

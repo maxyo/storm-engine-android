@@ -51,6 +51,7 @@ const Case kCases[] = {
     {"engine starting (the title load)", "unknown", "starting", "", true},
     {"title load after the video: the platform's cinematic flag still on", "unknown", "starting", "cinematic", true},
     {"loading screen (a save, a location)", "unknown", "loading", "", true},
+    {"a scene change under way (the game's fader is up)", "unknown", "transition", "", true},
     {"no land, sea or world map yet", "unknown", "no-scene", "", true},
     {"an interface launched, not shown yet (MainInterface)", "unknown", "interface", "", true},
     {"the engine said nothing yet", "unknown", "", "", false},

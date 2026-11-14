@@ -881,6 +881,7 @@ storm::android::LandCommandSource BIManSign::ReadAndroidLand(storm::android::Lan
     storm::android::traceLandAdapter(5, "character=" + std::to_string(characterIndex));
     frame.available = characterIndex >= 0;
     frame.active = IsActive();
+    m_pCommandList->ReadAndroidOffered(frame.offered);
     if (frame.active) m_pCommandList->ReadAndroidLand(frame);
     return frame.available ? storm::android::LandCommandSource::Ready : storm::android::LandCommandSource::Forbidden;
 }
@@ -890,7 +891,18 @@ bool BIManSign::ExecuteAndroidLand(const storm::android::LandCommandsRequest &re
     if (request.verb == "open") {
         // Same activation as LICommandsActivate; retain the script sound/hint handler.
         core.Event("Control Activation", "s", "LICommandsActivate");
-        m_pCommandList->ResetAndroidCommand(); SetActive(true); UpdateCommandList(); return true;
+        m_pCommandList->ResetAndroidCommand(); SetActive(true); UpdateCommandList();
+        if (request.id.empty()) return true;
+        // Straight into one root command (the touch HUD's transitions button): select it and go
+        // on, as a tap on its row would. A command the scripts no longer offer closes the menu.
+        const auto item = m_pCommandList->AndroidItemOf(request.id);
+        if (item.empty() || !m_pCommandList->SelectAndroidLand(item)) {
+            storm::android::traceLandAdapter(5, "open-into-missing-command " + request.id);
+            CloseAndroidLand();
+            return false;
+        }
+        ExecuteCommand(BI_MSG_COMMAND_ACTIVATE);
+        return true;
     }
     if (!IsActive()) return false;
     if (request.verb == "close") { CloseAndroidLand(); return true; }

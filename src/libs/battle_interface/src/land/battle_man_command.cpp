@@ -2,6 +2,9 @@
 #include "platform/android_land_diagnostics.hpp"
 #include "platform/android_script_errors.hpp"
 #include "core.h"
+#include "string_compare.hpp"
+
+#include <cctype>
 #include "shared/battle_interface/msg_control.h"
 #include "vma.hpp"
 
@@ -221,6 +224,34 @@ storm::android::LandCommandSource BIManCommandList::RefreshAndroidSource()
     storm::android::traceLandAdapter(3, allowed ? "fresh-version-1-allowed" : "fresh-version-1-forbidden");
     return allowed ? storm::android::LandCommandSource::Ready : storm::android::LandCommandSource::Forbidden;
 }
+// "<texture file stem>:<cell>": which of the game's pictures the item shows, lower case, the cell the
+// selected picture (for a travel place the place: LandTarget_SLB cell = fast_reload_table's pic).
+std::string BIManCommandList::AndroidPicture(const UsedCommand &command) const
+{
+    if (command.nTextureIndex < 0 || command.nTextureIndex >= static_cast<int32_t>(m_aTexture.size()) || command.nSelPictureIndex < 0)
+        return {};
+    std::string stem = m_aTexture[command.nTextureIndex].sFileName;
+    if (const auto slash = stem.find_last_of("\\/"); slash != std::string::npos) stem.erase(0, slash + 1);
+    if (const auto dot = stem.find('.'); dot != std::string::npos) stem.erase(dot);
+    for (auto &c : stem) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    return stem + ":" + std::to_string(command.nSelPictureIndex);
+}
+void BIManCommandList::ReadAndroidOffered(std::vector<std::string> &offered) const
+{
+    auto *root = m_pARoot ? m_pARoot->GetAttributeClass("Commands") : nullptr;
+    if (!root) return;
+    for (size_t i = 0; i < root->GetAttributesNum(); ++i)
+        if (auto *entry = root->GetAttributeClass(i); entry && entry->GetAttributeAsDword("enable", 0) != 0)
+            if (const char *event = entry->GetAttribute("event"); event && *event && !storm::iEquals(event, "cancel"))
+                offered.emplace_back(event);
+}
+std::string BIManCommandList::AndroidItemOf(const std::string &event) const
+{
+    for (size_t i = 0; i < m_aUsedCommand.size(); ++i)
+        if (m_aUsedCommand[i].sKind == "command" && m_aUsedCommand[i].sLandSource == event)
+            return "i" + std::to_string(i);
+    return {};
+}
 void BIManCommandList::ReadAndroidLand(storm::android::LandCommandsFrame &frame) const
 {
     frame.mode = m_nCurrentCommandMode;
@@ -245,6 +276,7 @@ void BIManCommandList::ReadAndroidLand(storm::android::LandCommandsFrame &frame)
         item.id = "i" + std::to_string(i); item.kind = command.sKind; item.label = command.sNote;
         item.source = command.sLandSource;
         item.cooldown = command.fCooldownFactor;
+        item.picture = AndroidPicture(command);
         item.enabled = command.nCooldownPictureIndex < 0 || command.fCooldownFactor >= 1.f;
         const auto part = [](const std::string &v) { return std::to_string(v.size()) + ":" + v; };
         item.identity = part(command.sLandIdentity) + part(command.sCommandName) + part(command.sLocName) +

@@ -154,7 +154,7 @@ class GameplayConsumer final : public HudConsumer
         if (*mode == "unknown")
         {
             next.blocked = Text(state, "blocked").value_or("");
-            if (!OneOf(next.blocked, {"starting", "paused", "loading", "interface", "dialogue", "cutscene", "video", "commands", "no-scene",
+            if (!OneOf(next.blocked, {"starting", "paused", "loading", "transition", "interface", "dialogue", "cutscene", "video", "commands", "no-scene",
                                       "no-land-interface", "no-player", "group", "error"}))
                 problem = "gameplay mode unknown without a known reason (blocked '" + next.blocked + "')";
         }
@@ -393,8 +393,8 @@ class ContextActionConsumer final : public HudConsumer
     }
 };
 
-// A JSON string: the name of the place the reload locator the hero stands in leads to, in the
-// game's words (its LocLables), "" = none.
+// The door the hero stands at: {place, locked}. `place` names where its reload locator leads, in
+// the game's words (its LocLables); `locked`: the game keeps it closed now. null = at no door.
 class ReloadPlaceConsumer final : public HudConsumer
 {
   public:
@@ -406,9 +406,19 @@ class ReloadPlaceConsumer final : public HudConsumer
   protected:
     std::string Read(const Json &state, Hud &hud) override
     {
-        const bool valid = state.is_string() && state.get<std::string>().size() <= 128;
-        hud.Edit().reload_place = valid ? state.get<std::string>() : std::string();
-        return valid ? std::string() : "expected a short string";
+        Door door;
+        if (state.is_null())
+        {
+            hud.Edit().door = door;
+            return {};
+        }
+        const auto place = state.is_object() ? Text(state, "place") : std::nullopt;
+        const auto locked = state.is_object() ? Flag(state, "locked") : std::nullopt;
+        const bool valid = place && locked && Printable(*place, 128, false);
+        if (valid)
+            door = Door{*place, *locked};
+        hud.Edit().door = door;
+        return valid ? std::string() : "expected null or {place: short text, locked: bool}";
     }
 };
 
@@ -472,12 +482,13 @@ class LandCommandsConsumer final : public HudConsumer
             const auto label = source.is_object() ? Text(source, "label") : std::nullopt;
             const auto origin = source.is_object() ? Text(source, "source") : std::nullopt;
             const auto enabled = source.is_object() ? Flag(source, "enabled") : std::nullopt;
+            const auto picture = source.is_object() ? Text(source, "picture") : std::nullopt;
             const auto cooldown = source.is_object() ? source.find("cooldown") : Json::const_iterator();
-            if (!id || !kind || !label || !origin || !enabled || cooldown == source.end() || !cooldown->is_number())
-                return "an item lacks id, kind, label, source, enabled or cooldown";
+            if (!id || !kind || !label || !origin || !enabled || !picture || cooldown == source.end() || !cooldown->is_number())
+                return "an item lacks id, kind, label, source, picture, enabled or cooldown";
             item.cooldown = cooldown->get<double>();
             if (!Token(*id, false) || !Token(*kind, false) || !Printable(*label, 1024, false) || !Printable(*origin, 512, true) ||
-                !std::isfinite(item.cooldown) || item.cooldown < 0.0 || item.cooldown > 1.0)
+                !Printable(*picture, 128, true) || !std::isfinite(item.cooldown) || item.cooldown < 0.0 || item.cooldown > 1.0)
                 return "an item has a bad id, kind, label, source or cooldown";
             if (!ids.insert(*id).second)
                 return "item id '" + *id + "' is listed twice";
@@ -485,6 +496,7 @@ class LandCommandsConsumer final : public HudConsumer
             item.kind = *kind;
             item.label = *label;
             item.source = *origin;
+            item.picture = *picture;
             item.enabled = *enabled;
             const bool cancel = item.kind == "cancel";
             cancels += cancel ? 1 : 0;
@@ -496,6 +508,15 @@ class LandCommandsConsumer final : public HudConsumer
         }
         if (!selected->empty() && !ids.count(*selected))
             return "selectedItemId names no item";
+        const auto offered = state.find("offered");
+        if (offered == state.end() || !offered->is_array() || offered->size() > 64)
+            return "offered is missing or not a short array";
+        for (const Json &event : *offered)
+        {
+            if (!event.is_string() || !Printable(event.get<std::string>(), 128, false))
+                return "offered holds a bad command event";
+            out.offered.push_back(event.get<std::string>());
+        }
         out.known = true;
         out.scene = *scene;
         out.revision = *revision;

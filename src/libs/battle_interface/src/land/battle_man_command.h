@@ -17,9 +17,16 @@ class BIManCommandList : public BICommandList
     storm::android::LandCommandSource RefreshAndroidSource();
     bool SelectAndroidLand(const std::string &id);
     void ReadAndroidLand(storm::android::LandCommandsFrame &frame) const;
+    // The events of the root commands the scripts enable now (their Commands attributes).
+    void ReadAndroidOffered(std::vector<std::string> &offered) const;
+    // The open root stage's item of that command event ("i<n>"), "" = not in the list.
+    std::string AndroidItemOf(const std::string &event) const;
 #endif
 
   protected:
+#ifdef __ANDROID__
+    std::string AndroidPicture(const UsedCommand &command) const;
+#endif
     void Release();
 
     int32_t CommandAdding();

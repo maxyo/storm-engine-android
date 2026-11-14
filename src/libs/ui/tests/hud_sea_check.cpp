@@ -469,8 +469,15 @@ static void CheckOrders()
     // a tap acts at once: select, then activate against the revision that confirms the selection
     bench.Press("item-i1");
     Expect(mount.Last() == "orders:1\t6\t15\t2\tselectItem\ti1" && mount.shown.sheet_props["tiles"][1]["pressed"] == true, "a tap selects: " + mount.Last());
+    const size_t commandsBefore = mount.commands.size();
+    bench.Press("item-i1");
+    Expect(mount.Last() == "orders:1\t6\t15\t2\tselectItem\ti1" && mount.commands.size() == commandsBefore, "the same tap again while it is on its way does nothing: " + mount.Last() + " " + std::to_string(mount.commands.size() - commandsBefore));
     bench.Press("item-i0");
-    Expect(mount.Last() == "orders:1\t6\t15\t2\tselectItem\ti1", "a second tap while the first is on its way does nothing");
+    Expect(mount.Last() == "orders:1\t6\t15\t2\tselectItem\ti0" && mount.shown.sheet_props["tiles"][0]["pressed"] == true &&
+               mount.shown.sheet_props["tiles"][1]["pressed"] == false,
+           "another tap before the engine answered replaces the first (it is never swallowed): " + mount.Last());
+    bench.Press("item-i1");
+    Expect(mount.Last() == "orders:1\t6\t15\t2\tselectItem\ti1", "and back");
     bench.Feed("seaOrders", "sea-orders-root-selected");
     bench.Frame();
     Expect(Sent(mount, "orders:1\t6\t16\t2\tack\t1") && mount.Last() == "orders:1\t6\t16\t2\tactivateItem\ti1", "… and activates once the engine selected it: " + mount.Last());

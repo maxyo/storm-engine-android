@@ -17,10 +17,11 @@
   {
    "id": "t1",
    "kind": "travel",
-   "label": "Таверна",
-   "source": "fr_3",
+   "label": "Порт",
+   "source": "port",
    "enabled": true,
-   "cooldown": 1.0
+   "cooldown": 1.0,
+   "picture": "landtarget_slb:10"
   },
   {
    "id": "t2",
@@ -28,7 +29,8 @@
    "label": "Магазин",
    "source": "fr_1",
    "enabled": true,
-   "cooldown": 1.0
+   "cooldown": 1.0,
+   "picture": "landtarget_slb:0"
   },
   {
    "id": "t3",
@@ -36,23 +38,26 @@
    "label": "Верфь",
    "source": "fr_2",
    "enabled": true,
-   "cooldown": 1.0
+   "cooldown": 1.0,
+   "picture": "landtarget_slb:1"
   },
   {
    "id": "t4",
    "kind": "travel",
-   "label": "Резиденция",
-   "source": "fr_4",
+   "label": "Таверна",
+   "source": "fr_3",
    "enabled": true,
-   "cooldown": 1.0
+   "cooldown": 1.0,
+   "picture": "landtarget_slb:2"
   },
   {
    "id": "t5",
    "kind": "travel",
-   "label": "Порт",
-   "source": "fr_10",
+   "label": "Резиденция",
+   "source": "fr_4",
    "enabled": true,
-   "cooldown": 1.0
+   "cooldown": 1.0,
+   "picture": "landtarget_slb:4"
   },
   {
    "id": "t6",
@@ -60,7 +65,8 @@
    "label": "Ростовщик",
    "source": "fr_5",
    "enabled": true,
-   "cooldown": 1.0
+   "cooldown": 1.0,
+   "picture": "landtarget_slb:3"
   },
   {
    "id": "t7",
@@ -68,7 +74,8 @@
    "label": "Церковь",
    "source": "fr_6",
    "enabled": true,
-   "cooldown": 1.0
+   "cooldown": 1.0,
+   "picture": "landtarget_slb:6"
   },
   {
    "id": "t8",
@@ -76,7 +83,26 @@
    "label": "Бордель",
    "source": "fr_7",
    "enabled": true,
-   "cooldown": 1.0
+   "cooldown": 1.0,
+   "picture": "landtarget_slb:9"
+  },
+  {
+   "id": "t9",
+   "kind": "travel",
+   "label": "Портовое управление",
+   "source": "fr_8",
+   "enabled": true,
+   "cooldown": 1.0,
+   "picture": "landtarget_slb:8"
+  },
+  {
+   "id": "t10",
+   "kind": "travel",
+   "label": "Тюрьма",
+   "source": "fr_9",
+   "enabled": true,
+   "cooldown": 1.0,
+   "picture": "landtarget_slb:5"
   },
   {
    "id": "x",
@@ -84,7 +110,16 @@
    "label": "Отмена",
    "source": "",
    "enabled": true,
-   "cooldown": 1.0
+   "cooldown": 1.0,
+   "picture": ""
   }
+ ],
+ "offered": [
+  "BI_FastReload",
+  "BI_ItemsUse",
+  "BI_TalkSelf",
+  "BI_ItemsChange",
+  "BI_Alchemy",
+  "BI_MapAtlas"
  ]
 }

@@ -795,9 +795,14 @@ class SeaScene final : public Scene
     {
         const SeaOrders &orders = hud_.Current().sea_orders;
         const SeaOrders::Item *item = orders.Find(id);
-        if (!item || !item->enabled || !choice_.empty())
+        if (!choice_.empty() && orders.stage != choice_stage_)
+            choice_.clear(); // a tap of the last stage is over
+        // A tap while another waits replaces it unless that one is being activated already: a
+        // tap is never swallowed by an earlier one that the engine has not answered yet.
+        if (!item || !item->enabled || (!choice_.empty() && (choice_activated_ || choice_ == id)))
             return;
         choice_ = id;
+        choice_stage_ = orders.stage;
         choice_until_ = hud_.Now() + kChoiceSeconds;
         choice_revision_ = 0;
         choice_activated_ = false;
@@ -807,6 +812,14 @@ class SeaScene final : public Scene
 
     void Follow(const SeaOrders &orders)
     {
+        if (!choice_.empty() && orders.stage != choice_stage_)
+        {
+            // The menu went on to another stage (its items reuse the ids): the tap belonged to
+            // the last one. Nothing of the new stage is pressed, and its first tap acts.
+            choice_.clear();
+            hud_.Rebuild();
+            return;
+        }
         if (choice_.empty() || choice_revision_ == orders.revision)
             return;
         const SeaOrders::Item *item = orders.Find(choice_);
@@ -892,7 +905,7 @@ class SeaScene final : public Scene
                           {"title", item.label},
                           {"image", object ? Json{{"icon", ItemIcon(item)}, {"enamel", "iron"}} : Json{{"icon", ItemIcon(item)}}},
                           {"disabled", !item.enabled},
-                          {"pressed", item.id == choice_},
+                          {"pressed", item.id == choice_ && orders.stage == choice_stage_},
                           {"cooldown", item.enabled ? 0 : std::lround((1.0 - item.cooldown) * 100.0)}};
             // Commands and their options are tiles; abilities and targets are rows.
             const bool tile = item.kind == "command" || item.kind == "charge" || item.kind == "option";
@@ -972,6 +985,7 @@ class SeaScene final : public Scene
     double choice_until_ = 0.0;
     uint64_t choice_revision_ = 0;
     bool choice_activated_ = false;
+    std::string choice_stage_; // the menu stage the tapped row belongs to
 };
 
 } // namespace

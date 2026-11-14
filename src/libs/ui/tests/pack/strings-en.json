@@ -27,5 +27,6 @@
  "hud.sea.ammo.bombs": "hud.sea.ammo.bombs",
  "hud.captain": "hud.captain",
  "hud.sea.ability.repair": "hud.sea.ability.repair",
- "hud.sea.ability.reload": "hud.sea.ability.reload"
+ "hud.sea.ability.reload": "hud.sea.ability.reload",
+ "hud.travel": "hud.travel"
 }

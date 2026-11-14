@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
+#include <set>
 
 namespace storm::ui::hud
 {
@@ -77,18 +78,45 @@ std::string Capitalized(std::string text)
 
 // Rows of the action sheet by the script command behind them.
 const Named kCommands[] = {
-    {"BI_FastReload", "compass", ""}, {"BI_OutDoor", "door", ""},     {"BI_ItemsUse", "potion", ""},   {"BI_DialogStart", "talk", ""},
+    {"BI_FastReload", "travel", ""},  {"BI_OutDoor", "door", ""},     {"BI_ItemsUse", "potion", ""},   {"BI_DialogStart", "talk", ""},
     {"BI_ItemsChange", "exchange", ""}, {"BI_TakeItem", "hand", ""},  {"BI_PlaceItem", "put", ""},     {"BI_UseBox", "chest", ""},
     {"BI_DeadBox", "search", ""},     {"BI_TalkSelf", "thought", ""}, {"BI_SelfRepair", "repair", ""}, {"BI_Alchemy", "retort", ""},
     {"BI_MapAtlas", "map", ""},       {"BI_ActivateRush", "energy", ""}, {"BI_Exit_Deck", "boat", ""},
 };
 
-// Places of the travel stage. The engine names a place only by its slot in the game's
-// fast-travel table ("fr_<n>"), the same in every town; the label carries the local name.
-const Named kPlaces[] = {
-    {"fr_1", "store", ""},  {"fr_2", "shipyard", ""}, {"fr_3", "tavern", ""},  {"fr_4", "residence", ""}, {"fr_5", "usurer", ""},
-    {"fr_6", "church", ""}, {"fr_7", "lantern", ""},  {"fr_8", "portoffice", ""}, {"fr_9", "prison", ""},
-};
+// Root commands that are transitions: they have their own button (the boot), not rows of the
+// actions sheet (owner, 2026-11-14).
+const char *const kTransitions[] = {"BI_FastReload", "BI_OutDoor"};
+constexpr const char *kTravelCommand = "BI_FastReload";
+
+bool IsTransition(const std::string &event)
+{
+    return std::any_of(std::begin(kTransitions), std::end(kTransitions), [&](const char *known) { return event == known; });
+}
+
+} // namespace
+
+// Places of the travel stage by the game's own picture of the place: the cell of
+// battle_interface\LandTarget_SLB the menu shows (fast_reload_table.c: pic = FRP_*; the ship's
+// port icon is cell 10). The slot name "fr_<n>" is only the place's position in its town's table
+// and says nothing about what the place is.
+const char *LandPlaceIcon(const std::string &picture)
+{
+    static const struct
+    {
+        const char *picture, *icon;
+    } kPlaces[] = {{"landtarget_slb:0", "store"},     {"landtarget_slb:1", "shipyard"}, {"landtarget_slb:2", "tavern"},
+                   {"landtarget_slb:3", "usurer"},    {"landtarget_slb:4", "residence"}, {"landtarget_slb:5", "prison"},
+                   {"landtarget_slb:6", "church"},    {"landtarget_slb:7", "fort"},      {"landtarget_slb:8", "portoffice"},
+                   {"landtarget_slb:9", "lantern"},   {"landtarget_slb:10", "port"}};
+    for (const auto &place : kPlaces)
+        if (picture == place.picture)
+            return place.icon;
+    return nullptr;
+}
+
+namespace
+{
 
 class LandScene final : public Scene
 {
@@ -161,10 +189,21 @@ class LandScene final : public Scene
         else
             hud_.Error("land HUD: the engine offers no analog movement (inputOwner or movementGeneration missing); no move stick");
 
+        // The menu split (owner, 2026-11-14): the actions at the top, as the sea orders; the
+        // transitions under the thumb where the actions were, the boot (no transitions in a fight).
         if (commands.known && commands.available)
         {
-            view.elements["actions"] = Json::object();
-            input.On("actions", "click", [this](const Event &) { Commands("open", {}); });
+            const auto &offered = commands.offered;
+            if (std::any_of(offered.begin(), offered.end(), [](const std::string &event) { return !IsTransition(event); }))
+            {
+                view.elements["actions"] = Json{{"label", hud_.Text("hud.sheet.actions")}};
+                input.On("actions", "click", [this](const Event &) { Commands("open", {}); });
+            }
+            if (!melee && std::find(offered.begin(), offered.end(), kTravelCommand) != offered.end())
+            {
+                view.elements["travel"] = Json{{"label", hud_.Text("hud.travel")}};
+                input.On("travel", "click", [this](const Event &) { Commands("open", kTravelCommand); });
+            }
         }
         if (combat.Has("potion"))
         {
@@ -266,7 +305,8 @@ class LandScene final : public Scene
         const LandCommands &commands = states.land_commands;
         if (!commands.known || !commands.active || !commands.complete)
             return false;
-        Commands(commands.stage == "commands" || !commands.can_back ? "close" : "back", {});
+        // The travel stage opens from its own button: nothing to go back to.
+        Commands(commands.stage == "commands" || commands.stage == "travel" || !commands.can_back ? "close" : "back", {});
         return true;
     }
 
@@ -395,9 +435,10 @@ class LandScene final : public Scene
             const std::string talk = hud_.Text("hud.context.talk");
             return Hint{"talk", states.combat.interact_name.empty() ? talk : talk + ": " + states.combat.interact_name};
         }
+        // A door: where it leads, with an open or a closed lock as the game keeps it now.
+        if (!states.door.place.empty())
+            return Hint{states.door.locked ? "lock" : "unlock", Capitalized(states.door.place)};
         const std::string action = Lower(states.context_action);
-        if (action == "reload" && !states.reload_place.empty())
-            return Hint{"door", Capitalized(states.reload_place)};
         // A thing to take, a chest: the game names no object, so the hint names the action
         // (the context button's own words and icon).
         if (action == "pick" || action == "openbox")
@@ -595,6 +636,8 @@ class LandScene final : public Scene
             return;
         if (verb == "open" ? !commands.available || commands.active : !commands.active)
             return;
+        if (verb == "open" && !id.empty() && std::find(commands.offered.begin(), commands.offered.end(), id) == commands.offered.end())
+            return;
         if ((verb == "back" && !commands.can_back) || (verb == "close" && !commands.can_close))
             return;
         hud_.Send("landcommands", Owner(commands) + "\t" + verb + "\t" + id);
@@ -607,9 +650,14 @@ class LandScene final : public Scene
     {
         const LandCommands &commands = hud_.Current().land_commands;
         const LandCommands::Item *item = commands.Find(id);
-        if (!item || !item->enabled || !choice_.empty())
+        if (!choice_.empty() && commands.stage != choice_stage_)
+            choice_.clear(); // a tap of the last stage is over
+        // A tap while another waits replaces it unless that one is being activated already: a
+        // tap is never swallowed by an earlier one that the engine has not answered yet.
+        if (!item || !item->enabled || (!choice_.empty() && (choice_activated_ || choice_ == id)))
             return;
         choice_ = id;
+        choice_stage_ = commands.stage;
         choice_until_ = hud_.Now() + kChoiceSeconds;
         choice_revision_ = 0;
         choice_activated_ = false;
@@ -619,6 +667,14 @@ class LandScene final : public Scene
 
     void Follow(const LandCommands &commands)
     {
+        if (!choice_.empty() && commands.stage != choice_stage_)
+        {
+            // The menu went on to another stage (its items reuse the ids): the tap belonged to
+            // the last one. Nothing of the new stage is pressed, and its first tap acts.
+            choice_.clear();
+            hud_.Rebuild();
+            return;
+        }
         if (choice_.empty() || choice_revision_ == commands.revision)
             return;
         const LandCommands::Item *item = commands.Find(choice_);
@@ -631,10 +687,12 @@ class LandScene final : public Scene
         }
         choice_revision_ = commands.revision;
         choice_activated_ = commands.selected == choice_;
+        if (choice_activated_ && item->kind == "travel")
+            hud_.ExpectTransition("the travel place '" + item->label + "'");
         Commands(choice_activated_ ? "activateItem" : "selectItem", choice_);
     }
 
-    static const char *RowIcon(const LandCommands::Item &item)
+    const char *RowIcon(const LandCommands::Item &item)
     {
         if (item.kind == "potion")
             return "potion";
@@ -642,10 +700,14 @@ class LandScene final : public Scene
             return "energy";
         if (item.kind == "travel")
         {
-            for (const Named &place : kPlaces)
-                if (item.source == place.key)
-                    return place.icon;
-            return "compass"; // a slot outside the table: the travel icon
+            if (const char *icon = LandPlaceIcon(item.picture))
+                return icon;
+            // Documented fallback: a place whose picture the table lacks (a mod's) keeps its tile
+            // with the travel icon; said once per picture.
+            if (unknown_places_.insert(item.picture).second)
+                hud_.Log("land HUD: travel place '" + item.label + "' (" + item.source + ") has the picture '" + item.picture +
+                         "' the place table does not know: the travel icon");
+            return "travel";
         }
         for (const Named &command : kCommands)
             if (item.source == command.key)
@@ -662,15 +724,15 @@ class LandScene final : public Scene
         int headings = 0;
         for (const LandCommands::Item &item : commands.items)
         {
-            if (item.kind == "cancel")
-                continue;
+            if (item.kind == "cancel" || (root && item.kind == "command" && IsTransition(item.source)))
+                continue; // transitions have their own button
             const std::string element = "item-" + item.id;
             Json row = {{"id", element},
                         {"title", item.label},
                         {"icon", RowIcon(item)},
                         {"disabled", !item.enabled},
-                        {"pressed", item.id == choice_},
-                        {"chevron", item.kind == "command" && (item.source == "BI_FastReload" || item.source == "BI_ItemsUse")},
+                        {"pressed", item.id == choice_ && commands.stage == choice_stage_},
+                        {"chevron", item.kind == "command" && item.source == "BI_ItemsUse"},
                         {"cooldown", item.enabled ? 0 : std::lround((1.0 - item.cooldown) * 100.0)}};
             // Potions and abilities share one stage: each kind under its own heading.
             if (!root && !travel && item.kind != group)
@@ -685,7 +747,7 @@ class LandScene final : public Scene
         view.sheet = "s-hud-sheet";
         view.modal = true;
         view.sheet_props = Json{{"title", commands.title.empty() ? hud_.Text("hud.sheet.actions") : commands.title},
-                                {"back", !root && commands.can_back},
+                                {"back", !root && !travel && commands.can_back},
                                 {"layout", travel ? "tiles" : root ? "rows" : "dense"},
                                 {"headings", headings},
                                 {"rows", rows}};
@@ -714,6 +776,8 @@ class LandScene final : public Scene
     double choice_until_ = 0.0;
     uint64_t choice_revision_ = 0;
     bool choice_activated_ = false;
+    std::string choice_stage_; // the menu stage the tapped row belongs to
+    std::set<std::string> unknown_places_; // travel pictures already reported
 };
 
 } // namespace
