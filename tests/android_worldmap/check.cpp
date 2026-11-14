@@ -103,6 +103,30 @@ int main()
     assert(!storm::android::mapStormState("bad","0"));
     assert(!storm::android::mapStormState("0","1"));
 
+    // The moon of the game's sky (WhrSun.c: Moon00…Moon07 by day / 4).
+    assert(storm::android::mapMoonPhase(1)==0&&storm::android::mapMoonPhase(3)==0&&storm::android::mapMoonPhase(4)==1);
+    assert(storm::android::mapMoonPhase(16)==4&&storm::android::mapMoonPhase(19)==4&&storm::android::mapMoonPhase(31)==7);
+    assert(!storm::android::mapMoonPhase(0)&&!storm::android::mapMoonPhase(32));
+    // The game's calendar has 365-day years: 1 March is 59 days after 1 January in every year.
+    assert(*storm::android::mapCalendarMinutes(1652,3,1,0)-*storm::android::mapCalendarMinutes(1652,1,1,0)==59*1440);
+    assert(*storm::android::mapCalendarMinutes(1653,1,1,1.5)-*storm::android::mapCalendarMinutes(1652,12,31,23.5)==120);
+    assert(!storm::android::mapCalendarMinutes(1652,13,1,0)&&!storm::android::mapCalendarMinutes(1652,1,1,25));
+    {
+        using storm::android::MapRainPlan;using storm::android::mapRainState;
+        MapRainPlan none{false,false,{},{},{}};
+        assert(mapRainState(none,12)==0);
+        MapRainPlan planned{false,true,13.0,90.0,{}};
+        assert(mapRainState(planned,11.9)==0&&mapRainState(planned,12.0)==1&&mapRainState(planned,12.99)==1&&mapRainState(planned,13.0)==2);
+        MapRainPlan raining{true,true,13.0,90.0,30.0};
+        assert(mapRainState(raining,13.5)==2);
+        raining.elapsed=91.0;assert(mapRainState(raining,14.6)==0); // the rain is over when the sea updates the weather
+        raining.elapsed.reset();assert(mapRainState(raining,14.6)==2); // no recorded start: the scripts count 0 minutes
+        assert(!mapRainState(MapRainPlan{std::nullopt,false,{},{},{}},12)); // a malformed flag is not fair weather
+        assert(!mapRainState(MapRainPlan{false,true,{},{},{}},12));          // planned without a start hour
+        assert(!mapRainState(MapRainPlan{true,true,13.0,{},{}},12));         // raining without a duration
+        assert(!mapRainState(none,-1));
+    }
+
     WorldMapHud weatherHud;auto weatherFrame=complete();weatherHud.update(weatherFrame,1);
     const auto weatherRevision=weatherHud.revision();
     assert(weatherHud.json().find("\"stormState\":null")!=std::string::npos);
@@ -111,6 +135,10 @@ int main()
         assert(weatherHud.revision()==weatherRevision); // Weather alone must not revoke held input/commands.
         assert(weatherHud.json().find("\"stormState\":"+std::to_string(storm))!=std::string::npos);
     }
+    assert(weatherHud.json().find("\"moonPhase\":null,\"rainState\":null")!=std::string::npos);
+    weatherFrame.instruments.moonPhase=6;weatherFrame.instruments.rainState=1;weatherHud.update(weatherFrame,9);
+    assert(weatherHud.revision()==weatherRevision);
+    assert(weatherHud.json().find("\"moonPhase\":6,\"rainState\":1")!=std::string::npos);
     // The real main loop drains Java ACKs before rendering, then publishes the next snapshot.
     // A newly accepted ACK must not underflow against the previous frame's clock.
     WorldMapHud betweenFrames;betweenFrames.update(complete(),100);betweenFrames.resetActivity();

@@ -25,6 +25,8 @@ namespace
 constexpr double kIdle = 3600.0;
 constexpr double kTapSeconds = 1.5;      // a tapped command waits this long for the engine to act
 constexpr double kPi = 3.14159265358979323846;
+// The game's day: its hourly weathers 6…20 are day, 21…5 night (weather/Init: Weathers[].Night).
+constexpr double kDawn = 6.0, kDusk = 21.0;
 
 using screens::StringKey;
 
@@ -53,6 +55,25 @@ Slot SlotOf(const std::string &id)
     if (id == "EnterToShip")
         return {"context", "ship", "primary"};
     return {"context", "sea-exit", "primary"};
+}
+
+struct Weather
+{
+    const char *id, *word;
+};
+const Weather kWeathers[] = {{"clear", StringKey("hud.map.weather.clear")}, {"clouds", StringKey("hud.map.weather.clouds")},
+                             {"rain", StringKey("hud.map.weather.rain")},   {"storm", StringKey("hud.map.weather.storm")},
+                             {"tornado", StringKey("hud.map.weather.tornado")}};
+
+// What the sky over the compass shows, worst first: the storm zone the ship is in
+// (WdmPlayerShip::TestInStorm), then the rain the sea will have (rainState).
+const Weather *WeatherOf(const WorldMap &map)
+{
+    if (map.storm < 0 || map.rain < 0)
+        return nullptr;
+    if (map.storm > 0)
+        return &kWeathers[map.storm == 2 ? 4 : 3];
+    return &kWeathers[map.rain];
 }
 
 const char *const kPoints[] = {
@@ -245,8 +266,24 @@ class WorldMapScene final : public Scene
                         {"windFrom", from},
                         {"wind", static_cast<int>(std::lround(map.wind_force * 100.0))},
                         {"expanded", details_}};
-        // The sun rises in the east at six and sets in the west at eighteen.
-        compass["sun"] = map.hour >= 6.0 && map.hour <= 18.0 ? std::to_string(static_cast<int>(std::lround(90.0 + (map.hour - 6.0) * 15.0))) : "";
+        // The sky dome over the rose: the sun by day, the moon by night, rising at the east end
+        // (+90°), highest at the top, setting at the west end (-90°).
+        const bool day = map.hour >= kDawn && map.hour < kDusk;
+        const double share = day ? (map.hour - kDawn) / (kDusk - kDawn) : std::fmod(map.hour - kDusk + 24.0, 24.0) / (24.0 - kDusk + kDawn);
+        compass["sky"] = day ? "sun" : "moon";
+        compass["skyAt"] = static_cast<int>(std::lround(90.0 - 180.0 * share));
+        if (!day && map.moon_phase < 0)
+        {
+            hud_.Error("world-map HUD: the engine gives no moonPhase at night; the compass draws no moon");
+            compass["sky"] = "none";
+        }
+        else if (!day)
+            compass["moon"] = map.moon_phase;
+        const Weather *weather = WeatherOf(map);
+        if (weather)
+            compass["weather"] = weather->id;
+        else
+            hud_.Error("world-map HUD: the engine gives no stormState or rainState; the compass draws no weather");
         if (map.food_days >= 0)
         {
             compass["days"] = std::to_string(map.food_days);
@@ -268,6 +305,8 @@ class WorldMapScene final : public Scene
         if (at != std::string::npos)
             wind.replace(at, 5, hud_.Text(kPoints[((from + 22) % 360) / 45]));
         items.push_back(Json{{"k", hud_.Text("hud.map.wind")}, {"v", wind + " · " + Percent(map.wind_force * 100.0)}});
+        if (weather)
+            items.push_back(Json{{"k", hud_.Text("hud.map.weather")}, {"v", hud_.Text(weather->word)}});
         if (map.food_days >= 0)
             items.push_back(Json{{"k", hud_.Text("hud.map.food")}, {"v", std::to_string(map.food_days) + days}, {"tone", map.food_days <= 3 ? "danger" : ""}});
         if (map.rum_days >= 0)

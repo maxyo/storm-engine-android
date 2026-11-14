@@ -916,6 +916,15 @@ class WorldMapConsumer final : public HudConsumer
                    flag = Number(state, "flag", 0.0, 4.0, bad), storm = Number(state, "stormState", 0.0, 2.0, bad);
         if (bad)
             return "an instrument value is out of range";
+        // The sky of the compass: whole numbers of the engine's tables (android_worldmap.hpp).
+        const auto moon = Number(state, "moonPhase", 0.0, 7.0, bad);
+        if (bad || (moon && std::floor(*moon) != *moon))
+            return "moonPhase is not a moon phase 0…7";
+        const auto rain = Number(state, "rainState", 0.0, 2.0, bad);
+        if (bad || (rain && std::floor(*rain) != *rain))
+            return "rainState is not 0, 1 or 2";
+        if (storm && std::floor(*storm) != *storm)
+            return "stormState is not 0, 1 or 2";
         for (const Json &source : *fleet)
         {
             WorldMap::Vessel vessel;
@@ -972,6 +981,8 @@ class WorldMapConsumer final : public HudConsumer
         out.rum_days = rum ? static_cast<int>(*rum) : -1;
         out.flag = flag ? static_cast<int>(*flag) : -1;
         out.storm = storm ? static_cast<int>(*storm) : -1;
+        out.moon_phase = moon ? static_cast<int>(*moon) : -1;
+        out.rain = rain ? static_cast<int>(*rain) : -1;
         return {};
     }
 };

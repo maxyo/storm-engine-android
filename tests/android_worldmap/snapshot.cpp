@@ -94,6 +94,22 @@ int main(){
  typedHud.update(unknownType,2);assert(typedHud.json().find("\"type\":")==std::string::npos);
  shipType.SetAttribute("Name","Lugger");put(captain,"Ship.Name","Adelina");
  assert(!frame.instrumentsVisible&&frame.availableMask()==6); // No fake instruments before renderer supplies them.
+ // The rain the sea will have (WeatherParams, the start kept on the hero), read with the map's instruments.
+ worldMapHud.source.owner=19;worldMapHud.source.visible=true;worldMapHud.source.hour=12.5;
+ worldMapHud.source.year=1654;worldMapHud.source.month=10;worldMapHud.source.day=7;
+ assert(!readWorldMapFrame(game,true).instruments.rainState); // no WeatherParams at all: unknown, not fair weather
+ ATTRIBUTES weather(codec);core.variables["WeatherParams"].attrs={&weather};
+ assert(readWorldMapFrame(game,true).instruments.rainState==0); // the scripts never planned a rain
+ put(weather,"Rain.ThisDay","1");put(weather,"Rain.StartTime","13");put(weather,"Rain.Duration","90");
+ assert(readWorldMapFrame(game,true).instruments.rainState==1);
+ worldMapHud.source.hour=13.2;assert(readWorldMapFrame(game,true).instruments.rainState==2);
+ weather.SetAttribute("Rain","1");put(captain,"Rain.Duration.control_year","1654");put(captain,"Rain.Duration.control_month","10");
+ put(captain,"Rain.Duration.control_day","7");put(captain,"Rain.Duration.control_time","13");
+ worldMapHud.source.hour=14.4;assert(readWorldMapFrame(game,true).instruments.rainState==2);
+ worldMapHud.source.hour=14.6;assert(readWorldMapFrame(game,true).instruments.rainState==0); // 96 minutes > 90
+ worldMapHud.source.day=6;assert(readWorldMapFrame(game,true).instruments.rainState==2); // a start after now counts nothing
+ weather.SetAttribute("Rain","maybe");assert(!readWorldMapFrame(game,true).instruments.rainState);
+ core.variables.erase("WeatherParams");worldMapHud.source={};
  // WM_SetShipData omits land-only/stale companions, zero sentinel and slots
  // beyond COMPANION_MAX. They must not consume badge positions or poison all fleet coverage.
  put(captain,"Fellows.Companions.id1","0");

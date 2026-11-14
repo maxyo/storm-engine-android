@@ -2,7 +2,7 @@
  "schemaVersion": 1, "revision": 41, "activity": 2, "modalProtocol": 1, "modalToken": 0, "modalMask": 0, "modalActiveToken": 0, "modalFailure": 0,
  "gameplayRevision": 9, "available": true, "mask": 7, "commandsReady": true, "shipsVisible": true, "instrumentsVisible": true,
  "date": "7 октября 1654", "hour": 12.52, "windForce": 0.82, "windAngle": -0.698, "heading": 2.269, "speed": 0.7,
- "morale": 62.0, "foodDays": 18, "rumDays": 4, "coordinates": "--", "flag": 2, "stormState": 0,
+ "morale": 62.0, "foodDays": 18, "rumDays": 4, "coordinates": "--", "flag": 2, "stormState": 0, "moonPhase": 1, "rainState": 0,
  "ships": [
   {"id": "1:Blaze:5", "name": "Аделина", "hull": 82.0, "sails": 90.0, "crew": 120, "crewMax": 240, "shipClass": 4, "type": "Frigate", "picture": {"texture": "battle_interface/ship_icons2", "uv": [0.5, 0.25, 0.5625, 0.3125]}},
   {"id": "7:Sokol:12", "name": "Сокол", "hull": 74.0, "sails": 60.0, "crew": 80, "crewMax": 160, "shipClass": 5, "type": "Brig", "picture": {"texture": "battle_interface/ship_icons2", "uv": [0.25, 0.0625, 0.3125, 0.125]}}

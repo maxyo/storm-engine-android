@@ -408,8 +408,12 @@ void WdmWindUI::LRender(VRenderer *rs)
     source.owner = wdmObjects->wm->GetId();
     source.visible = true;
     if (wdmObjects->wm->mon >= 1 && wdmObjects->wm->mon <= 12)
+    {
         source.date = storm::android::shipCaptionText(std::to_string(wdmObjects->wm->day) + " " +
             month[wdmObjects->wm->mon-1] + " " + std::to_string(wdmObjects->wm->year));
+        source.year = wdmObjects->wm->year; source.month = wdmObjects->wm->mon; source.day = wdmObjects->wm->day;
+        source.moonPhase = storm::android::mapMoonPhase(wdmObjects->wm->day);
+    }
     const auto finite = [](double value)->std::optional<double>{return std::isfinite(value)?std::optional<double>(value):std::nullopt;};
     source.hour = finite(wdmObjects->wm->hour);
     source.windForce = finite(widForce); source.windAngle = finite(ang); source.heading = finite(ay);

@@ -2,7 +2,7 @@
  "schemaVersion": 1, "revision": 44, "activity": 2, "modalProtocol": 1, "modalToken": 0, "modalMask": 0, "modalActiveToken": 0, "modalFailure": 0,
  "gameplayRevision": 9, "available": true, "mask": 7, "commandsReady": true, "shipsVisible": true, "instrumentsVisible": true,
  "date": "7 октября 1654", "hour": 21.0, "windForce": 0.4, "windAngle": 1.0, "heading": 0.5, "speed": 0.2,
- "morale": 62.0, "foodDays": 2, "rumDays": null, "coordinates": "15° 32' N 61° 4' W", "flag": null, "stormState": 1,
+ "morale": 62.0, "foodDays": 2, "rumDays": null, "coordinates": "15° 32' N 61° 4' W", "flag": null, "stormState": 1, "moonPhase": 1, "rainState": 2,
  "ships": [{"id": "1:Blaze:5", "name": "Аделина", "hull": 82.0, "sails": 90.0, "crew": 120, "shipClass": 4, "type": "Frigate"}],
  "commands": [{"id": "EnterToSea", "label": "Выйти в море"}, {"id": "EnterToAttack", "label": "Атаковать"}, {"id": "EnterToStorm", "label": "Войти в шторм"}]
 }
