@@ -18,16 +18,17 @@ class BITextInfo final
     void Print();
     void Print(std::string outputText);
 
-    VRenderer *pRS;
+    // Init's defaults until Init reads the attributes
+    VRenderer *pRS = nullptr;
     std::string sText;
     std::string sourceName; // Stable source identity, including non-refreshable captions.
-    POINT pos;
-    float fScale;
-    int32_t nFont;
-    uint32_t dwColor;
-    bool bShadow;
+    POINT pos{};
+    float fScale = 1.f;
+    int32_t nFont = -1;
+    uint32_t dwColor = 0xFFFFFFFF;
+    bool bShadow = true;
 
-    ATTRIBUTES *pARefresh;
+    ATTRIBUTES *pARefresh = nullptr;
 };
 
 class BILinesInfo

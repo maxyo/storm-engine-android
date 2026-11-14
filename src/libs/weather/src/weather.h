@@ -9,13 +9,14 @@
 class WEATHER : public WEATHER_BASE
 {
   private:
-    VRenderer *pRS;
+    VRenderer *pRS = nullptr;
 
-    float fFloats[MAX_FLOAT_PARAMS];
-    int32_t iLongs[MAX_LONG_PARAMS];
-    uint32_t dwColors[MAX_COLOR_PARAMS];
-    glm::vec3 vVectors[MAX_VECTORS_PARAMS];
-    char *pStrings[MAX_STRINGS_PARAMS];
+    // Zero until the scripts set them (Execute reads them every frame; not every script set gives every one)
+    float fFloats[MAX_FLOAT_PARAMS]{};
+    int32_t iLongs[MAX_LONG_PARAMS]{};
+    uint32_t dwColors[MAX_COLOR_PARAMS]{};
+    glm::vec3 vVectors[MAX_VECTORS_PARAMS]{};
+    char *pStrings[MAX_STRINGS_PARAMS]{};
 
     // timer data
     float fUpdateFrequence;

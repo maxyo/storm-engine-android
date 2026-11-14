@@ -46,6 +46,7 @@ BIManSign::BIManSign(entid_t BIEntityID, VRenderer *pRS)
     m_bIsAlarmOn = false;
     m_nAlarmTextureID = -1;
     m_fAlarmTime = 0.0f;
+    m_bAlarmUpDirection = true; // the pulse rises from m_fAlarmTime 0
     m_fAlarmUpSpeed = 1.0f;
     m_fAlarmDownSpeed = 1.0f;
 }
@@ -188,6 +189,7 @@ void BIManSign::Init(ATTRIBUTES *pRoot, ATTRIBUTES *pA)
     ZERROPOINT(m_pntAlarmOffset);
     FILLPOINT(m_pntAlarmIconSize, 128, 128);
     m_fAlarmTime = 0.f;
+    m_bAlarmUpDirection = true;
     m_fAlarmUpSpeed = 2.f;
     m_fAlarmDownSpeed = 0.666f;
 

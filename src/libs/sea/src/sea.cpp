@@ -437,7 +437,7 @@ bool SEA::EditMode_Update()
 
     const float fReflection = 0.8f;
     const float fTransparency = 0.7f;
-    float fFrenel = 0.75f;
+    fFrenel = 0.75f; // the member: a local here left it unset until the script sets Sea.Frenel
     const float fAttenuation = 0.9f;
     v4SeaParameters = glm::vec4(fAttenuation, fReflection, fTransparency, 0.0f);
 

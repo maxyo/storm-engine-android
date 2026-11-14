@@ -19,6 +19,7 @@ SUNGLOW::SUNGLOW()
     fMaxOverflowAlphaValue = 0.0f;
     Flares.fFlareScale = 1.0f;
     bVisible = false;
+    bVisibleFlare = false;
 
     iSunTex = iMoonTex = iSunGlowTex = -1;
     iFlareTex = -1;

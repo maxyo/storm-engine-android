@@ -23,11 +23,11 @@
 
 WdmCameraStdCtrl::WdmCameraStdCtrl()
 {
+    isFree = false; // GetCurFreeMode reads it
     lastFreeMode = GetCurFreeMode();
     mdx = 0.0f;
     mdy = 0.0f;
     mzoom = 0.0f;
-    isFree = false;
 }
 
 WdmCameraStdCtrl::~WdmCameraStdCtrl()

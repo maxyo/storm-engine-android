@@ -596,6 +596,7 @@ Character::Character()
     impulse = glm::vec3(0.0f);
     strafeMove = 0.0f;
     recoilWait = 0.0f;
+    recoilLook = false;
     strafeWait = 0.0f;
     camRotWait = 0.0f;
     isMale = true;

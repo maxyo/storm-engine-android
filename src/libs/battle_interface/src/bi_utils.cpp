@@ -314,11 +314,7 @@ BITextInfo::BITextInfo(const BITextInfo &text_info)
     pRS->IncRefCounter(nFont);
 }
 
-BITextInfo::BITextInfo()
-{
-    pRS = nullptr;
-    nFont = -1;
-}
+BITextInfo::BITextInfo() = default;
 
 BITextInfo::~BITextInfo()
 {
