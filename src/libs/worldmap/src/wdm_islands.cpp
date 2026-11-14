@@ -19,8 +19,12 @@
 #include "string_compare.hpp"
 
 #include "storm/render/frame_owner.hpp"
+#ifdef __ANDROID__
+#include "platform/android_worldmap.hpp"
+#endif
 
 #include <algorithm>
+#include <optional>
 
 namespace
 {
@@ -710,6 +714,15 @@ void WdmIslands::LRender(VRenderer *rs)
             smallest = height;
     const float scale = smallest > 0.0f ? std::max(1.0f, kLabelMinDp * pxPerDp / smallest) : 1.0f;
     const float outline = std::max(1.0f, kLabelOutlineDp * pxPerDp);
+    std::optional<storm::worldmap::LabelBox> compass;
+#ifdef __ANDROID__
+    if (const auto area = storm::android::worldMapHud.labelCompass())
+    {
+        const float sx = w / (*area)[0], sy = h / (*area)[1];
+        compass = storm::worldmap::LabelBox{(*area)[2] * sx, (*area)[3] * sy,
+                                          ((*area)[2] + (*area)[4]) * sx, ((*area)[3] + (*area)[5]) * sy};
+    }
+#endif
     // The height of the camera: each kind of label shows below its own (heightView)
     const float cameraHeight = wdmObjects->camera->realHeight;
     const float seconds = core.GetDeltaTime() * 0.001f;
@@ -726,6 +739,12 @@ void WdmIslands::LRender(VRenderer *rs)
         label.t = prjVertex.y;
         label.r = label.l + label.width * scale;
         label.b = label.t + label.height * scale;
+        if (compass)
+        {
+            storm::worldmap::LabelBox box{label.l, label.t, label.r, label.b};
+            storm::worldmap::AvoidCompass(box, prjVertex.x, prjVertex.y, w, h, *compass, kLabelGapDp * pxPerDp + outline);
+            label.l = box.left; label.t = box.top; label.r = box.right; label.b = box.bottom;
+        }
         label.onScreen = label.l < w && label.t < h && label.r >= 0.0f && label.b >= 0.0f;
         const bool mayShow = label.onScreen && label.heightView > cameraHeight && (!label.text.empty() || label.icon >= 0);
         if (!mayShow)

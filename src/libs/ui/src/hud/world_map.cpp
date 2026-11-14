@@ -196,6 +196,7 @@ class WorldMapScene final : public Scene
             mask |= all ? kCommands : 0;
             mask &= map->mask;
         }
+        CoverLabels(map, shown);
         Cover(states.world_map, mask);
     }
 
@@ -376,7 +377,35 @@ class WorldMapScene final : public Scene
 
     void Uncover(const States &states)
     {
+        CoverLabels(nullptr, hud_.Shown());
         Cover(states.world_map, 0);
+    }
+
+    void CoverLabels(const WorldMap *map, const View &shown)
+    {
+        if (!map || !shown.elements.contains("compass"))
+        {
+            if (!label_owner_.empty() && label_geometry_ != "none")
+                hud_.Send("worldmap", label_owner_ + "\tlabelarea\tnone", "worldmap-labelarea");
+            label_geometry_ = "none";
+            return;
+        }
+        Placement box;
+        std::string geometry = "none";
+        if (hud_.Measure("compass", "", box) && box.screen_width > 0 && box.screen_height > 0 && box.width > 0 && box.height > 0)
+        {
+            // Send the real component box, including date and days. Do not reproduce the
+            // pack's anchors/safe-area arithmetic in the world-map renderer.
+            geometry = std::to_string(std::lround(box.screen_width)) + ":" + std::to_string(std::lround(box.screen_height)) + ":" +
+                       std::to_string(std::lround(box.x)) + ":" + std::to_string(std::lround(box.y)) + ":" +
+                       std::to_string(std::lround(box.width)) + ":" + std::to_string(std::lround(box.height));
+        }
+        const std::string owner = Owner(*map);
+        if (owner != label_owner_ || geometry != label_geometry_)
+        {
+            label_owner_ = owner; label_geometry_ = geometry;
+            hud_.Send("worldmap", owner + "\tlabelarea\t" + geometry, "worldmap-labelarea");
+        }
     }
 
     void Sails(const std::string &dir)
@@ -393,6 +422,7 @@ class WorldMapScene final : public Scene
     bool details_ = false;
     unsigned covered_ = 0;
     std::string covered_owner_, tapped_owner_;
+    std::string label_owner_, label_geometry_;
     std::string tapped_;
     double tapped_until_ = 0.0;
 };

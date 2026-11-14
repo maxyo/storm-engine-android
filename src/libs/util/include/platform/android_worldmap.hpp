@@ -106,6 +106,8 @@ inline bool leavesForOpenSea(std::string_view command)
 }
 class WorldMapHud
 {
+    std::optional<std::array<uint32_t, 6>> labelCompass_;
+    WorldMapModal::Owner labelCompassOwner_;
     WorldMapFrame frame_;
     uint64_t revision_ = 0, activity_ = 0;
     // Coverage of the instruments, fleet and command icon: said once per revision, kept until
@@ -158,6 +160,12 @@ public:
     const WorldMapFrame &frame() const { return frame_; }
     bool awaiting() const { return frame_.available && answered_ != revision_; }
     uint64_t revision() const { return revision_; }
+    // Last drawn UI compass box, including date/days, in its display's pixels.
+    // A changed owner or a hidden HUD cannot reserve space for an obsolete compass.
+    std::optional<std::array<uint32_t, 6>> labelCompass() const
+    {
+        return labelCompassOwner_ == owner() && frame_.available ? labelCompass_ : std::nullopt;
+    }
     bool covered(uint32_t mask, uint64_t owner) const
     {
         // One coverage rule (android_hud_presenter.hpp): while the UI presents the world map HUD
@@ -183,6 +191,22 @@ public:
         const auto number=[](std::string_view s,uint64_t &v){auto p=std::from_chars(s.data(),s.data()+s.size(),v);return p.ec==std::errc()&&p.ptr==s.data()+s.size();};
         uint64_t revision=0,activity=0;
         if(!number(fields[0],revision)||!number(fields[1],activity)||revision!=revision_||activity!=activity_)return false;
+        if(fields[2]=="labelarea")
+        {
+            if(fields[3]=="none") { labelCompass_.reset(); labelCompassOwner_=owner(); return true; }
+            std::array<uint32_t,6> area{};
+            auto text=fields[3];
+            for(size_t k=0;k<area.size();++k)
+            {
+                const auto end=text.find(':'); uint64_t value=0;
+                if((k+1<area.size()&&end==std::string_view::npos)||(k+1==area.size()&&end!=std::string_view::npos)||
+                   !number(text.substr(0,end),value)||value>65536)return false;
+                area[k]=static_cast<uint32_t>(value);
+                if(k+1<area.size())text.remove_prefix(end+1);
+            }
+            if(!area[0]||!area[1]||!area[4]||!area[5]||area[2]+area[4]>area[0]||area[3]+area[5]>area[1])return false;
+            labelCompass_=area;labelCompassOwner_=owner();return true;
+        }
         if(fields[2]=="ack")
         {
             const auto colon=fields[3].find(':');

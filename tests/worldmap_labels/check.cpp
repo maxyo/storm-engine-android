@@ -1,6 +1,7 @@
 #include "wdm_label_layout.hpp"
 
 #include <cassert>
+#include <array>
 #include <cstdio>
 #include <vector>
 
@@ -26,6 +27,35 @@ int main()
 {
     LabelLayout layout;
     constexpr float gap = 8.0f, hold = 6.0f;
+    // WM-UI-01: the projected Dominica caption was under the compass. Reserve the
+    // measured WHOLE component (date and days too), at both captured viewport sizes.
+    for (const auto &viewport : std::vector<std::array<float, 6>>{{960, 540, 702, 15, 240, 219}, {1280, 720, 1022, 15, 240, 219}})
+    {
+        const auto [w, h, x, y, cw, ch] = viewport;
+        const LabelBox compass{x, y, x + cw, y + ch};
+        LabelBox name{x - 12, 150, x + 138, 180, 100, true};
+        const float anchorX = x + 63, anchorY = 150;
+        assert(name.right > compass.left && name.top < compass.bottom); // reproduces the old overlap
+        assert(storm::worldmap::AvoidCompass(name, anchorX, anchorY, w, h, compass, gap));
+        assert(name.top == compass.bottom + gap && name.left == x - 12); // nearest clear position: below days
+        assert(name.bottom <= h && name.right <= w);
+        assert(!storm::worldmap::AvoidCompass(name, anchorX, anchorY, w, h, compass, gap));
+        // The moved caption still participates in normal weighted name collisions.
+        std::vector<LabelBox> boxes{name, Box(name.left, name.top, 50), Box(30, 300, 100)};
+        layout.Place(boxes, gap, hold);
+        assert((Shown(boxes) == std::vector<bool>{true, false, true}));
+        // An offscreen island's partly visible name keeps its projection; no global edge clamp.
+        LabelBox offscreen{w - 80, 150, w + 70, 180};
+        const auto before = offscreen;
+        assert(!storm::worldmap::AvoidCompass(offscreen, w + 10, 150, w, h, compass, gap));
+        assert(offscreen.left == before.left && offscreen.top == before.top);
+    }
+    // A caption close to the compass's left edge moves left when that is shorter.
+    {
+        LabelBox name{650, 150, 720, 180};
+        assert(storm::worldmap::AvoidCompass(name, 685, 150, 960, 540, {702, 15, 942, 234}, gap));
+        assert(name.right == 694 && name.top == 150);
+    }
     // Apart: all show.
     {
         std::vector<LabelBox> boxes{Box(0, 0, 1), Box(200, 0, 1), Box(0, 100, 50)};

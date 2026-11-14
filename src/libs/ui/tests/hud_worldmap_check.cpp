@@ -207,6 +207,32 @@ static void CheckTime()
     Expect(!bench.hud.Current().world_map.known && !mount.errors.empty(), "a time scale out of range is rejected aloud");
 }
 
+static void CheckLabelArea()
+{
+    Bench bench;
+    bench.mount.boxes["compass "] = {702, 15, 240, 219, 0, 0, 960, 540, 1.5f};
+    bench.Feed("gameplay", "gameplay-worldmap");
+    bench.Feed("worldMap", "world-map");
+    bench.Frame();
+    Expect(Sent(bench.mount, "worldmap:41\t2\tlabelarea\t960:540:702:15:240:219"),
+           "the drawn compass reserves its measured full date/disc/days box");
+    const auto sent = bench.mount.commands.size();
+    bench.Frame();
+    Expect(bench.mount.commands.size() == sent, "unchanged compass geometry is not resent");
+    bench.mount.boxes["compass "] = {1022, 15, 240, 219, 0, 0, 1280, 720, 1.5f};
+    bench.Frame();
+    Expect(Sent(bench.mount, "worldmap:41\t2\tlabelarea\t1280:720:1022:15:240:219"),
+           "resizing updates the reservation even without a telemetry revision change");
+    bench.mount.boxes.clear();
+    bench.Frame();
+    Expect(Sent(bench.mount, "worldmap:41\t2\tlabelarea\tnone"), "an unmeasurable compass clears its old reservation");
+    bench.mount.boxes["compass "] = {702, 15, 240, 219, 0, 0, 960, 540, 1.5f};
+    bench.Frame();
+    bench.mount.commands.clear();
+    bench.Feed("presentation", "presentation-menu");
+    Expect(Sent(bench.mount, "worldmap:41\t2\tlabelarea\tnone"), "hiding the HUD clears its reservation too");
+}
+
 int main(int argc, char **argv)
 {
     states_directory = argc > 1 ? argv[1] : "tests/states";
@@ -214,6 +240,7 @@ int main(int argc, char **argv)
     CheckScene();
     CheckSky();
     CheckTime();
+    CheckLabelArea();
     if (failures)
         std::fprintf(stderr, "%d world-map HUD check(s) failed\n", failures);
     else

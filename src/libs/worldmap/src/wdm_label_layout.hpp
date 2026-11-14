@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <limits>
 #include <numeric>
 #include <span>
 #include <vector>
@@ -26,6 +27,38 @@ struct LabelBox
     uint32_t weight = 0;
     bool shown = false; // in: shown in the last frame; out: shows in this one
 };
+
+// The compass includes its date and food readout. Only a label whose world anchor is
+// actually in the viewport may move around that HUD box; names of offscreen islands
+// retain the game's projection/clipping. Keep the smallest displacement and leave the
+// world anchor itself alone. The normal weighted name layout still runs afterwards.
+inline bool AvoidCompass(LabelBox &box, float anchorX, float anchorY, float width, float height,
+                         const LabelBox &compass, float gap)
+{
+    if (anchorX < 0 || anchorX >= width || anchorY < 0 || anchorY >= height ||
+        box.right <= compass.left - gap || box.left >= compass.right + gap ||
+        box.bottom <= compass.top - gap || box.top >= compass.bottom + gap)
+        return false;
+    const float shifts[4][2] = {{compass.left - gap - box.right, 0}, {compass.right + gap - box.left, 0},
+                                {0, compass.top - gap - box.bottom}, {0, compass.bottom + gap - box.top}};
+    float best = std::numeric_limits<float>::infinity(), dx = 0, dy = 0;
+    for (const auto &shift : shifts)
+    {
+        if (box.left + shift[0] < 0 || box.right + shift[0] > width || box.top + shift[1] < 0 || box.bottom + shift[1] > height)
+            continue;
+        const float distance = shift[0] * shift[0] + shift[1] * shift[1];
+        if (distance < best)
+        {
+            best = distance;
+            dx = shift[0];
+            dy = shift[1];
+        }
+    }
+    if (best == std::numeric_limits<float>::infinity())
+        return false;
+    box.left += dx; box.right += dx; box.top += dy; box.bottom += dy;
+    return true;
+}
 
 class LabelLayout
 {

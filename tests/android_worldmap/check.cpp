@@ -144,6 +144,24 @@ int main()
     WorldMapHud betweenFrames;betweenFrames.update(complete(),100);betweenFrames.resetActivity();
     assert(betweenFrames.offer(std::to_string(betweenFrames.revision())+"\t1\tack\t7",117));
     assert(betweenFrames.covered(7,19));
+    // The drawn UI compass's full box is accepted only for this owner/activity.
+    const auto packet=[](WorldMapHud &h,const std::string &verb,const std::string &value){return std::to_string(h.revision())+"\t1\t"+verb+"\t"+value;};
+    const auto labelArea=packet(betweenFrames,"labelarea","960:540:702:15:240:219");
+    assert(betweenFrames.offer(labelArea,118));
+    assert(betweenFrames.labelCompass() && (*betweenFrames.labelCompass())[4]==240);
+    assert(!betweenFrames.offer(packet(betweenFrames,"labelarea","960:540:900:15:240:219"),119));
+    assert(!betweenFrames.offer(packet(betweenFrames,"labelarea","960:540:702:15:240:219:1"),119));
+    assert(!betweenFrames.offer(packet(betweenFrames,"labelarea","960:0:702:15:240:219"),119));
+    assert(betweenFrames.labelCompass()); // malformed geometry cannot overwrite the last drawn box
+    assert(betweenFrames.offer(packet(betweenFrames,"labelarea","none"),120));
+    assert(!betweenFrames.labelCompass());
+    assert(betweenFrames.offer(labelArea,121));
+    betweenFrames.resetActivity();
+    assert(!betweenFrames.labelCompass() && !betweenFrames.offer(labelArea,122));
+    const auto freshArea=std::to_string(betweenFrames.revision())+"\t2\tlabelarea\t960:540:702:15:240:219";
+    assert(betweenFrames.offer(freshArea,123) && betweenFrames.labelCompass());
+    auto changedFrame=complete();changedFrame.owner=20;betweenFrames.update(changedFrame,124);
+    assert(!betweenFrames.labelCompass() && !betweenFrames.offer(freshArea,125));
     WMShipCommandList commands;commands.m_aUsedCommand={{"Cancel","Cancel"},{"EnterToIsland","Approach island"}};
     assert(commands.AndroidMapCommands().size()==1&&commands.AndroidMapCommands()[0].id=="EnterToIsland");
     commands.m_aUsedCommand[0].sCommandName="cancel";assert(commands.AndroidMapCommands().size()==1);
