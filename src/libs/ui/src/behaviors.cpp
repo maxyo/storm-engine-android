@@ -67,6 +67,10 @@ double TooltipSeconds(ComponentElement &self)
 {
     return self.Host().Setting("tooltipMs", 400.0) / 1000.0; // long press before the tooltip opens
 }
+double RefuseSeconds(ComponentElement &self)
+{
+    return self.Host().Setting("refuseMs", 720.0) / 1000.0; // the shake of a refused modal
+}
 
 Rml::Element *ClosestWith(Rml::Element *from, Rml::Element *root, const char *attribute)
 {
@@ -202,14 +206,32 @@ class PressBehavior final : public Behavior
         Activate(self, part);
     }
 
+    // A modal that must be answered was tapped beside (Router: Bindings::Modal without a
+    // cancel): the component carries the class "refused" for a moment (C-Dialog shakes its box).
+    bool Refused(ComponentElement &self) override
+    {
+        if (refused_until_ > 0.0)
+            return true; // still shaking: the same refusal
+        self.SetLive("refused", true);
+        refused_until_ = self.Host().Now() + RefuseSeconds(self);
+        self.Host().RequestTicks(self, true);
+        return true;
+    }
+
     void Tick(ComponentElement &self, double now) override
     {
+        if (refused_until_ > 0.0 && now >= refused_until_)
+        {
+            refused_until_ = 0.0;
+            self.SetLive("refused", false);
+            StopTicksWhenIdle(self);
+        }
         if (done_until_ > 0.0 && now >= done_until_)
         {
             done_until_ = 0.0;
             self.SetLive("done", false);
             SetRing(self, &self, self.Prop("holdProgress"));
-            self.Host().RequestTicks(self, false);
+            StopTicksWhenIdle(self);
             return;
         }
         if (!part_)
@@ -259,8 +281,7 @@ class PressBehavior final : public Behavior
         }
         if (part_ == &self && holding_)
             return;
-        if (done_until_ == 0.0 && !part_)
-            self.Host().RequestTicks(self, false);
+        StopTicksWhenIdle(self);
     }
 
   private:
@@ -321,7 +342,12 @@ class PressBehavior final : public Behavior
         holding_ = false;
         tooltip_pending_ = false;
         tooltip_open_ = false;
-        if (done_until_ == 0.0)
+        StopTicksWhenIdle(self);
+    }
+
+    void StopTicksWhenIdle(ComponentElement &self)
+    {
+        if (!part_ && done_until_ == 0.0 && refused_until_ == 0.0)
             self.Host().RequestTicks(self, false);
     }
 
@@ -377,6 +403,7 @@ class PressBehavior final : public Behavior
     int pointer_ = -1;
     double down_at_ = 0.0;
     double done_until_ = 0.0;
+    double refused_until_ = 0.0;
     bool holding_ = false;
     bool tooltip_pending_ = false;
     bool tooltip_open_ = false;

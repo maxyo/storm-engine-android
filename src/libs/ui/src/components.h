@@ -126,6 +126,12 @@ class Behavior
     virtual void Regions(ComponentElement &, std::vector<Rml::Element *> &) const
     {
     }
+    // What the player asked of the component was refused (a scrim tap on a modal that must be
+    // answered): true when the behaviour shows it (press: the live class "refused" for a moment).
+    virtual bool Refused(ComponentElement &)
+    {
+        return false;
+    }
 };
 
 using BehaviorFactory = std::unique_ptr<Behavior> (*)();
@@ -172,6 +178,8 @@ class ComponentElement final : public Rml::Element
     }
     // Elements of this component that take a pointer (see Behavior::Regions).
     void TouchRegions(std::vector<Rml::Element *> &out);
+    // Shows that what the player asked was refused (Behavior::Refused); false when nothing of it can.
+    bool Refuse();
 
     // Pointer routing (called by the host).
     bool PointerExclusive(const Pointer &pointer) const;

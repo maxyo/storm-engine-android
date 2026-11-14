@@ -62,15 +62,23 @@ verbs, §8 admission and extras) and the V2 mockups of the design canvas.
      handler `bindings.Send(widget, verb, value)`, `SendLatest` (drags), `Back(exit)`,
      `EditText` / `AskText` (the screen gets the typed text), `Read`, `Rebuild()` for local
      state kept in members, `SendHost(node, value)` for a setting of the application itself (an `Action` without a
-     screen that the platform host keeps; `app-settings` = the renderer options). A screen
-     with a modal of its own returns true from `OwnsBack()` and closes it in `Back()`: the
-     back key then goes there first (`Host::WantsBack`). Mark events that are
+     screen that the platform host keeps; `app-settings` = the renderer options). Every modal
+     the view shows (a `c-dialog`, a sheet with a scrim) is declared in that Build with
+     `bindings.Modal(id, cancel)`, the topmost last: a tap on its scrim (`dismiss`) and the
+     back key (`Host::WantsBack`) run `cancel`, which must do what the modal's ✕ / «Отмена»
+     does. A modal that must be answered by its buttons (a mandatory choice of the game, a
+     consequence such as refusing the wages or the defectors, a password inside a running
+     import) passes `nullptr`: the tap and the back key are refused, logged, and the dialog
+     shakes (`Surface::Refuse`). Never bind `dismiss` by hand (an error). Something else of
+     the screen's own that the back key closes first (an inline window) returns true from
+     `OwnsBack()` and closes it in `Back()`. Mark events that are
      expected but need nothing with `bindings.Ignore(id, verb)`.
    Add the file to `CMakeLists.txt`.
 3. **Registry.** Add `{"<interface id>", Create…}` to `kPorted` in `registry.cpp`. Until
    then the generic layout draws the interface; the platform host draws none.
 4. **Tests.** Record a model (below), add it to `tests/models/`, extend
-   `tests/screens_check.cpp` (admission, the props that matter, every action mapping).
+   `tests/screens_check.cpp` (admission, the props that matter, every action mapping) and
+   add every modal of the screen to the walk in `tests/modals_check.cpp`.
 
 Element ids: an event carries the id of the nearest ancestor that has one. Components
 inside lists report under the list's id with their own verb (`goods row 3`,
@@ -196,7 +204,8 @@ what it holds (`Released`, `Suspended`).
 
 A scene builds a `View`: the layout scene of the pack's `hud-layout.json`, the live props of
 its elements by id (an element left out is not mounted), an optional sheet (a pack part,
-modal or not), elements to dim. The mount patches elements in place, so an element that the
+modal or not; a tap on a modal sheet's scrim is its ✕: the engine draws a sheet here only
+when it offers both ← and ✕), elements to dim. The mount patches elements in place, so an element that the
 old and the new view share keeps its pointer (the stick survives explore ↔ combat). Layout
 props come first, the scene's props on top; a prop the scene stops giving returns to its
 default. `Input::On(id, verb, handler)` binds component events; an event without a binding,

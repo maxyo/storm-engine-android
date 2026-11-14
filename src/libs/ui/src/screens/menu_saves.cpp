@@ -381,12 +381,12 @@ class SavesScreen final : public Screen
         if (no)
         {
             bindings.Forward("confirm-cancel", *no, "press");
-            bindings.Forward("confirm", *no, "press");
+            bindings.Modal("confirm", [&bindings, no](const Event &) { bindings.Send(*no, "press"); });
         }
         else
         {
             bindings.Ignore("confirm-cancel", "");
-            bindings.Ignore("confirm", "dismiss");
+            bindings.Modal("confirm", nullptr); // the game's question without a «no»
         }
         return view;
     }

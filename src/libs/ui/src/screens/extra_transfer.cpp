@@ -278,12 +278,18 @@ class TransferScreen final : public Screen
         else
             Cargo(admitted, bindings, view, ours);
 
-        // The game's windows. Each binds the platform back to its own way out.
+        // The game's windows. Each binds the platform back to its own way out; `neutral` when that way
+        // out leaves things as they are (keep the ship, keep the captain, «Нет», OK on a message), so
+        // a tap beside the window may take it too.
         const Widget *way_out = nullptr;
+        bool neutral = true;
         view["modal"] = Json();
         view["sheet"] = Json();
         if (const Widget *ok = admitted.One("HIRE_QTY_OK_BUTTON"))
+        {
             way_out = Hire(admitted, bindings, view, ok);
+            neutral = false; // «никого» refuses the defectors
+        }
         else if (const Widget *kill = admitted.One("CAPTURE_CREW_KILL"))
         {
             Json acts = Json::array();
@@ -298,6 +304,7 @@ class TransferScreen final : public Screen
                                  {"text", ""},
                                  {"actions", acts}};
             way_out = free;
+            neutral = false; // every answer decides the prisoners' fate
         }
         else if (const Widget *kill_captain = admitted.One("CAPTURE_CAPTAIN_KILL"))
         {
@@ -348,10 +355,12 @@ class TransferScreen final : public Screen
         else if (admitted.One("ACCEPT_ADD_OFFICER") || !admitted.All("PASSENGERSLIST").empty())
             way_out = Captains(admitted, bindings, view);
 
-        // A tap beside a window of the game answers nothing: these are questions with consequences (a miss must
-        // not sink a ship or refuse the defectors). Seen on the device as an unmapped-event error.
-        for (const char *window : {"modal", "amount", "sheet"})
-            bindings.Ignore(window, "dismiss");
+        // A miss beside a window must not sink a ship or refuse the defectors: those windows are answered
+        // by their buttons (the scrim and the back key are refused, the window shakes).
+        if (!view["modal"].is_null() || !view["sheet"].is_null())
+            bindings.Modal(!view["sheet"].is_null() ? "sheet" : view["modal"].contains("q") ? "amount" : "modal",
+                           way_out && neutral ? Bindings::Handler([&bindings, way_out](const Event &) { bindings.Send(*way_out, "press"); })
+                                              : Bindings::Handler());
         const Widget *exit = admitted.One("EXIT_BTN");
         const bool deal = admitted.One("QTY_OK_BUTTON") && admitted.One("QTY_EDIT");
         const Widget *deal_cancel = admitted.One("QTY_CANCEL_BUTTON");

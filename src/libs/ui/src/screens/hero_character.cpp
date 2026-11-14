@@ -285,15 +285,14 @@ class HeroScreen final : public Screen
         return view;
     }
 
-    // Android back closes the subject list or the game's window first.
+    // Android back closes the learning card or the game's window first (Bindings::Modal does it for
+    // those shown as a dialog; a window of the game is open a moment before its dialog is).
     bool OwnsBack() const override
     {
-        return subjects_.Open() || learn_open_ || window_ != Window::None;
+        return learn_open_ || window_ != Window::None;
     }
     void Back(Bindings &bindings) override
     {
-        if (subjects_.Open())
-            return subjects_.Close(bindings);
         if (learn_open_)
         {
             learn_open_ = false;
@@ -879,7 +878,7 @@ class HeroScreen final : public Screen
                     learn_open_ = false;
                     bindings.Rebuild();
                 };
-                bindings.On("dialog", "dismiss", cancel);
+                bindings.Modal("dialog", cancel);
                 bindings.On("dialog-close", "", cancel);
                 bindings.On("learn-cancel", "", cancel);
                 bindings.On("learn-ok", "", [this, &bindings](const Event &) {
@@ -904,7 +903,6 @@ class HeroScreen final : public Screen
             sent_revision_ = 0; // a player action: its first step may go at once
             CloseWindow(bindings);
         };
-        bindings.On("dialog", "dismiss", close);
         bindings.On("dialog-close", "", close);
         if (window_ == Window::Remove && post)
         {
@@ -931,6 +929,7 @@ class HeroScreen final : public Screen
                 CloseWindow(bindings);
                 bindings.Rebuild();
             });
+            bindings.Modal("dialog", close);
             return Json{{"kind", "officer"}, {"title", post->label}, {"subtitle", LowerText(Field(post, "role"))}, {"facts", facts}, {"actions", actions}};
         }
         if (window_ == Window::Assign)
@@ -958,12 +957,14 @@ class HeroScreen final : public Screen
                     Start(bindings, intent);
                 });
             }
+            bindings.Modal("dialog", close);
             return Json{{"kind", "assign"}, {"title", post ? Field(post, "role") : std::string()}, {"rows", rows}, {"empty", bindings.Text("hero.no_candidates")}};
         }
         if (window_ == Window::Message)
         {
             const Widget *ok = a_->One("MSG_OK");
             Json actions = Json::array({ButtonView(bindings, *ok, "msg-ok", "primary")});
+            bindings.Modal("dialog", close);
             return Json{{"kind", "message"}, {"title", Trim(a_->Label("MSG_WINDOW_CAPTION"))}, {"text", Trim(a_->Label("MSG_WINDOW_TEXT"))}, {"actions", actions}};
         }
         return nullptr;

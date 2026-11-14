@@ -769,7 +769,7 @@ class ShipyardScreen final : public Screen
             const auto dismiss = [send, close, close_verb](const Event &) { send(close, close_verb); };
             bindings.On("sheet-close", "", dismiss);
             bindings.On("sheet-cancel", "", dismiss);
-            bindings.On("sheet", "dismiss", dismiss);
+            bindings.Modal("sheet", dismiss);
         }
 
         last_mode_ = mode;

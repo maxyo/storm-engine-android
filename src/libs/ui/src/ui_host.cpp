@@ -1429,6 +1429,16 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
             ShowLogged(line, "danger");
     }
 
+    // A modal of the screen refused a tap beside it or the back key (Bindings::Modal without a
+    // cancel): its component shows it (C-Dialog shakes).
+    void Refuse(const std::string &id) override
+    {
+        auto *component = document_ ? dynamic_cast<ComponentElement *>(document_->GetElementById(id)) : nullptr;
+        if (!component || !component->Refuse())
+            Error("refused modal " + id + ": no component with that id can show it");
+        changed_ = true;
+    }
+
     // --- Services -----------------------------------------------------------------
 
     double Now() const override

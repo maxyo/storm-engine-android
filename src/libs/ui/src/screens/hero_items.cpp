@@ -263,15 +263,13 @@ class ItemsScreen final : public Screen
         return view;
     }
 
-    // Android back closes the subject list or the map window first.
+    // Android back closes the map window first.
     bool OwnsBack() const override
     {
-        return subjects_.Open() || map_open_;
+        return map_open_;
     }
     void Back(Bindings &bindings) override
     {
-        if (subjects_.Open())
-            return subjects_.Close(bindings);
         sent_revision_ = 0;
         CloseMap(bindings);
     }

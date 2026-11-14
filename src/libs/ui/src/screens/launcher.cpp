@@ -475,7 +475,7 @@ class LauncherScreen final : public Screen
         bindings.On("password-field", "", edit);
         bindings.On("password-confirm", "", edit);
         bindings.On("password-cancel", "", [this, &bindings](const Event &) { bindings.Send(command_, "password-cancel"); });
-        bindings.Ignore("password", "dismiss");
+        bindings.Modal("password", nullptr); // asked in the middle of a running import: answered by its buttons
         return Json{{"title", bindings.Text(Flag(password, "retry") ? "launcher.password_wrong" : "launcher.password_title")},
                     {"subtitle", Str(password, "for")},
                     {"label", bindings.Text("launcher.password")},
@@ -588,7 +588,8 @@ class DownloadsScreen final : public Screen
             view["dialog"] = Magnet(bindings);
         else if (adding_ && !sets.empty())
             view["dialog"] = Json{{"kind", "sources"}, {"title", bindings.Text("downloads.add")}, {"cancel", bindings.Text("common.cancel")}};
-        bindings.On("dialog", "dismiss", [this, &bindings](const Event &) { CloseDialog(bindings); });
+        if (view.contains("dialog") && !view["dialog"].is_null())
+            bindings.Modal("dialog", [this, &bindings](const Event &) { CloseDialog(bindings); });
         bindings.On("dialog-cancel", "", [this, &bindings](const Event &) { CloseDialog(bindings); });
         bindings.On("dialog-close", "", [this, &bindings](const Event &) { CloseDialog(bindings); });
         return view;
@@ -732,14 +733,12 @@ class DownloadsScreen final : public Screen
                 bindings.Send(command_, verb, id);
             });
         }
-        bindings.On("sheet", "dismiss", [this, &bindings](const Event &) {
+        const auto close = [this, &bindings](const Event &) {
             menu_.clear();
             bindings.Rebuild();
-        });
-        bindings.On("sheet-close", "", [this, &bindings](const Event &) {
-            menu_.clear();
-            bindings.Rebuild();
-        });
+        };
+        bindings.Modal("sheet", close);
+        bindings.On("sheet-close", "", close);
         return Json{{"title", Str(set, "name")}, {"actions", actions}};
     }
 

@@ -1438,6 +1438,14 @@ void ComponentElement::TouchRegions(std::vector<Rml::Element *> &out)
         behavior->Regions(*this, out);
 }
 
+bool ComponentElement::Refuse()
+{
+    bool shown = false;
+    for (const auto &behavior : behaviors_)
+        shown = behavior->Refused(*this) || shown;
+    return shown;
+}
+
 void ComponentElement::Tick(double now)
 {
     for (const auto &behavior : behaviors_)

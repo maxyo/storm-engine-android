@@ -169,6 +169,9 @@ static const SceneEntry kProbe[] = {{"probe", kProbeModes, [](Hud &hud) -> std::
 // A router is what consumers are given; it needs a surface, which only collects errors here.
 struct QuietSurface final : screens::Surface
 {
+    void Refuse(const std::string &) override
+    {
+    }
     std::vector<std::string> errors;
     void Show(const std::string &, const Json &) override
     {

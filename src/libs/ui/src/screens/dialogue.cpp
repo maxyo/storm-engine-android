@@ -82,16 +82,6 @@ class DialogueScreen final : public Screen
         return kNodes;
     }
 
-    bool OwnsBack() const override
-    {
-        return editing_ >= 0;
-    }
-    void Back(Bindings &bindings) override
-    {
-        Close();
-        bindings.Rebuild();
-    }
-
     Json Build(const Admission &admitted, Bindings &bindings) override
     {
         const Widget *refusal = admitted.One("EDIT_ERROR");
@@ -185,11 +175,12 @@ class DialogueScreen final : public Screen
 
     void BindClose(Bindings &bindings)
     {
-        bindings.On("edit-cancel", "click", [this, &bindings](const Event &) {
+        const auto cancel = [this, &bindings](const Event &) {
             Close();
             bindings.Rebuild();
-        });
-        bindings.Ignore("edit", "dismiss"); // a tap beside the editor keeps it (as the old editor did)
+        };
+        bindings.On("edit-cancel", "click", cancel);
+        bindings.Modal("edit", cancel); // a tap beside the editor and the back key are its «Отмена»
     }
 
     Json TextEditor(const Widget &reply, Bindings &bindings)

@@ -124,8 +124,13 @@ class CardScreen final : public Screen
         }
         actions.push_back(primary);
         view["actions"] = actions;
-        // A forced decision: a tap beside the card answers nothing.
-        bindings.Ignore("card", "dismiss");
+        // A tap beside the card (and the back key) is the card's cancel when that leaves things as
+        // they are (sail on, stay in the battle); refusing the wages costs morale, and a card whose
+        // cancel the game does not offer is a forced decision: those must be answered by a button.
+        if (cancel && !cancel->label.empty() && cancel->Offers("press") && !kind_.salary)
+            bindings.Modal("card", [&bindings, cancel](const Event &) { bindings.Send(*cancel, "press"); });
+        else
+            bindings.Modal("card", nullptr);
         return view;
     }
 
@@ -233,7 +238,7 @@ class NoticeScreen final : public Screen
             bindings.Forward("ok", *ok, "press");
         view["actions"] = actions;
         bindings.Forward("card-close", *ok, "press");
-        bindings.Forward("card", *ok, "press");
+        bindings.Modal("card", [&bindings, ok](const Event &) { bindings.Send(*ok, "press"); }); // a notice: read and gone
         return view;
     }
 

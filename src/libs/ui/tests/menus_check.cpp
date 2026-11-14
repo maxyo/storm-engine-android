@@ -33,6 +33,11 @@ static void ExpectEqual(const std::string &actual, const std::string &expected, 
 
 struct FakeSurface final : Surface
 {
+    std::vector<std::string> refused;
+    void Refuse(const std::string &id) override
+    {
+        refused.push_back(id);
+    }
     std::string tag;
     Json props;
     std::vector<std::string> commands;

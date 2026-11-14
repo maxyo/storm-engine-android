@@ -583,7 +583,7 @@ Json SubjectSwitch::View(Bindings &bindings, const std::vector<Choice> &choices,
         });
     }
     const auto close = [this, &bindings](const Event &) { Close(bindings); };
-    bindings.On("header-subjects", "dismiss", close);
+    bindings.Modal("header-subjects", close);
     bindings.On("header-subjects-close", "", close);
     view["open"] = true;
     view["title"] = title;

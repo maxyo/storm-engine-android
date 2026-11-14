@@ -240,6 +240,10 @@ elseif(NOT CMAKE_CROSSCOMPILING)
     add_test(NAME ui_whole_frame COMMAND storm_ui_shot --pack "${CMAKE_CURRENT_SOURCE_DIR}/tests/pack" --doc panels.rml --size 640x360 --density 1
              --views 12 --out "${CMAKE_CURRENT_BINARY_DIR}/whole-frame.png"
              --script "wait 0.2; mark; props panels {\"sizes\":[40,50,60,70,80,90]}; whole; wait 0.0166; whole; wait 0.0166; whole; wait 0.3; arrived")
+    add_executable(storm_ui_modals_unit tests/modals_check.cpp)
+    target_link_libraries(storm_ui_modals_unit PRIVATE storm_ui)
+    add_test(NAME ui_modals COMMAND storm_ui_modals_unit "${CMAKE_CURRENT_SOURCE_DIR}/tests/models" "${CMAKE_CURRENT_SOURCE_DIR}/tests/pack"
+        "${storm_ui_rmlui_SOURCE_DIR}/Samples/assets/LatoLatin-Regular.ttf")
     add_executable(storm_ui_routing_unit tests/routing_check.cpp)
     target_link_libraries(storm_ui_routing_unit PRIVATE storm_ui)
     add_test(NAME ui_routing COMMAND storm_ui_routing_unit "${CMAKE_CURRENT_SOURCE_DIR}/tests/states" "${CMAKE_CURRENT_SOURCE_DIR}/tests/pack")

@@ -36,6 +36,11 @@ static void ExpectEqual(const std::string &actual, const std::string &expected, 
 
 struct FakeSurface final : Surface
 {
+    std::vector<std::string> refused;
+    void Refuse(const std::string &id) override
+    {
+        refused.push_back(id);
+    }
     std::string tag;
     Json props;
     std::vector<std::string> commands;
@@ -1203,7 +1208,8 @@ static void Transfer(const std::string &models)
                "the captain's fate: his portrait, overboard held: " + asked.dump());
         capture_surface.commands.clear();
         capture_router.OnEvent({"modal", "dismiss", ""});
-        Expect(capture_surface.commands.empty() && capture_surface.errors.empty(), "a tap beside the question answers nothing and is no error");
+        Expect(capture_surface.errors.empty() && capture_surface.Last() == prefix + "CAPTURE_CANCEL\t-1\tpress",
+               "a tap beside the question is its «Отмена»: the captain stays as he is");
         capture_router.OnEvent({"capture-prison", "click", ""});
         ExpectEqual(capture_surface.Last(), prefix + "CAPTURE_CAPTAIN_PRISON\t-1\tpress", "prison is the game's own button");
     }

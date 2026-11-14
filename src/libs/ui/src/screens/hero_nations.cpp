@@ -320,10 +320,9 @@ class NationsScreen final : public Screen
                                               : Json(nullptr);
         const auto dismiss = [send, close](const Event &) { send(close, "close"); };
         bindings.On("help-close", "", dismiss);
-        bindings.On("help", "dismiss", dismiss);
         help_open_ = !view["help"].is_null();
-        close_ = close;
-        send_ = send;
+        if (help_open_)
+            bindings.Modal("help", dismiss);
 
         // Header: the sections and ←.
         const std::vector<const Widget *> sections = [&] {
@@ -350,25 +349,12 @@ class NationsScreen final : public Screen
         return view;
     }
 
-    // Android back closes the game's help sheet first.
-    bool OwnsBack() const override
-    {
-        return help_open_;
-    }
-    void Back(Bindings &) override
-    {
-        if (send_)
-            send_(close_, "close", {});
-    }
-
   private:
     uint64_t sent_revision_ = 0;
     std::string reported_;
     std::set<std::string> unknown_;
     bool help_open_ = false;
     bool reported_flags_ = false;
-    const Widget *close_ = nullptr;
-    std::function<void(const Widget *, const std::string &, const std::string &)> send_;
 };
 
 } // namespace

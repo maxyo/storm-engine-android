@@ -78,8 +78,9 @@ class RestScreen final : public Screen
             primary["sub"] = admitted.Label("INFO_TEXT");
         view["actions"] = Json::array({primary});
 
-        bindings.On("rest-close", "", [&bindings, cancel](const Event &) { bindings.Back(cancel); });
-        bindings.On("rest", "dismiss", [&bindings, cancel](const Event &) { bindings.Back(cancel); });
+        const auto close = [&bindings, cancel](const Event &) { bindings.Back(cancel); };
+        bindings.On("rest-close", "", close);
+        bindings.Modal("rest", close);
         return view;
     }
 };

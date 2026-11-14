@@ -97,6 +97,14 @@ class Bindings
     void Ignore(const std::string &id, const std::string &verb);
     // An event of `id` sends this verb of the widget to the engine.
     void Forward(const std::string &id, const Widget &widget, const std::string &verb);
+    // The view shows the modal `id` (a c-dialog, or a sheet with a scrim of its own): declared in
+    // every Build that shows it, the topmost last. Every modal goes through here, so all of them
+    // answer the scrim and the back key the same way: `cancel` is the modal's way back without
+    // consequences (what its ✕ / «Отмена» does), run by a tap on its scrim (`dismiss`) and by the
+    // back key. A modal that must be answered by its own buttons (a mandatory choice of the game,
+    // a hold-to-confirm question) passes nullptr: the scrim and the back key are then refused
+    // (Surface::Refuse: the modal shakes, a log line), never ignored quietly.
+    void Modal(const std::string &id, Handler cancel);
 
     // --- inside handlers ---
     // Sends a widget verb to the engine. `value` is the row identity or the new value.
@@ -236,6 +244,9 @@ class Surface
     // Something is wrong with the data or the pack: an error log line, and in debug hosts
     // a visible notice. Never a quiet drop.
     virtual void Error(const std::string &line) = 0;
+    // The modal `id` must be answered by its buttons and refused a scrim tap or the back key:
+    // the element shows it (C-Dialog shakes); the router has logged it.
+    virtual void Refuse(const std::string &id) = 0;
     virtual double Now() const = 0;
 };
 
@@ -256,11 +267,15 @@ class Router
     // False when no screen is mounted or the event belongs to nothing bound.
     bool OnEvent(const Event &event);
     void SubmitText(const std::string &token, const std::string &text, bool accepted);
-    // True while the screen has a modal of its own (Screen::OwnsBack): the back key is the UI's.
+    // True while the screen shows a modal (Bindings::Modal) or something else of its own
+    // (Screen::OwnsBack): the back key is the UI's.
     bool WantsBack() const;
-    // The platform's back: the screen's own modal first, then the reading or «Прочее» sheet,
-    // then what the screen's ← does, the engine's back when the screen binds no ←.
+    // The platform's back: the topmost modal's cancel (Bindings::Modal, also the «Прочее» and
+    // reading sheets) first, then the screen's own back (Screen::OwnsBack), then what the
+    // screen's ← does, the engine's back when the screen binds no ←.
     void Back();
+    // The modals the view shows now, the topmost last (Bindings::Modal), and whether each has a cancel.
+    std::vector<std::pair<std::string, bool>> Modals() const;
     // Flushes throttled sends and expired pending marks; returns seconds until it must be
     // called again (a large number when idle).
     double Tick();
@@ -324,6 +339,7 @@ class Router
     std::unique_ptr<Screen> screen_;
     std::string using_;
     Bindings bindings_;
+    std::vector<std::pair<std::string, Bindings::Handler>> modals_; // Bindings::Modal of the view shown, topmost last
     std::vector<std::unique_ptr<StateConsumer>> consumers_;
     std::vector<PendingMark> pending_;
     std::vector<Waiting> waiting_;

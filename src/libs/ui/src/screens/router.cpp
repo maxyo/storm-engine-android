@@ -193,7 +193,28 @@ Admission Admit(const InterfaceModel &model, std::span<const NodeRule> rules)
 
 void Bindings::On(const std::string &id, const std::string &verb, Handler handler)
 {
+    // A scrim tap is a modal's, and goes through Modal (one path for every modal).
+    if (verb == "dismiss")
+        router_.surface_.Error("screen " + router_.using_ + ": " + id + " dismiss bound by hand; declare the modal with Bindings::Modal");
     handlers_[id + '\x1f' + verb] = std::move(handler);
+}
+
+void Bindings::Modal(const std::string &id, Handler cancel)
+{
+    if (!cancel)
+    {
+        Router &router = router_;
+        cancel = [&router, id](const Event &event) {
+            router.surface_.Log("screen " + router.using_ + ": modal " + id + " must be answered by its buttons; " +
+                                (event.verb == "back" ? "the back key" : "a tap beside it") + " refused");
+            router.surface_.Refuse(id);
+        };
+        router_.modals_.emplace_back(id, nullptr);
+    }
+    else
+        router_.modals_.emplace_back(id, cancel);
+    handlers_[id + '\x1f' + "dismiss"] = cancel;
+    handlers_[id + '\x1f' + "back"] = std::move(cancel);
 }
 
 void Bindings::Ignore(const std::string &id, const std::string &verb)
@@ -452,6 +473,7 @@ void Router::CloseInterface()
     using_.clear();
     rejection_.clear();
     bindings_.handlers_.clear();
+    modals_.clear();
     pending_.clear();
     waiting_.clear();
     edit_token_.clear();
@@ -509,6 +531,7 @@ void Router::Build()
     rebuild_ = false;
     rebuild_at_ = 0.0;
     bindings_.handlers_.clear();
+    modals_.clear();
     // The ported screen registered for the id draws it when the model passes its admission.
     // If its REQUIRED nodes are missing or mistyped the interface is still drawn, by the
     // generic layout, and that is reported as an error (never a quiet switch).
@@ -615,19 +638,21 @@ Json Router::ExtrasView(const Admission &admitted, Json rows)
         extras_open_ = !extras_open_;
         rebuild_ = true;
     });
-    bindings_.On("extras", "close", [this](const Event &) {
-        extras_open_ = false;
-        reading_text_.clear();
-        rebuild_ = true;
-    });
-    bindings_.On("extras", "dismiss", [this](const Event &) {
-        reading_text_.clear();
-        rebuild_ = true;
-    });
-    bindings_.On("extras-reading-close", "", [this](const Event &) {
-        reading_text_.clear();
-        rebuild_ = true;
-    });
+    // Both are drawn over the screen: declared after its own modals, the reading sheet on top.
+    if (view["open"] == true)
+        bindings_.Modal("extras", [this](const Event &) {
+            extras_open_ = false;
+            rebuild_ = true;
+        });
+    if (!reading_text_.empty())
+    {
+        const auto close = [this](const Event &) {
+            reading_text_.clear();
+            rebuild_ = true;
+        };
+        bindings_.Modal("extras-reading", close);
+        bindings_.On("extras-reading-close", "", close);
+    }
     bindings_.On("extras-note", "", [this, note](const Event &) {
         reading_title_.clear();
         reading_text_ = note;
@@ -677,18 +702,16 @@ void Router::Back()
         surface_.Send(engine_back);
         return;
     }
-    if (WantsBack())
+    if (!modals_.empty())
+    {
+        OnEvent({modals_.back().first, "back", ""});
+        return;
+    }
+    if (screen_->OwnsBack())
     {
         screen_->Back(bindings_);
         if (rebuild_ && screen_)
             Build();
-        return;
-    }
-    if (!reading_text_.empty() || extras_open_)
-    {
-        reading_text_.clear();
-        extras_open_ = false;
-        Build();
         return;
     }
     if (bindings_.handlers_.count(std::string("header-back") + '\x1f'))
@@ -722,7 +745,15 @@ void Router::SubmitText(const std::string &token, const std::string &text, bool 
 
 bool Router::WantsBack() const
 {
-    return screen_ && screen_->OwnsBack();
+    return screen_ && (!modals_.empty() || screen_->OwnsBack());
+}
+
+std::vector<std::pair<std::string, bool>> Router::Modals() const
+{
+    std::vector<std::pair<std::string, bool>> out;
+    for (const auto &[id, cancel] : modals_)
+        out.emplace_back(id, cancel != nullptr);
+    return out;
 }
 
 

@@ -185,15 +185,14 @@ class ShipScreen final : public Screen
         return view;
     }
 
-    // Android back closes the subject list or the game's window first.
+    // Android back closes the game's window first (its dialogs are modals; the quantity row and
+    // the exchange question are not).
     bool OwnsBack() const override
     {
-        return subjects_.Open() || window_ != Window::None;
+        return window_ != Window::None;
     }
     void Back(Bindings &bindings) override
     {
-        if (subjects_.Open())
-            return subjects_.Close(bindings);
         sent_revision_ = 0;
         CloseWindow(bindings);
     }
@@ -823,12 +822,12 @@ class ShipScreen final : public Screen
             sent_revision_ = 0;
             CloseWindow(bindings);
         };
-        bindings.On("dialog", "dismiss", close);
         bindings.On("dialog-close", "", close);
+        if (window_ != Window::Shares && (window_ != Window::Question || question_ == Question::Exchange))
+            return nullptr; // the exchange question is answered by the intent
+        bindings.Modal("dialog", close);
         if (window_ == Window::Shares)
             return SharesView(bindings);
-        if (window_ != Window::Question || question_ == Question::Exchange)
-            return nullptr; // the exchange question is answered by the intent
         const Widget *accept = a_->One("REMOVE_ACCEPT_OFFICER");
         Json actions = Json::array();
         actions.push_back(Json{{"id", "dialog-close"}, {"label", bindings.Text("common.cancel")}, {"variant", "quiet"}});
@@ -896,7 +895,7 @@ class ShipScreen final : public Screen
             sent_revision_ = 0;
             CloseWindow(bindings);
         };
-        bindings.On("sheet", "dismiss", close);
+        bindings.Modal("sheet", close);
         bindings.On("sheet-close", "", close);
         // Guns of the fitted type still in the hold: what a side may take beyond its own.
         const std::string fitted = OneLine(a_->Label("CANNONS_TEXT"));

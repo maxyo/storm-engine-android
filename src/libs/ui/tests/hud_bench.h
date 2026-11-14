@@ -157,6 +157,9 @@ struct FakeMount final : Mount
 
 struct QuietSurface final : screens::Surface
 {
+    void Refuse(const std::string &) override
+    {
+    }
     void Show(const std::string &, const Json &) override
     {
     }

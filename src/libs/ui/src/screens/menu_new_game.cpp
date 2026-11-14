@@ -264,7 +264,7 @@ class NewGameScreen final : public Screen
         }
         if (text.empty() && actions.empty())
             return Json();
-        bindings.Ignore("modal", "dismiss"); // the game's window closes only by its buttons
+        bindings.Modal("modal", nullptr); // the game's window closes only by its buttons
         return Json{{"title", text}, {"text", ""}, {"actions", actions}};
     }
 

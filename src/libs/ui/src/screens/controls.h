@@ -124,7 +124,8 @@ void ControlRows(Bindings &bindings, std::span<const Widget *const> widgets, con
 // opens the list of every choice (c-screen's subject sheet, a c-dialog of c-list-rows: ids
 // header-subjects, header-subject-<i>). ‹, › and a picked row call `choose` with the choice's
 // index. The list is offered from two choices on; the view is null without choices. A screen
-// keeps one switch for its lifetime and lets Android back close the open list (Open, Close).
+// keeps one switch for its lifetime; the open list is a modal (Bindings::Modal): its scrim and
+// the back key close it.
 class SubjectSwitch
 {
   public:
@@ -137,13 +138,9 @@ class SubjectSwitch
     };
     Json View(Bindings &bindings, const std::vector<Choice> &choices, size_t current, const std::string &title,
               std::function<void(size_t)> choose);
-    bool Open() const
-    {
-        return open_;
-    }
-    void Close(Bindings &bindings);
 
   private:
+    void Close(Bindings &bindings);
     bool open_ = false;
 };
 
