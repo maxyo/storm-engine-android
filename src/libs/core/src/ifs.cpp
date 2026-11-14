@@ -360,7 +360,7 @@ IFS::IFS(VFILE_SERVICE *_fs)
 IFS::~IFS()
 {
     FlushFile();
-    delete FileName;
+    delete[] FileName;
     while (SectionRoot)
     {
         auto *const old_root = SectionRoot;

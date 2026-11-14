@@ -12,11 +12,6 @@ CREATE_CLASS(FINDFILESINTODIRECTORY)
 
 CREATE_CLASS(FINDDIALOGNODES)
 
-#define DELETE_PTR(x)                                                                                                  \
-    if (x)                                                                                                             \
-        delete x;                                                                                                      \
-    x = 0;
-
 bool GetStringLine(char *&pStr, char *bufer, int32_t bufSize)
 {
     if (pStr == nullptr || bufer == nullptr || bufSize == 0)
@@ -185,11 +180,10 @@ void TMPTELEPORT::ReleaseAll()
     if (m_descrArray != nullptr)
     {
         for (auto i = 0; i < m_nStrQuantity; i++)
-        {
-            DELETE_PTR(m_descrArray[i].name);
-        }
+            delete[] m_descrArray[i].name;
     }
-    DELETE_PTR(m_descrArray);
+    delete[] m_descrArray;
+    m_descrArray = nullptr;
     m_nStrQuantity = 0;
     m_nCurStr = m_nCurShowPos = 0;
     m_nShowType = 0;

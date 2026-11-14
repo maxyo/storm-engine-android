@@ -28,7 +28,7 @@ void S_DEFTAB::Release()
         if (pTable[n].deftype == STRING)
         {
             if (pTable[n].data4b != 0)
-                delete ((char *)pTable[n].data4b);
+                delete[] ((char *)pTable[n].data4b);
         }
     }
     pTable.clear();
@@ -146,7 +146,7 @@ void S_DEFTAB::InvalidateBySegmentID(uint32_t segment_id)
         {
             if (pTable[n].data4b)
             {
-                delete ((char *)pTable[n].data4b);
+                delete[] ((char *)pTable[n].data4b);
             }
             pTable[n].data4b = 0;
         }

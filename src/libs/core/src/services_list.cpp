@@ -22,8 +22,7 @@ SERVICE *SERVICES_LIST::Add(uint32_t module_code, uint32_t class_code, SERVICE *
     if (Pointer)
         return Pointer;
 
-    auto *node_PTR = (SERVICE_NODE *)new char[sizeof(SERVICE_NODE)];
-    memset(node_PTR, 0, sizeof(SERVICE_NODE));
+    auto *node_PTR = new SERVICE_NODE{};
     node_PTR->module_code = module_code;
     node_PTR->class_code = class_code;
     node_PTR->pointer = pointer;

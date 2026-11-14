@@ -114,7 +114,8 @@ void CoreImpl::ResetCore()
 
     Services_List.Release();
 
-    STORM_DELETE(State_file_name);
+    delete[] State_file_name;
+    State_file_name = nullptr;
 }
 
 void CoreImpl::CleanUp()
