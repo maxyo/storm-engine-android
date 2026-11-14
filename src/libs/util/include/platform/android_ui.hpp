@@ -235,12 +235,14 @@ inline bool reportAutoPreset(int preset, int render_height, int version, const s
     env->DeleteLocalRef(activity);
     return reported;
 }
-// Where the reload locator the hero stands in leads (the touch HUD's bottom hint), "" = none.
-inline std::string lastReloadPlace;
-inline void publishReloadPlace(const std::string &place) {
-    if (lastReloadPlace == place) return;
-    lastReloadPlace = place;
-    ui::state("reloadPlace", uiJsonText(place));
+// The door the hero stands at (the touch HUD's bottom hint): where its reload locator leads and
+// whether it is locked now (the game's "Closed" quick action), null = at no door with a name.
+inline std::string lastReloadPlace = "\x01";
+inline void publishReloadPlace(const std::string &place, bool locked) {
+    const std::string json = place.empty() ? "null" : "{\"place\":" + uiJsonText(place) + ",\"locked\":" + (locked ? "true" : "false") + "}";
+    if (lastReloadPlace == json) return;
+    lastReloadPlace = json;
+    ui::state("reloadPlace", json);
 }
 inline void publishContextAction(const std::string &name) {
     if (contextAction == name) return;

@@ -90,14 +90,18 @@ void ILogAndActions::Execute(uint32_t delta_time)
     }
     storm::android::publishContextAction(available && !sea ? m_sActionName : "");
     {
-        // the bottom hint names where the door leads; read again only when the action or its locator changes
+        // the bottom hint names where the door leads and whether it is locked (the game's "Closed"
+        // quick action: a reload locator whose link is closed now, characters_events.c); read again
+        // only when the action or its locator changes
         static std::string reloadKey, reloadPlace;
-        const bool reload = available && !sea && storm::iEquals(m_sActionName, "Reload");
+        const bool shown = m_bThatRealAction && !m_bDontShowAll && m_bShowActiveCommand && !sea;
+        const bool locked = shown && storm::iEquals(m_sActionName, "Closed");
+        const bool reload = locked || (available && !sea && storm::iEquals(m_sActionName, "Reload"));
         const char *locator = nullptr;
         auto *waiting = reload ? static_cast<VDATA *>(core.GetScriptVariable("chrWaitReloadLocator")) : nullptr;
         const std::string key = reload ? std::string("reload:") + (waiting && waiting->Get(locator) && locator ? locator : "") : std::string();
         if (key != reloadKey) { reloadKey = key; reloadPlace = reload ? storm::android::reloadPlace() : std::string(); }
-        storm::android::publishReloadPlace(reloadPlace);
+        storm::android::publishReloadPlace(reloadPlace, locked);
     }
     if (!storm::android::requestedContextAction.empty()) {
         const bool accepted = !sea && available && storm::android::requestedContextAction == m_sActionName;

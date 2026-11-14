@@ -32,7 +32,13 @@
     {
      "id": "location",
      "component": "c-box",
-     "rcss": "position: absolute; right: 130dp; top: 10dp; width: 200dp; height: 30dp;",
+     "rcss": "position: absolute; right: 10dp; top: 62dp; width: 200dp; height: 30dp;",
+     "props": {}
+    },
+    {
+     "id": "actions",
+     "component": "c-button",
+     "rcss": "position: absolute; right: 130dp; top: 10dp; width: 48dp; height: 48dp;",
      "props": {}
     },
     {
@@ -54,7 +60,7 @@
      "props": {}
     },
     {
-     "id": "actions",
+     "id": "travel",
      "component": "c-button",
      "rcss": "position: absolute; left: 250dp; bottom: 10dp; width: 52dp; height: 52dp;",
      "props": {}
@@ -118,7 +124,7 @@
     {
      "id": "location",
      "component": "c-box",
-     "rcss": "position: absolute; right: 130dp; top: 10dp; width: 200dp; height: 30dp;",
+     "rcss": "position: absolute; right: 10dp; top: 62dp; width: 200dp; height: 30dp;",
      "props": {}
     },
     {
@@ -162,7 +168,7 @@
     {
      "id": "actions",
      "component": "c-button",
-     "rcss": "position: absolute; right: 320dp; bottom: 10dp; width: 52dp; height: 52dp;",
+     "rcss": "position: absolute; right: 130dp; top: 10dp; width: 48dp; height: 48dp;",
      "props": {}
     },
     {

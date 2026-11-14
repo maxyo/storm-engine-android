@@ -21,7 +21,7 @@ struct Controls
 // The script's Characters array as dialogTargetName reads it: each character's name and last name.
 struct ATTRIBUTES
 {
-    std::string name, lastname;
+    std::string name, lastname, dialog;
 };
 struct VDATA
 {
@@ -47,7 +47,8 @@ bool boardingContinueArmed(CorePrivate *) { return boardingArmed; }
 bool combatContextCurrent(const GameplayState &, bool ready) { return current && ready; }
 std::string shipText(ATTRIBUTES *character, const char *field)
 {
-    return std::string(field) == "name" ? character->name : std::string(field) == "lastname" ? character->lastname : std::string();
+    return std::string(field) == "name" ? character->name : std::string(field) == "lastname" ? character->lastname :
+           std::string(field) == "Dialog.Filename" ? character->dialog : std::string();
 }
 #include "adapter.inc"
 }
@@ -70,7 +71,13 @@ int main()
         return "2\t" + std::to_string(combatInput.generation()) + "\t" +
             std::to_string(combatInput.actionGeneration("interact")) + "\t" + std::to_string(sequence) + "\tinteract\t" + phase;
     };
-    characters.characters[12] = {"Хуан", "Гарсия"};
+    characters.characters[12] = {"Хуан", "Гарсия", "Common_Store.c"};
+    refresh();
+    assert(combatInteractDialog == "common_store"); // the talk hint's role: the dialog file stem, lower case
+    characters.characters[12].dialog = "Quest\\Sharlie\\OtherNPC.c";
+    refresh();
+    assert(combatInteractDialog == "othernpc"); // folders dropped
+    characters.characters[12].dialog = "Common_Store.c";
     refresh();
     assert(combatInput.json().find("\"interact\"") != std::string::npos);
     assert(combatInteractName == "Хуан Гарсия"); // the bottom hint names the talk target

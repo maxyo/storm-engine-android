@@ -1,5 +1,6 @@
 #pragma once
 #include "android_gameplay.hpp"
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <limits>
@@ -36,6 +37,9 @@ struct LandCommandItem
     std::string identity;
     bool enabled = true;
     double cooldown = 1;
+    // The picture the game draws for the item: "<texture file stem>:<cell>" in lower case (a travel
+    // place is a cell of battle_interface\LandTarget_SLB: what the place is), "" = not reported.
+    std::string picture;
     bool operator==(const LandCommandItem &) const = default;
 };
 struct LandCommandsFrame
@@ -45,6 +49,9 @@ struct LandCommandsFrame
     std::string ownerIdentity; // Actual native command-list instance; never an executable Android token.
     int mode = 0;
     std::vector<LandCommandItem> items;
+    // The script events of the root commands the menu would offer now (BLI_SetPossibleCommands'
+    // enabled Commands), open or not: the touch HUD shows a button per group before the menu opens.
+    std::vector<std::string> offered;
     bool operator==(const LandCommandsFrame &) const = default;
 };
 // Missing presentation support is not a gameplay prohibition. The original
@@ -98,7 +105,9 @@ public:
             textBytes += text.size();
         };
         checkText(frame.language, 32); checkText(frame.pendingLabel, 1024);
-        for (auto &item : frame.items) { checkText(item.label, 1024, true); checkText(item.source, 512); }
+        for (auto &item : frame.items) { checkText(item.label, 1024, true); checkText(item.source, 512); checkText(item.picture, 128); }
+        for (auto &event : frame.offered) checkText(event, 128);
+        if (frame.offered.size() > 64) { frame.offered.clear(); frame.complete = false; }
         if (frame.items.size() > 256 || textBytes > 24000)
         {
             frame.items.clear(); frame.selectedItemId.clear(); frame.complete = false;
@@ -164,7 +173,10 @@ public:
         if ((request.verb == "back" || request.verb == "close") && !request.id.empty()) return false;
         if (request.verb != "open" && !frame_.active) return false;
         if (request.verb == "open" && frame_.active) return false;
-        if (request.verb == "open" && !request.id.empty()) return false;
+        // "open" with an id opens the menu straight into that root command (the touch HUD's
+        // transitions button: BI_FastReload); only a command offered now.
+        if (request.verb == "open" && !request.id.empty() &&
+            std::find(frame_.offered.begin(), frame_.offered.end(), request.id) == frame_.offered.end()) return false;
         if (request.verb == "selectItem" || request.verb == "activateItem")
         {
             if (!frame_.complete) return false;
@@ -200,10 +212,12 @@ public:
         for (size_t i = 0; i < frame.items.size(); ++i)
         {
             const auto &item = frame.items[i]; if (i) out += ',';
-            out += "{\"id\":" + quote(item.id) + ",\"kind\":" + quote(item.kind) + ",\"label\":" + quote(item.label) + ",\"source\":" + quote(item.source) +
+            out += "{\"id\":" + quote(item.id) + ",\"kind\":" + quote(item.kind) + ",\"label\":" + quote(item.label) + ",\"source\":" + quote(item.source) + ",\"picture\":" + quote(item.picture) +
                 ",\"enabled\":" + (item.enabled ? "true" : "false") + ",\"cooldown\":" +
                 std::to_string(std::isfinite(item.cooldown) ? std::clamp(item.cooldown, 0.0, 1.0) : 0.0) + "}";
         }
+        out += "],\"offered\":[";
+        for (size_t i = 0; i < frame.offered.size(); ++i) out += (i ? "," : "") + quote(frame.offered[i]);
         return out + "]}";
     }
     std::string json() const { return jsonFor(frame_); }
@@ -219,16 +233,20 @@ inline LandCommandsState landCommands;
 // dialogue, an interface, loading) and the land interface entity itself.
 class LandRefreshGate
 {
-    bool ready_ = false, forced_ = true;
+    bool ready_ = false, forced_ = true, fight_ = false;
     uint64_t owner_ = 0;
 
 public:
-    // invalidated: the land interface's own "list changed" flag, taken this iteration.
-    bool due(bool ready, uint64_t owner, bool invalidated)
+    // invalidated: the land interface's own "list changed" flag, taken this iteration. fight: the
+    // hero's fight mode, which the scripts' choice of commands depends on (no transitions in a
+    // fight) and which the original asks only when its menu opens: the touch HUD shows the
+    // transitions button before that.
+    bool due(bool ready, uint64_t owner, bool invalidated, bool fight)
     {
-        const bool result = forced_ || invalidated || ready != ready_ || owner != owner_;
+        const bool result = forced_ || invalidated || ready != ready_ || owner != owner_ || fight != fight_;
         ready_ = ready;
         owner_ = owner;
+        fight_ = fight;
         forced_ = false;
         return result;
     }

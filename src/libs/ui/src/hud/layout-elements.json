@@ -3,7 +3,7 @@
   "scenes": {
     "sea": ["fleet", "hero", "pause", "orders", "minimap", "sail", "helm", "walk", "log", "context", "camera", "spyglass", "ammo", "ammo-1", "ammo-2", "ammo-3", "time", "fire"],
     "sea-battle": ["fleet", "hero", "pause", "orders", "minimap", "sail", "helm", "walk", "log", "effect-0", "effect-1", "context", "camera", "spyglass", "ammo", "ammo-1", "ammo-2", "ammo-3", "time", "fire"],
-    "land": ["move", "party", "effects", "log", "location", "hero", "pause", "context", "hint", "actions", "potion", "weapon"],
+    "land": ["move", "party", "effects", "log", "location", "hero", "pause", "context", "hint", "actions", "travel", "potion", "weapon"],
     "land-combat": ["move", "party", "effects", "opponent", "opponent-hp", "log", "location", "hero", "pause", "strike", "block", "shot", "dash", "actions", "potion", "weapon", "moves"],
     "world-map": ["fleet", "pause", "time", "camera", "helm", "compass", "details", "detail-rows", "log", "sail", "context", "attack", "storm"],
     "menu": ["pause"]

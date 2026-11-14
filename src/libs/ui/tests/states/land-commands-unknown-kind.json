@@ -20,7 +20,8 @@
    "label": "Обряд",
    "source": "BI_Ritual",
    "enabled": true,
-   "cooldown": 1.0
+   "cooldown": 1.0,
+   "picture": "landcommands:4"
   },
   {
    "id": "x",
@@ -28,7 +29,11 @@
    "label": "Отмена",
    "source": "",
    "enabled": true,
-   "cooldown": 1.0
+   "cooldown": 1.0,
+   "picture": ""
   }
+ ],
+ "offered": [
+  "BI_Ritual"
  ]
 }

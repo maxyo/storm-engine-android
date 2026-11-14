@@ -59,7 +59,8 @@ struct GameplaySnapshot
     bool analogMovement = false;
     uint64_t movementGeneration = 0;
     // Mode "unknown" only: why. starting (the engine or its scripts not up yet), paused (the
-    // app not in front), loading (the loading screen), interface (one open or launched),
+    // app not in front), loading (the loading screen), transition (a fader is up: a scene change,
+    // or the fade in after a load), interface (one open or launched),
     // dialogue, cutscene (the hero is an actor), video, commands (a command menu), no-scene
     // (no land, sea or world map yet), no-land-interface (a location whose land interface is not
     // started), no-player, group (a control group no mode knows),

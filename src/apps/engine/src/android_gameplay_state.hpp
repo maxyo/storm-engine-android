@@ -45,6 +45,10 @@ inline GameplaySnapshot readGameplaySnapshot(bool ready)
         if (interfaceAttrs && interfaceAttrs->GetAttributeAsDword("Launched", 0)) return blocked("interface");
         auto *ai = character->FindAClass(character, "chr_ai.type");
         if (ai && ai->HasValue() && ai->GetValue() == "actor") return blocked("cutscene");
+        // A scene change under way (reload.c, seadogs.c, worldmap.c: CreateEntity "fader" as the
+        // reload starts, in the same script call): the touch HUD hides in this very frame, before
+        // the platform's loading flag, which comes a thread hop later. Also a fade in after a load.
+        if (core.GetEntityId("fader") != invalid_entity) return blocked("transition");
         const auto worldmap = core.GetEntityId("WorldMap");
         const bool sea = worldmap == invalid_entity && integer("bSeaActive") && !integer("bAbordageStarted");
         const auto commandActive = [](const char *name) {

@@ -20,6 +20,15 @@
 namespace storm::ui::hud
 {
 
+// The icon of a fast-travel place by the game's picture of it ("landtarget_slb:<cell>", the
+// landCommands item's `picture`); nullptr = a picture the land HUD does not know.
+const char *LandPlaceIcon(const std::string &picture);
+
+// The talk hint's icon by the role of the person spoken to, read from the game's own data: the
+// target's dialog file (combat channel interactDialog, "common_store", "usurer_dialog",
+// "enc_officer_dialog"). An ordinary person (a citizen, a quest character) keeps "talk".
+const char *LandTalkIcon(const std::string &dialog);
+
 // A message shown again while its toast is still up: one toast, "text ×N". Shared by the
 // HUD's event log and the runtime's toast stack (every game log line comes through these).
 inline std::string RepeatedText(const std::string &text, int count)
@@ -48,7 +57,7 @@ struct Gameplay
     uint64_t revision = 0;
     std::string mode = "unknown"; // explore, melee, sailing, naval, worldmap, unknown
     // Mode "unknown" only: why (the engine's GameplaySnapshot::blocked): starting, paused,
-    // loading, interface, dialogue, cutscene, video, commands, no-scene, no-land-interface,
+    // loading, transition (the fader of a scene change), interface, dialogue, cutscene, video, commands, no-scene, no-land-interface,
     // no-player, group, error; empty before the first state.
     std::string blocked;
     std::string language;
@@ -70,6 +79,7 @@ struct Combat
     uint64_t gameplay_revision = 0, activity = 0;
     std::string player, mode = "unknown", interact_kind = "interact"; // interact_kind: dialog | boarding | interact
     std::string interact_name; // whom the talk button talks to ("" = the engine has no name)
+    std::string interact_dialog; // the talk target's dialog file stem, lower case ("common_store"; "" = none)
     // Offered action -> its availability generation, which a command for it carries.
     std::map<std::string, uint64_t> actions;
     std::string pistol = "unknown"; // unknown, no_weapon, unloaded, loaded
@@ -120,11 +130,13 @@ struct LandCommands
     struct Item
     {
         std::string id, kind, label, source;
+        std::string picture; // "<texture stem>:<cell>" of the game's picture, "" = not reported
         bool enabled = false;
         double cooldown = 0.0;
     };
     bool known = false;
     uint64_t scene = 0, revision = 0, activity = 0;
+    std::vector<std::string> offered; // root command events the scripts enable now, open or not
     bool active = false, available = false, can_back = false, can_close = false;
     bool complete = false; // everything is known and drawable; otherwise the engine keeps its own menu
     std::string stage = "commands", title, selected;
@@ -190,11 +202,13 @@ struct SeaOrders
     struct Item
     {
         std::string id, kind, label, source;
+        std::string picture; // "<texture stem>:<cell>" of the game's picture, "" = not reported
         bool enabled = false;
         double cooldown = 0.0;
     };
     bool known = false;
     uint64_t scene = 0, revision = 0, activity = 0;
+    std::vector<std::string> offered; // root command events the scripts enable now, open or not
     bool available = false, active = false, can_back = false, can_close = false;
     bool complete = false; // drawable here as a whole; otherwise the engine keeps its own menu
     std::string stage = "commands", recipient, title, selected; // stage: commands, options, targets
@@ -270,6 +284,14 @@ struct Spyglass
     int skills[5] = {-1, -1, -1, -1, -1}; // fencing, cannons, accuracy, navigation, boarding
 };
 
+// Channel "reloadPlace": the door the hero stands at. place "" = at no door the game names.
+struct Door
+{
+    std::string place;
+    bool locked = false;
+    bool operator==(const Door &) const = default;
+};
+
 struct States
 {
     Gameplay gameplay;
@@ -277,7 +299,7 @@ struct States
     Vitals vitals;
     std::string world_info;     // channel "worldInfo": lines of the location text
     std::string context_action; // channel "contextAction": the script's quick action, "" = none
-    std::string reload_place;   // channel "reloadPlace": where the reload locator the hero is in leads, "" = none
+    Door door;                  // channel "reloadPlace": the door the hero stands at
     LandCommands land_commands;
     Ship ship;
     SeaOrders sea_orders;
@@ -481,6 +503,13 @@ class Hud
     // The pending subject of `screen` ("character" | "ship"), cleared by taking it.
     std::optional<SubjectRequest> TakeSubject(const std::string &screen);
 
+    // A scene sent what leads into a scene change (a fast-travel place chosen): the HUD stays
+    // hidden from now until the game reports the transition (gameplay blocked "transition" or
+    // "loading": its fader is up), so nothing of the HUD shows between the closing panel and the
+    // fader. A change that does not come within kTransitionWait is logged and the HUD comes back.
+    static constexpr double kTransitionWait = 1.5;
+    void ExpectTransition(const std::string &what);
+
     // --- for the host ---
     // An event line for the top-centre log; false while no scene shows one. `target`: where a
     // tap on it leads (Host::GameMessage), "" = nowhere.
@@ -532,12 +561,16 @@ class Hud
     };
     void Refresh();
     void Conceal();
+    // The game is changing scenes now (its fader is up, a load), or a scene asked to wait for it.
+    bool InTransition(double now);
     double WatchDialogue(double now); // seconds until it must look again
     // A tap on an event line that leads somewhere: opens that screen on its subject.
     void Open(const std::string &target);
     void Present(bool visible, bool menu_only);
 
     Mount &mount_;
+    double transition_until_ = -1.0; // ExpectTransition: hidden until then at most (-1 = none)
+    std::string transition_what_;
     std::optional<SubjectRequest> subject_;
     std::span<const SceneEntry> scenes_;
     States states_;

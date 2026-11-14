@@ -51,6 +51,14 @@ int main() {
     f=fixture();f.active=false;f.items.clear();f.selectedItemId.clear();s.update("closed",f);
     assert(s.offer(request(s,"open"),100));assert(!s.take(1601));
     assert(s.offer(request(s,"open"),0xfffffff0u));assert(s.take(0x10u));
+    // "open" into a root command: only one the scripts offer now; the JSON carries what is offered and the pictures
+    f.offered={"BI_FastReload","BI_TalkSelf"};s.update("closed",f);
+    assert(!s.offer(request(s,"open","BI_SelfRepair"),100));
+    assert(s.offer(request(s,"open","BI_FastReload"),100));{auto open=s.take(101);assert(open&&open->verb=="open"&&open->id=="BI_FastReload");}
+    assert(s.json().find(",\"offered\":[\"BI_FastReload\",\"BI_TalkSelf\"]}")!=std::string::npos);
+    f=fixture();f.items[0].picture="landtarget_slb:2";s.update("picture",f);
+    assert(s.json().find("\"source\":\"BI_OutDoor\",\"picture\":\"landtarget_slb:2\"")!=std::string::npos);
+    f.items[0].picture=std::string(129,'a');s.update("picture-long",f);assert(!s.frame().complete);
     s.update({},{});assert(!s.offer(request(s,"open"),100));
-    std::cout<<"PASS: land selection acknowledgement, duplicate-caption identity, stale target/scene/activity, removed/disabled entries, cooldown, completeness, bounds, no coverage words, queue age and duplicate rejection\n";
+    std::cout<<"PASS: land selection acknowledgement, duplicate-caption identity, stale target/scene/activity, removed/disabled entries, cooldown, completeness, bounds, no coverage words, queue age and duplicate rejection, open into an offered command, offered list and pictures in the JSON\n";
 }

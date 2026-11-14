@@ -7,6 +7,8 @@
 #include "platform/android_pistol_state.hpp"
 #include "core_private.h"
 
+#include <cctype>
+
 namespace storm::android
 {
 inline bool combatContextCurrent(const GameplayState &gameplay, bool ready)
@@ -47,7 +49,7 @@ inline bool boardingContinueArmed(CorePrivate *scripts)
 inline std::string combatInteractKind = "dialog";
 // Whom the talk button talks to (the touch HUD's bottom hint): the script character's name and
 // last name, as the game writes them; "" when it has none.
-inline std::string combatInteractName;
+inline std::string combatInteractName, combatInteractDialog;
 inline std::string dialogTargetName(int64_t target)
 {
     auto *characters = static_cast<VDATA *>(core.GetScriptVariable("Characters"));
@@ -58,10 +60,24 @@ inline std::string dialogTargetName(int64_t target)
     if (!last.empty()) name += (name.empty() ? "" : " ") + last;
     return name;
 }
+// The talk target's role as the game knows it: its dialog file (Dialog.Filename, "Common_Store.c",
+// "Usurer_dialog.c", "Enc_Officer_dialog.c"), the stem in lower case without folders; "" = none.
+// The touch HUD picks the talk hint's icon by it (land.cpp LandTalkIcon).
+inline std::string dialogTargetFile(int64_t target)
+{
+    auto *characters = static_cast<VDATA *>(core.GetScriptVariable("Characters"));
+    if (!characters || target < 0 || static_cast<uint64_t>(target) >= characters->GetElementsNum()) return {};
+    auto *character = characters->GetAClass(static_cast<uint32_t>(target));
+    std::string stem = character ? shipText(character, "Dialog.Filename") : std::string();
+    if (const auto slash = stem.find_last_of("\\/"); slash != std::string::npos) stem.erase(0, slash + 1);
+    if (stem.size() > 2 && stem.compare(stem.size() - 2, 2, ".c") == 0) stem.erase(stem.size() - 2);
+    for (auto &c : stem) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    return stem.size() <= 96 ? stem : std::string();
+}
 inline void updateCombatState(const GameplayState &gameplay, CorePrivate *scripts)
 {
     std::vector<CombatBinding> bindings;
-    std::string scene, player, mode = "unknown", interactKind = "dialog", interactName;
+    std::string scene, player, mode = "unknown", interactKind = "dialog", interactName, interactDialog;
     if (combatContextCurrent(gameplay, core.Controls != nullptr))
     {
         mode = gameplay.snapshot().mode;
@@ -99,6 +115,7 @@ inline void updateCombatState(const GameplayState &gameplay, CorePrivate *script
             else if (const auto target = dialogTarget(); target >= 0)
             {
                 interactName = dialogTargetName(target);
+                interactDialog = dialogTargetFile(target);
                 add("interact",false,{"ChrAction"});
                 if (!bindings.empty() && bindings.back().action == "interact") bindings.back().target = target;
             }
@@ -122,6 +139,7 @@ inline void updateCombatState(const GameplayState &gameplay, CorePrivate *script
     combatInput.update(gameplay.revision(), std::move(scene), std::move(player), std::move(mode), std::move(bindings));
     combatInteractKind = std::move(interactKind);
     combatInteractName = std::move(interactName);
+    combatInteractDialog = std::move(interactDialog);
 }
 inline uint64_t combatHost = 0;
 inline std::string lastCombatState;
@@ -150,6 +168,7 @@ inline void publishCombatState()
     json.pop_back();
     json += ",\"interactKind\":" + gameplayJsonString(combatInteractKind);
     json += ",\"interactName\":" + gameplayJsonString(combatInteractName);
+    json += ",\"interactDialog\":" + gameplayJsonString(combatInteractDialog);
     json += ",\"pistol\":{\"state\":" + gameplayJsonString(pistol.state) +
             ",\"progress\":" + std::to_string(pistol.progress) + "}}";
     if (json == lastCombatState) return;
