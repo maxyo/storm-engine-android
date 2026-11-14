@@ -17,6 +17,7 @@
 #include "storm/fx/depth_copy.hpp"
 #include "storm/fx/sea_depth.hpp"
 #include "storm/fx/sea_waves.hpp"
+#include "storm/fx/wetness.hpp"
 #include "storm/render/effects.hpp"
 #include "storm/render/program_cache.hpp"
 
@@ -78,6 +79,8 @@ class Host
     }
 
     void set_weather(const render::EffectsWeather &weather);
+    // A location was entered or left: its first weather frame starts at the rain's own wetness.
+    void location_changed() { wetness_.Interrupt(); }
     void set_sun_glare(float glare, float ghosts)
     {
         sun_glare_ = glare;
@@ -192,6 +195,11 @@ class Host
     float sun_glare_ = 0.0f;          // SetEffectsSunGlare since the last presented frame
     float sun_ghosts_ = 0.0f;
     bool weather_last_frame_ = false;
+    // The rain's wetness outdoors (Settings::wet_surfaces), advanced by the weather frames.
+    fx::Wetness wetness_;
+    std::chrono::steady_clock::time_point wetness_time_{};
+    void update_wetness();
+    bool wet_unsheltered_logged_ = false;
     bool scene_cut_pending_ = true;
     fx::PostChain post_;
     Lighting lighting_;

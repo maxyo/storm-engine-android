@@ -144,3 +144,12 @@ target_include_directories(pipeline_prewarm_check PRIVATE "${CMAKE_CURRENT_LIST_
 target_compile_definitions(pipeline_prewarm_check PRIVATE NOMINMAX)
 target_compile_options(pipeline_prewarm_check PRIVATE -fsigned-char)
 target_link_libraries(pipeline_prewarm_check PRIVATE storm_bgfx storm_check_sdl)
+
+# wet_surfaces_check: the rain's wetness on a baked floor (src/effects/lighting.cpp, ff_wet.sh): «Низкая» and interiors
+# dry, «Высокая» in the rain darker, the same on an absolute and a camera-relative device, dry under a roof the
+# visibility volume sees; a lamp's highlight on the wet street, gone where a wall shadows the lamp.
+add_executable(wet_surfaces_check wet_surfaces_check.cpp)
+target_include_directories(wet_surfaces_check PRIVATE "${CMAKE_CURRENT_LIST_DIR}/../../src/libs/renderer_bgfx/src/shim")
+target_compile_definitions(wet_surfaces_check PRIVATE NOMINMAX)
+target_compile_options(wet_surfaces_check PRIVATE -fsigned-char)
+target_link_libraries(wet_surfaces_check PRIVATE storm_bgfx storm_check_sdl)

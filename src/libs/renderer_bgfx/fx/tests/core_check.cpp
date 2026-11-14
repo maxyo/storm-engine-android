@@ -27,6 +27,7 @@
 #include "storm/fx/wave_clock.hpp"
 #include "storm/fx/shadow_model.hpp"
 #include "storm/fx/sky_model.hpp"
+#include "storm/fx/wetness.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -119,6 +120,8 @@ void CheckSettings()
     CHECK(!medium.ssao && high.ssao && !original.ssao);
     CHECK(original.ao_volume == 0 && medium.ao_volume == 2 && high.ao_volume == 2); // Низкая: no shadows, as the original
     CHECK(original.lamp_shadows == 0 && medium.lamp_shadows == 8 && high.lamp_shadows == 16);
+    CHECK(original.wet_surfaces == 0 && medium.wet_surfaces == 1 && high.wet_surfaces == 2);
+    CHECK(original.wet_force < 0.0f && medium.wet_force < 0.0f && high.wet_force < 0.0f); // the rain decides
     CHECK(!original.town_light && medium.town_light && high.town_light); // Низкая keeps the game's town lightmaps
     CHECK(!medium.lamp_soft && high.lamp_soft && high.lamp_baked == 0.25f && high.lamp_gain == 1.0f && high.lamp_debug == 0);
     CHECK(medium.lamp_model_lift == 0.2f && high.lamp_model_lift == 0.2f); // the owner: characters a little above the room
@@ -426,6 +429,7 @@ void CheckSupport()
     unlit.parallax = ParallaxQuality::Off;
     unlit.parallax_shadow = false;
     unlit.relief_cavity = false;
+    unlit.wet_surfaces = 0;
     changes.clear();
     CHECK(ConstrainSettings(unlit, all, changes).ao_volume == 0 && changes.size() == 1);
     // Gloss without per-pixel highlights has nothing to shape: switched off, said.
@@ -433,6 +437,16 @@ void CheckSupport()
     matte.lighting_flags &= ~static_cast<uint32_t>(kLightingSpecular);
     changes.clear();
     CHECK(!ConstrainSettings(matte, all, changes).gloss && changes.size() == 1);
+    // Wet surfaces are drawn by the lit / baked programs: without the fx lighting they are switched off, said once.
+    Settings unlit_wet = unlit;
+    unlit_wet.ao_volume = 0;
+    unlit_wet.wet_surfaces = 2;
+    changes.clear();
+    CHECK(ConstrainSettings(unlit_wet, all, changes).wet_surfaces == 0 && changes.size() == 1);
+    Settings too_wet = high;
+    too_wet.wet_surfaces = 7;
+    changes.clear();
+    CHECK(ConstrainSettings(too_wet, all, changes).wet_surfaces == 2 && changes.size() == 1);
     Settings too_strong = high;
     too_strong.ao_volume = 9;
     changes.clear();
@@ -449,6 +463,7 @@ void CheckSupport()
     flat_town.parallax = ParallaxQuality::Off;
     flat_town.parallax_shadow = false;
     flat_town.relief_cavity = false;
+    flat_town.wet_surfaces = 0;
     changes.clear();
     CHECK(!ConstrainSettings(flat_town, all, changes).town_light && changes.size() == 1);
     // So does the bounce.
@@ -2425,6 +2440,42 @@ void CheckUpscale()
     }
 }
 
+void CheckWetness()
+{
+    // The first weather frame starts at the rain's level (a place entered in the rain is wet already).
+    Wetness w;
+    w.Update(0.8f, 0.016f);
+    CHECK(Near(w.Level(), 0.8f, 1e-6f));
+    // The rain stops: drying is slow, kWetDrySeconds from soaked to dry.
+    for (int i = 0; i < 60; ++i)
+        w.Update(0.0f, 1.0f);
+    CHECK(Near(w.Level(), 0.8f - 60.0f / kWetDrySeconds, 1e-4f));
+    for (int i = 0; i < 400; ++i)
+        w.Update(0.0f, 1.0f);
+    CHECK(w.Level() == 0.0f);
+    // The rain starts: a full rain soaks the dry place in kWetRiseSeconds (30..60 s), never overshooting.
+    float t = 0.0f;
+    while (w.Level() < 1.0f && t < 200.0f)
+    {
+        w.Update(1.0f, 0.1f);
+        t += 0.1f;
+    }
+    CHECK(t >= 30.0f && t <= 60.0f && Near(t, kWetRiseSeconds, 0.2f) && w.Level() == 1.0f);
+    CHECK(kWetDrySeconds > 2.0f * kWetRiseSeconds);
+    // A lighter rain: the level settles at it, from above as from below.
+    w.Update(0.3f, 1000.0f);
+    CHECK(Near(w.Level(), 0.3f, 1e-6f));
+    w.Update(0.5f, 1000.0f);
+    CHECK(Near(w.Level(), 0.5f, 1e-6f));
+    // A gap (an interior, a loading screen): the next weather frame jumps to its rain, dry or wet.
+    w.Interrupt();
+    w.Update(0.0f, 0.016f);
+    CHECK(w.Level() == 0.0f);
+    w.Interrupt();
+    w.Update(1.0f, 0.016f);
+    CHECK(w.Level() == 1.0f);
+}
+
 int main()
 {
     CheckSettings();
@@ -2461,6 +2512,7 @@ int main()
     CheckSeaWaves();
     CheckGlossMaps();
     CheckUpscale();
+    CheckWetness();
     if (failures)
     {
         std::printf("%d check(s) failed\n", failures);

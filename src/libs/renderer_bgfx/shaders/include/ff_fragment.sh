@@ -28,6 +28,11 @@
 //                   (stage 15, src/effects/shadows.hpp).
 //   AO volume       FX_FF_LIT / FX_FF_BAKED: the interior's ambient occlusion (ffAoVolume, off per draw by
 //                   u_fxAoParams.x = 0): darkens the ambient of lit draws and the baked colours.
+//   wet surfaces    FX_FF_LIT / FX_FF_BAKED: in the rain, outdoor surfaces where the sky's rain reaches them (the
+//                   visibility volume's openness: dry under roofs) are darker and glossier, their relief filled; the
+//                   highlights of the sun and the lamps (FX_LIGHT_SPECULAR) take the wet gloss, the overcast sky is
+//                   reflected; puddles in the relief's hollows (FX_LIGHT_PARALLAX). ff_wet.sh, off per draw by
+//                   u_fxWet[0].x = 0.
 //   FX_FF_COVERAGE  alpha to coverage instead of the alpha-test discard (fx_coverage.sh); in the FX_FF_LIT /
 //                   FX_FF_BAKED variants it is switched per draw by u_fxCoverage.z.
 #include "ff_finish.sh"
@@ -157,6 +162,7 @@ SAMPLER3D(s_fxRoomLight, 8);
 SAMPLER3D(s_fxLampGrid, 9);
 SAMPLER2DSHADOW(s_fxLampDynamic, 10);
 SAMPLER2DSHADOW(s_fxLampStatic, 11);
+#include "ff_wet.sh"
 
 // 3x3 percentage-closer filter in four hardware-filtered compare taps: the optimised PCF of The Witness, after
 // MJP's Shadows sample (github.com/TheRealMJP/Shadows, MIT). uv: atlas coordinates, size: the atlas in texels.
@@ -321,7 +327,7 @@ void ffLampAdd(float id, vec3 Pw, vec3 Ng, vec3 N, vec3 specV, vec2 spec, inout 
     sum.rgb += rgb * (light * seen);
     sum.a += dot(rgb, vec3(0.299, 0.587, 0.114)) * light;
 #ifdef FX_LIGHT_SPECULAR
-    if (u_fxGloss.w > 0.0)
+    if (spec.y > 0.0)
     {
         vec3 H = normalize(toLamp + specV);
         lampSpec += rgb * (pow(max(dot(N, H), 0.0), spec.x) * spec.y * clamp(ndl * 4.0, 0.0, 1.0) * falloff * seen);
@@ -556,10 +562,6 @@ void main()
     vec3 ffSpecV = normalize(mul(u_fxLampView, vec4(V, 0.0)).xyz);
     vec3 Pw = mul(u_fxLampView, vec4(P, 1.0)).xyz;
     vec3 Nw = normalize(mul(u_fxLampView, vec4(Ng, 0.0)).xyz);
-    // The place's lamps with their shadows (nothing where there are none).
-    vec3 ffLampMoved;
-    vec3 ffLampSpec;
-    vec4 lamps = ffLampLight(Pw, Nw, normalize(mul(u_fxLampView, vec4(N, 0.0)).xyz), ffSpecV, ffSpec, ffLampMoved, ffLampSpec);
     // How open the pixel is to the sky (the visibility volume): x the sky it sees, y whether the sun can reach it.
     // Under a roof the sun and the weather's ambient do not arrive and the room's own occlusion counts in full; in
     // a doorway, by a window or under a hatch each arrives by its share.
@@ -570,12 +572,35 @@ void main()
     if (u_fxVisibilityParams.x <= 0.0 && u_fxAoParams.x > 0.0)
         skySeen = vec2_splat(0.0);
 #endif
+    // The rain (ff_wet.sh): where it reaches (the openness above 15°: dry under roofs), the surface is wet, its relief
+    // filled with water and its gloss raised, before the lamps and the sun take them; puddles in the relief's hollows.
+    float ffHeight = 1.0;
+#ifdef FX_LIGHT_PARALLAX
+    if (u_fxWet[0].y > 0.5)
+        ffHeight = ffPomFound.x > 0.0 ? 1.0 - ffPomFound.y : texture2DLod(s_fxMaterial, ffReliefUv, ffPomFound.z).r;
+#endif
+    vec4 ffWet = ffWetPrepare(Nw, skySeen.y, ffGloss, ffMetal, ffHeight);
+    if (ffWet.x > 0.0)
+    {
+        N = ffWetNormal(N, Ng, ffWet);
+        ffSpec = ffWetSpec(ffSpec, N, V, ffWet);
+    }
+    // The lamps' highlights: with the gloss on (u_fxGloss.w), or wet.
+    vec2 ffLampSpecOf = ffSpec;
+#ifdef FX_LIGHT_SPECULAR
+    if (u_fxGloss.w <= 0.0 && ffWet.x <= 0.0)
+        ffLampSpecOf.y = 0.0;
+#endif
+    // The place's lamps with their shadows (nothing where there are none).
+    vec3 ffLampMoved;
+    vec3 ffLampSpec;
+    vec4 lamps = ffLampLight(Pw, Nw, normalize(mul(u_fxLampView, vec4(N, 0.0)).xyz), ffSpecV, ffLampSpecOf, ffLampMoved, ffLampSpec);
     float aoVolume = mix(ffAoVolume(P, Ng, Nw), 1.0, skySeen.x);
     // The relief's cavity: an occlusion at the texture's scale, under the light as the volume's is (ambient and bounce
-    // in full, half of the direct light).
+    // in full, half of the direct light); a puddle's water fills it.
     float cavity = 1.0;
 #ifdef FX_LIGHT_PARALLAX
-    cavity = fxReliefCavity(ffReliefUv, ffPomFound);
+    cavity = mix(fxReliefCavity(ffReliefUv, ffPomFound), 1.0, ffWet.y);
 #endif
     float cavityDirect = mix(1.0, cavity, 0.5);
 #ifdef FX_FF_LIT
@@ -629,6 +654,9 @@ void main()
     FF_STAGE(3, STAGE3_SAMPLE)
     FF_STAGE(4, STAGE4_SAMPLE)
 #ifdef FX_FF_PIXEL_LIGHTING
+    // The rain's water in the pores (ff_wet.sh): the surface's colour darker, before any highlight is added.
+    current.rgb *= ffWet.w;
+    tex0.rgb *= ffWet.w;
     // A metal's highlight takes the colour of its texture; the rest is white (the fixed-function material has no
     // usable specular colour).
     vec3 specTint = vec3_splat(1.0);
@@ -710,8 +738,8 @@ void main()
                         vec3_splat(0.0));
 #ifdef FX_LIGHT_SPECULAR
     // Highlights the bake cannot hold: the sun's (outdoors: u_fxLight[1] is black indoors), the lamps' with their
-    // shadows (at the lamps' gain on baked colours), the dynamic lights'.
-    if (u_fxGloss.w > 0.0)
+    // shadows (at the lamps' gain on baked colours), the dynamic lights'; with a gloss map, or wet in the rain.
+    if (u_fxGloss.w > 0.0 || ffWet.x > 0.0)
     {
 #ifdef FX_LIGHT_LINEAR
         float lampGain = gain * gain;
@@ -747,6 +775,8 @@ void main()
     }
 #endif
 #ifdef FX_FF_PIXEL_LIGHTING
+    // The overcast sky in the wet surfaces outdoors, on the lit colour.
+    current.rgb = ffWetFinish(current.rgb, N, V, mul(u_fxLampView, vec4(reflect(-V, N), 0.0)).y, ffWet);
     if (u_fxLamps[0].x > 0.5 && u_fxLampGrid[0].w > 0.5)
     {
         // Debug views: the lamps' light in the slots' colours over a grey picture, or what the shadows remove.

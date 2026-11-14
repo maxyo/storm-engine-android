@@ -67,6 +67,7 @@ Settings Settings::FromPreset(QualityPreset preset)
         s.ao_volume = 2;
         s.lamp_shadows = 8;
         s.lamp_moving = 1;
+        s.wet_surfaces = 1;
         return s;
     }
     s.render_height = kHighRenderHeight;
@@ -99,6 +100,7 @@ Settings Settings::FromPreset(QualityPreset preset)
     s.lamp_soft = true;
     s.ssao = true;
     s.ssao_intensity = 0.35f;
+    s.wet_surfaces = 2;
     return s;
 }
 
@@ -272,6 +274,11 @@ constexpr Rule kRules[] = {
      "the lamps' grid and the room light need RGBA8 3D textures: lamp shadows switched off"},
     {[](const Settings &s, const Support &) { return s.lamp_shadows && !(s.lighting_flags & kLightingPerPixel); },
      [](Settings &s) { s.lamp_shadows = 0; }, "lamp shadows need per-pixel lighting: switched off"},
+    {[](const Settings &s, const Support &) { return s.wet_surfaces > 2; }, [](Settings &s) { s.wet_surfaces = 2; },
+     "wet surfaces must be 0 off, 1 wet or 2 with puddles: lowered to 2"},
+    {[](const Settings &s, const Support &) { return s.wet_surfaces && !(s.lighting_flags & (kLightingPerPixel | kLightingPoint)); },
+     [](Settings &s) { s.wet_surfaces = 0; },
+     "wet surfaces are drawn by the per-pixel lighting (or per-pixel point lights): switched off"},
     {[](const Settings &s, const Support &) { return (s.lighting_flags & kLightingPoint) && s.point_lights != 4 && s.point_lights != 8; },
      [](Settings &s) { s.point_lights = s.point_lights > 4 ? 8 : 4; }, "point lights per draw call must be 4 or 8: rounded"},
 };

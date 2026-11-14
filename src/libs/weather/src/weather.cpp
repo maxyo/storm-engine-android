@@ -140,12 +140,16 @@ void WEATHER::PushEffectsWeather()
     GetColor(whc_fog_color, &color);
     out.fog_color = {color.x, color.y, color.z};
     out.fog_density = fFloats[whf_fog_density];
-    // Overcast from the RAIN entity's drop count (the scripts give a storm 3500..5000 drops): WEATHER itself keeps
-    // no rain or lightning state (its whi_rain_drops_num / whi_lightning_enable slots are never written).
+    // Rain and overcast from the RAIN entity's drop count: WEATHER itself keeps no rain or lightning state (its
+    // whi_rain_drops_num / whi_lightning_enable slots are never written).
     out.overcast = 0.0f;
     if (const auto rain_id = core.GetEntityId("rain"))
         if (const auto *rain = static_cast<RAIN *>(core.GetEntityPointer(rain_id)))
-            out.overcast = std::min(static_cast<float>(rain->NumDrops()) / 5000.0f, 1.0f);
+        {
+            // A full rain at the game's day-rain drop count (3500..5000; a light evening rain 1500, storms 25000+).
+            out.rain = std::min(static_cast<float>(rain->NumDrops()) / 5000.0f, 1.0f);
+            out.overcast = out.rain;
+        }
     out.wind_dir = {std::cos(fFloats[whf_wind_angle]), std::sin(fFloats[whf_wind_angle])};
     out.wind_speed = fFloats[whf_wind_speed];
     storm::render::SetEffectsWeather(out);

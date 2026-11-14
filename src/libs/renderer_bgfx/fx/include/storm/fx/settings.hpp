@@ -225,6 +225,11 @@ struct Settings
     // the characters to stand out from the room a little.
     float lamp_model_lift = 0.2f;
     uint8_t lamp_debug = 0;  // 1: every lamp slot in its own colour, 2: the shadow mask
+    // Rain wetness of the outdoor surfaces where the rain reaches them (wetness.hpp, ff_wet.sh): 0 off, 1 wet (darker,
+    // glossier, the sky's reflection; following the rain and drying after it), 2 also puddles in the relief's hollows
+    // (the parallax's height). Lit and baked draws (per-pixel lighting); highlights where there is FX_LIGHT_SPECULAR.
+    uint8_t wet_surfaces = 0;
+    float wet_force = -1.0f; // development: 0..1 = this wetness outdoors whatever the weather, < 0 = the rain's
 
     static Settings FromPreset(QualityPreset preset);
 

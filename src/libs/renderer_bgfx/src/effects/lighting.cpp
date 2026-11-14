@@ -154,9 +154,9 @@ bool Lighting::prepare_programs(shim::Device &device, const fx::Settings &settin
                     return false;
             }
             // The town's walls take the shadowed twin (settings.town_light); baked draws with a gloss map (or every one
-            // under the gloss debug view) the specular one.
+            // under the gloss debug view) or wet in the rain the specular one.
             for (const int h : {0, settings.town_walls ? shadow : 0})
-                for (int s = 0; s <= (specular && settings.gloss ? 1 : 0); ++s)
+                for (int s = 0; s <= (specular && (settings.gloss || settings.wet_surfaces) ? 1 : 0); ++s)
                     if (!device.prepare_program(vs_lit_, fs_baked_[s][n][linear][h], budget))
                         return false;
         }
@@ -310,6 +310,12 @@ void Lighting::prepare(const shim::Device &device, const shim::LayoutInfo &layou
     const bool town_wall = per_pixel && lighting_ && layout.has_normal && !lit_state && !lightmapped && target &&
                            target == picture && !lamps_.interior() && settings_.town_walls && town_light_.walls_active();
     baked |= town_wall;
+    // Rain: the outdoor surfaces drawn into the game picture are wet (characters and sails keep their look); baked
+    // location geometry then takes the baked variant.
+    const bool wet = settings_.wet_surfaces && wet_.level > 0.0f && lighting_ && layout.has_normal && target &&
+                     target == picture && !lamps_.interior() &&
+                     !(lit && (material_ == Material::Character || material_ == Material::Sail));
+    baked |= !lit_state && wet;
     if (!lit && !baked && !coverage)
         return;
     if (cube_variant != 0)
@@ -361,7 +367,13 @@ void Lighting::prepare(const shim::Device &device, const shim::LayoutInfo &layou
             }
         }
     }
-    if (ao || lamp_on || visibility_)
+    if (wet)
+    {
+        draw.wet = {{{wet_.level, settings_.wet_surfaces >= 2 ? 1.0f : 0.0f, 0.0f, 0.0f},
+                     {wet_.sky[0], wet_.sky[1], wet_.sky[2], 0.0f}}};
+        ++frame_.wet;
+    }
+    if (ao || lamp_on || visibility_ || wet)
     {
         memcpy(draw.view.data(), &device.s.view.m[0][0], sizeof(float) * 16);
         draw.origin = origin_;
@@ -439,10 +451,11 @@ void Lighting::prepare(const shim::Device &device, const shim::LayoutInfo &layou
     const bool specular = per_pixel && (flags_ & fx::kLightingSpecular);
     // The per-pixel sun reaches a pixel by how open it is (the visibility volume, ff_fragment.sh): under a roof none
     // of it arrives, whatever the scripts say of the place's weather.
-    if (!lit && per_pixel && bgfx::isValid(gloss_map.handle) && weather_sun_.present)
+    if (!lit && per_pixel && (bgfx::isValid(gloss_map.handle) || wet) && weather_sun_.present)
     {
-        // A glossy baked surface: the bake holds the sun's light, its highlight is added per pixel (ff_fragment.sh, by
-        // how open the pixel is) from the weather's sun (a baked draw has the fixed-function lights off).
+        // A glossy (or wet) baked surface: the bake holds the sun's light, its highlight is added per pixel
+        // (ff_fragment.sh, by how open the pixel is) from the weather's sun (a baked draw has the fixed-function lights
+        // off).
         fx::LightingInput sun = input;
         sun.sun_dir = {weather_sun_.dir[0], weather_sun_.dir[1], weather_sun_.dir[2]};
         sun.sun_diffuse = {weather_sun_.color[0], weather_sun_.color[1], weather_sun_.color[2]};
@@ -534,7 +547,8 @@ void Lighting::prepare(const shim::Device &device, const shim::LayoutInfo &layou
     const float metal_tint = fx::GlossMetalTint(gloss_class);
     draw.gloss = {glossy ? gloss_map.fade : 0.0f, glossy ? (metal_mask ? metal_tint : -metal_tint) : 0.0f,
                   gloss_ ? static_cast<float>(settings_.gloss_debug) : 0.0f, gloss_ ? settings_.gloss_strength : 0.0f};
-    const bool baked_specular = specular && gloss_ && (glossy || gloss_debug);
+    // Wet baked surfaces take the highlights too (their gloss is the rain's, ff_wet.sh).
+    const bool baked_specular = specular && ((gloss_ && (glossy || gloss_debug)) || wet);
 
     if (lit)
     {
@@ -785,11 +799,13 @@ void Lighting::submit(const FfDraw &draw)
     {
         u_coverage_ = bgfx::createUniform("u_fxCoverage", bgfx::UniformType::Vec4);
         u_ff_ = bgfx::createUniform("u_fxFf", bgfx::UniformType::Vec4);
+        u_wet_ = bgfx::createUniform("u_fxWet", bgfx::UniformType::Vec4, 2);
     }
     bgfx::setUniform(u_coverage_, draw.coverage.data());
     if (!draw.lit)
         return;
     bgfx::setUniform(u_ff_, draw.ff.data());
+    bgfx::setUniform(u_wet_, draw.wet.data(), 2);
     fx_.Apply(draw.light);
     fx_.Apply(draw.points);
     if (bgfx::isValid(draw.normal_map))
@@ -1008,7 +1024,7 @@ void Lighting::shutdown()
         bgfx::destroy(visibility_open_);
     visibility_open_ = BGFX_INVALID_HANDLE;
     ao_open_ = BGFX_INVALID_HANDLE;
-    for (bgfx::UniformHandle *u : {&u_coverage_, &u_ff_, &u_gloss_, &u_aerial_up_, &s_ao_volume_, &u_ao_matrix_, &u_ao_params_, &s_visibility_,
+    for (bgfx::UniformHandle *u : {&u_coverage_, &u_ff_, &u_wet_, &u_gloss_, &u_aerial_up_, &s_ao_volume_, &u_ao_matrix_, &u_ao_params_, &s_visibility_,
                                    &u_visibility_matrix_, &u_visibility_params_, &u_town_wall_})
     {
         if (bgfx::isValid(*u))
@@ -1025,7 +1041,7 @@ void Lighting::on_device_lost()
     town_light_.on_device_lost();
     lamps_.on_device_lost();
     casters_.on_device_lost();
-    u_coverage_ = u_ff_ = u_gloss_ = u_aerial_up_ = s_ao_volume_ = u_ao_matrix_ = u_ao_params_ = BGFX_INVALID_HANDLE;
+    u_coverage_ = u_ff_ = u_wet_ = u_gloss_ = u_aerial_up_ = s_ao_volume_ = u_ao_matrix_ = u_ao_params_ = BGFX_INVALID_HANDLE;
     s_visibility_ = u_visibility_matrix_ = u_visibility_params_ = u_town_wall_ = BGFX_INVALID_HANDLE;
     ao_view_ = {};
     ao_open_ = visibility_open_ = BGFX_INVALID_HANDLE;

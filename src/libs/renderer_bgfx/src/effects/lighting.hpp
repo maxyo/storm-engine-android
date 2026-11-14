@@ -27,6 +27,12 @@
 //     them again into the shadow view: FfDraw::caster) and receive (FX_LIGHT_SHADOW[_SOFT] variants).
 //   * alpha to coverage (RendererState::alpha_to_coverage): alpha-tested (GREATER / GREATEREQUAL), non-blended draws
 //     into a multisampled target: BGFX_STATE_BLEND_ALPHA_TO_COVERAGE and fxCoverageAlpha() instead of the discard.
+//   * wet surfaces (Settings::wet_surfaces, fx/wetness.hpp): in the rain, lit and baked draws into the game picture
+//     outdoors (not characters or sails) get wet where the visibility volume shows the sky above them (dry under roofs):
+//     darker and glossier, their relief filled, the overcast sky reflected, puddles in the relief's hollows with 2
+//     (shaders/include/ff_wet.sh, u_fxWet). The wet gloss drives the gloss highlights (sun, lamps with their shadows,
+//     dynamic lights), so wet baked draws take the specular variant where there is one. Switched per draw by
+//     u_fxWet[0].x.
 //   * aerial perspective (kLightingAerial): every draw through the fixed-function vertex pipeline whose fog is the
 //     game's exp fog takes fog mode 5 (ff_finish.sh, fx_aerial.sh fxAerialFog): the same fog colour and density with
 //     height haze and desaturation, for lit, baked and unlit draws and ported pixel shaders alike. Draws with a ported
@@ -141,6 +147,14 @@ struct FfDraw
     bool lamp_caster = false;      // caster: the lamp faces its sphere reaches (characters)
     CasterMaterial caster_material{}; // caster: how its material casts (effects/casters.hpp)
     DrawSphere sphere{};
+    std::array<std::array<float, 4>, 2> wet{}; // u_fxWet (ff_wet.sh); x of the first = 0: the draw stays dry
+};
+
+// The rain's wetness of this frame for the draws outdoors (effects::Host from the weather, fx::Wetness).
+struct WetFrame
+{
+    float level = 0.0f;         // 0 dry (or no weather: interiors) .. 1 soaked
+    std::array<float, 3> sky{}; // the sky the wet surfaces reflect: the weather's fog colour (its horizon), darker at night
 };
 
 class Lighting
@@ -188,6 +202,8 @@ class Lighting
     {
         weather_sun_ = {dir, color, present};
     }
+    void set_wet(const WetFrame &wet) { wet_ = wet; }
+    const WetFrame &wet() const { return wet_; }
     // The interior's AO volume for this frame's draws into the game picture (null: none).
     void set_ao_volume(const AoVolumes::Bound *volume) { ao_volume_ = volume; }
     // The location's visibility volume for this frame's lit and baked draws (null: none yet, or no location).
@@ -236,7 +252,7 @@ class Lighting
     struct Counts
     {
         uint32_t lit = 0, baked = 0, coverage = 0, relief = 0, parallax = 0, glossy = 0, shadowed = 0, casters = 0, aerial = 0,
-                 ao = 0, lamp_lit = 0, lamp_casters = 0, town_walls = 0;
+                 ao = 0, lamp_lit = 0, lamp_casters = 0, town_walls = 0, wet = 0;
         // Textured draws that drew without the parallax, by the reason (ParallaxMiss), so a parallax that never
         // reaches the screen shows in the "effects parallax:" line.
         std::array<uint32_t, kParallaxMisses> parallax_miss{};
@@ -277,6 +293,8 @@ class Lighting
         std::array<float, 3> dir{0.0f, 1.0f, 0.0f}, color{};
         bool present = false;
     } weather_sun_;
+    WetFrame wet_{};
+    bgfx::UniformHandle u_wet_ = BGFX_INVALID_HANDLE;
     void find_shaders();
 
     uint32_t vs_ff_ = 0, vs_lit_ = 0, vs_lit_skin_ = 0, fs_coverage_ = 0;

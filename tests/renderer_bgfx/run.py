@@ -51,7 +51,7 @@ subprocess.run(['cmake', '--build', str(build), '--target', 'storm_bgfx', 'storm
                 'preset_switch_check', 'sea_edge_check', 'program_cache_check', 'render_thread_check',
                 'storm_fx_core_check', 'ao_volume_check',
                 'storm_relief_check', 'cutout_caster_check', 'relief_switch_check', 'texture_format_check', 'backend_select_check',
-                'buffer_pool_check', 'thumbnail_check', 'pipeline_prewarm_check'], check=True)
+                'buffer_pool_check', 'thumbnail_check', 'pipeline_prewarm_check', 'wet_surfaces_check'], check=True)
 subprocess.run([str(warmth), 'end', str(build)], check=True)
 # Every check is its own process: they run in parallel (STORM_CHECK_JOBS, default 6), the draws on OpenGL ES
 # and on Vulkan at once, longest first. A failing check's output is printed.
@@ -63,7 +63,7 @@ plain = [[str(build / 'renderer_bgfx' / 'storm_texture_tests')], [str(build / 'p
 # The checks that draw, on OpenGL ES.
 gpu_checks = ['skinning_check', 'uniform_commit_check', 'preset_switch_check', 'sea_edge_check', 'program_cache_check',
               'render_thread_check', 'ao_volume_check', 'cutout_caster_check', 'texture_format_check', 'buffer_pool_check',
-              'thumbnail_check', 'pipeline_prewarm_check']
+              'thumbnail_check', 'pipeline_prewarm_check', 'wet_surfaces_check']
 # The same checks on Vulkan (STORM_CHECK_BACKEND, check_backend.hpp), where the host has a Vulkan device (CI: Mesa's
 # lavapipe). uniform_commit_check stays on OpenGL ES: it counts the GL backend's glUniform calls. Every run must
 # say that it ran on Vulkan: a check that ended on OpenGL ES (the shim's logged exception for a Vulkan that does

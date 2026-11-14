@@ -92,6 +92,9 @@ struct EffectsWeather
     std::array<float, 3> fog_color{0.5f, 0.6f, 0.7f};
     float fog_density = 0.003f;
     float overcast = 0.0f; // 0 clear .. 1 storm
+    // The rain falling this frame, 0 none .. 1 a full rain (fx::RainFromDrops of the RAIN entity's drops): the outdoor
+    // surfaces get wet with it (fx_wet_surfaces).
+    float rain = 0.0f;
     std::array<float, 2> wind_dir{1.0f, 0.0f};
     float wind_speed = 5.0f;
 };

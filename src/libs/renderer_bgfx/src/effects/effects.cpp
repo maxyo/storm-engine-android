@@ -111,6 +111,10 @@ const Option kOptions[] = {
      [](fx::Settings &s, int v) { s.lamp_model_lift = static_cast<float>(std::clamp(v, 0, 100)) / 100.0f; }},
     {"fx_lamp_debug", "0 off, 1 every lamp in its own colour, 2 the shadow mask",
      [](fx::Settings &s, int v) { s.lamp_debug = static_cast<uint8_t>(std::clamp(v, 0, 2)); }},
+    {"fx_wet_surfaces", "rain wetness outdoors: 0 off, 1 wet surfaces, 2 also puddles in the relief's hollows",
+     [](fx::Settings &s, int v) { s.wet_surfaces = static_cast<uint8_t>(std::clamp(v, 0, 2)); }},
+    {"fx_wet_force", "0..100 %: this wetness outdoors whatever the rain (review); -1 = the rain's",
+     [](fx::Settings &s, int v) { s.wet_force = static_cast<float>(std::clamp(v, 0, 100)) / 100.0f; }},
     {"fx_ao_volume", "interiors: 0 off, 1 as the game's data, 2 moderate, 3 strong",
      [](fx::Settings &s, int v) { s.ao_volume = static_cast<uint8_t>(std::clamp(v, 0, 3)); }},
     {"fx_shadows", "0 off, 1 low, 2 soft",
@@ -194,13 +198,13 @@ std::string describe(const fx::Settings &s)
     snprintf(text, sizeof(text),
              "tonemap=%d bloom=%d(1/%u,%u) shafts=%d smaa=%d scene_height=%u sharpen=%d(%.2f) ssao=%d dither=%d flare=%d scene_grading=%d "
              "grade=%d msaa=%u a2c=%d aniso=%u sea=%d%d%d waves=%d%d%d shadows=%d "
-             "lighting=0x%x parallax=%d(%.2f, shadow %d, cavity %d) contact=%d",
+             "lighting=0x%x parallax=%d(%.2f, shadow %d, cavity %d) contact=%d wet=%u",
              s.tonemap, s.bloom, s.bloom_downscale, s.bloom_levels, s.sun_shafts, s.smaa, s.render_height, s.sharpen,
              static_cast<double>(s.sharpness), s.ssao, s.dither,
              s.lens_flare, s.scene_grading, static_cast<int>(s.grade), s.msaa,
              s.alpha_to_coverage, s.anisotropy, s.sea_band_limit, s.sea_soft_edges, s.sea_specular,
              s.sea_waves, s.sea_waves_lift, s.sea_wakes, static_cast<int>(s.shadows), s.lighting_flags, static_cast<int>(s.parallax),
-             static_cast<double>(s.parallax_strength), s.parallax_shadow, s.relief_cavity, s.contact_shadows);
+             static_cast<double>(s.parallax_strength), s.parallax_shadow, s.relief_cavity, s.contact_shadows, s.wet_surfaces);
     return text;
 }
 } // namespace
@@ -454,11 +458,32 @@ void Host::set_weather(const render::EffectsWeather &weather)
 {
     weather_ = weather;
     weather_this_frame_ = true;
+    update_wetness();
     // The hemisphere ambient takes its tint from the sky dome; the aerial perspective needs a sky (no interiors).
     lighting_.shadows().set_sun(weather.sun_dir, weather.sun_present);
     lighting_.set_weather_sun(weather.sun_dir, weather.sun_color, weather.sun_present);
     if (settings_.lighting_flags & (fx::kLightingHemisphere | fx::kLightingAerial))
         lighting_.set_sky(&sky_state());
+}
+
+void Host::update_wetness()
+{
+    const auto now = std::chrono::steady_clock::now();
+    // Real time between weather frames, at most half a second: a long frame (a hitch, a save) does not dry the place.
+    const float seconds = std::min(std::chrono::duration<float>(now - wetness_time_).count(), 0.5f);
+    wetness_time_ = now;
+    wetness_.Update(weather_.rain, seconds);
+    WetFrame wet;
+    if (settings_.wet_surfaces)
+    {
+        wet.level = settings_.wet_force >= 0.0f ? std::min(settings_.wet_force, 1.0f) : wetness_.Level();
+        // The fog colour is the sky's at the horizon by day; the night sky the surfaces reflect is darker than its fog.
+        const float t = std::clamp((weather_.sky_sun_dir[1] + 0.1f) / 0.25f, 0.0f, 1.0f);
+        const float day = t * t * (3.0f - 2.0f * t);
+        for (int c = 0; c < 3; ++c)
+            wet.sky[c] = weather_.fog_color[c] * (0.35f + 0.65f * day);
+    }
+    lighting_.set_wet(wet);
 }
 
 const fx::SkyState &Host::sky_state()
@@ -613,6 +638,13 @@ void Host::end_frame(bool scene_frame, uint32_t frame)
     }
     if (!scene_frame)
         scene_cut_pending_ = true;
+    if (!weather_this_frame_ && !weather_last_frame_)
+    {
+        // Two frames without the weather: an interior or a loading screen. Nothing is wet there, and the next
+        // place outdoors starts at its own rain.
+        wetness_.Interrupt();
+        lighting_.set_wet({});
+    }
     weather_last_frame_ = weather_this_frame_;
     if (!weather_this_frame_)
     {
@@ -658,6 +690,18 @@ void Host::end_frame(bool scene_frame, uint32_t frame)
         bounce_.set_enabled(settings_.bounce);
         bounce_.update(visibility_, volume, light);
         lighting_.set_visibility(volume);
+        // Wet surfaces stay dry where the volume shows no open sky: without it (still baking, or failed) the rain
+        // reaches under the roofs too. Said once until a volume is there.
+        if (volume)
+            wet_unsheltered_logged_ = false;
+        else if (lighting_.wet().level > 0.0f && !wet_unsheltered_logged_)
+        {
+            wet_unsheltered_logged_ = true;
+            static const char *const kVisibilityStates[] = {"no location geometry", "baking", "ready", "its bake failed"};
+            shim::logf("effects: wet surfaces without a visibility volume (%s): the rain wets everything outdoors, "
+                       "under roofs too, until it is there",
+                       kVisibilityStates[static_cast<int>(visibility_.state())]);
+        }
     }
     transform_view_ = UINT16_MAX; // the shim's views start again next frame
     times_ = {};
@@ -712,12 +756,12 @@ void Host::end_frame(bool scene_frame, uint32_t frame)
                          profile_sum_rcas_ / profile_gpu_frames_);
             const Lighting::Counts counts = lighting_.last_frame();
             shim::logf("effects profile: preset %d scene=%ux%u display=%ux%u %s cpu_frame_ms=%.2f draws=%.0f post_views=%u lit_draws=%u "
-                       "baked_draws=%u coverage_draws=%u relief_draws=%u parallax_draws=%u gloss_draws=%u aerial_draws=%u shadowed_draws=%u casters=%u ao_draws=%u lamp_draws=%u lamp_casters=%u lamp_slots=%d lamp_static_faces=%d sun_static_tiles=%u sun_static_triangles=%u lightmapped_draws=%u town_relit_draws=%u town_wall_draws=%u",
+                       "baked_draws=%u coverage_draws=%u relief_draws=%u parallax_draws=%u gloss_draws=%u aerial_draws=%u shadowed_draws=%u casters=%u ao_draws=%u lamp_draws=%u lamp_casters=%u lamp_slots=%d lamp_static_faces=%d sun_static_tiles=%u sun_static_triangles=%u lightmapped_draws=%u town_relit_draws=%u town_wall_draws=%u wet_draws=%u",
                        preset_, last_post_size_[0], last_post_size_[1], last_post_size_[2], last_post_size_[3], gpu,
                        profile_sum_cpu_ / kProfileFrames, static_cast<double>(profile_draws_) / kProfileFrames,
                        last_post_views_, counts.lit, counts.baked, counts.coverage, counts.relief, counts.parallax, counts.glossy, counts.aerial, counts.shadowed, counts.casters, counts.ao, counts.lamp_lit, counts.lamp_casters,
                        lighting_.lamp_shadows().last_slots(), lighting_.lamp_shadows().last_static_faces(),
-                       lighting_.shadows().last_static_casters()[0], lighting_.shadows().last_static_casters()[1], lighting_.town_light().last_counts()[0], lighting_.town_light().last_counts()[1], counts.town_walls);
+                       lighting_.shadows().last_static_casters()[0], lighting_.shadows().last_static_casters()[1], lighting_.town_light().last_counts()[0], lighting_.town_light().last_counts()[1], counts.town_walls, counts.wet);
             profile_count_ = profile_gpu_frames_ = 0;
             profile_sum_frame_ = profile_sum_post_ = profile_sum_cpu_ = 0.0;
             profile_sum_smaa_ = profile_sum_easu_ = profile_sum_rcas_ = 0.0;
@@ -799,6 +843,7 @@ void SetEffectsLightmaps(std::string_view name, std::span<const std::array<float
 
 void SetEffectsLocationGeometry(const EffectsLocationGeometry &geometry)
 {
+    effects::Host::instance().location_changed();
     effects::Host::instance().lighting().lamp_shadows().set_geometry(geometry);
     effects::Host::instance().bounce().set_geometry(geometry);
     // The geometry with the triangles of textures that cut holes replaced by the pieces the alpha test keeps
