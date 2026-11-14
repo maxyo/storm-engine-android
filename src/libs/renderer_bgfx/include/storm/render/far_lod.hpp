@@ -21,6 +21,9 @@ enum Pass : int
 inline float pixels = 0.f;
 // The pass being drawn: set by the sea's reflection and cube-face renders.
 inline Pass pass = Main;
+// TEST BUILD ONLY (branch test/far-lod-ab): leave out every model object farther than this (metres; 0 off), the
+// ceiling of what far LODs can save (graphics option fx_farlod_cull).
+inline float cull_m = 0.f;
 
 // What the next GEOM draw is seen from, in the model's own space (set by NODER::Draw; invalid: drawn whole).
 struct View
@@ -46,6 +49,7 @@ struct Counters
     uint64_t compose_bytes = 0;
     uint64_t conflicts = 0;     // objects drawn whole: their composed indices were already used this frame
     uint64_t island_slices = 0; // ISLAND::Realize depth slices
+    uint64_t culled_triangles = 0; // test build: left out by fx_farlod_cull
 };
 inline Counters counters;
 // Models whose LODs are being made (current value).

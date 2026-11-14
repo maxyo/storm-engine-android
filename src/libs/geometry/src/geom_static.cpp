@@ -8,6 +8,8 @@ Comments:
 Import library main file
 ******************************************************************************/
 #include "geom.h"
+#include <storm/render/far_lod.hpp>
+#include <cmath>
 #include <storm/config.hpp>
 
 #include <cstddef>
@@ -377,6 +379,20 @@ void GEOM::Draw(const PLANE *pl, int32_t np, MATERIAL_FUNC mtf) const
         if (cp < np)
             continue;
 
+        {
+            namespace render_lod = storm::render::far_lod;
+            const render_lod::View &view = render_lod::view;
+            if (render_lod::cull_m > 0.f && view.valid && !view.ortho)
+            {
+                const float dx = object[o].center.x - view.camera[0], dy = object[o].center.y - view.camera[1],
+                            dz = object[o].center.z - view.camera[2];
+                if ((std::sqrt(dx * dx + dy * dy + dz * dz) - object[o].radius) * view.scale > render_lod::cull_m)
+                {
+                    render_lod::counters.culled_triangles += object[o].ntriangles;
+                    continue;
+                }
+            }
+        }
         auto *const vb = &vbuff[object[o].vertex_buff];
         srv.SetVertexBuffer(vb->stride, vb->dev_buff);
         srv.SetMaterial(material[object[o].material]);

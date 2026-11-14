@@ -436,7 +436,7 @@ void NODER::SetFarLodView() const
     namespace far_lod = storm::render::far_lod;
     far_lod::View &view = far_lod::view;
     view.valid = false;
-    if (far_lod::pixels <= 0.f)
+    if (far_lod::pixels <= 0.f && far_lod::cull_m <= 0.f)
         return;
     D3DVIEWPORT9 viewport;
     if (rs->GetViewport(&viewport) != D3D_OK || viewport.Height == 0)
