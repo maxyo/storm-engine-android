@@ -900,6 +900,19 @@ int main(int argc, char **argv)
             previous->SetClass("sel", true);
             frames(0.1);
             Expect(list->GetScrollTop() > 0 && visible(previous), "returning from a slot filter reveals the selected item again");
+            previous->SetClass("sel", false);
+            Rml::Element *first = find("inventory-row-0");
+            Rml::Element *second = find("inventory-row-1");
+            Expect(first && second, "the first two inventory rows exist");
+            if (first && second)
+            {
+                first->SetClass("sel", true);
+                frames(0.1);
+                first->SetClass("sel", false);
+                second->SetClass("sel", true);
+                frames(0.1);
+                Expect(list->GetScrollTop() == 0 && visible(second), "an already visible selection does not shift the list");
+            }
         }
     }
 

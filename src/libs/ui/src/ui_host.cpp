@@ -1568,7 +1568,7 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
             return false;
         inventory_selection_ = key;
         inventory_selection_row_ = row->GetObserverPtr();
-        row->ScrollIntoView(Rml::ScrollIntoViewOptions(Rml::ScrollAlignment::Start));
+        row->ScrollIntoView(Rml::ScrollIntoViewOptions(Rml::ScrollAlignment::Nearest));
         changed_ = true;
         return true;
     }
