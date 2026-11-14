@@ -30,6 +30,7 @@ namespace
 {
 
 constexpr uint32_t kSize = 96;
+constexpr uint64_t kShip = 7;
 
 void check(HRESULT result, const char *what)
 {
@@ -59,10 +60,11 @@ enum class Plate
 
 struct Scene
 {
-    bool lit_floor = false;        // the floor is a lit draw (the sun's receiver); else baked colours
+    bool lit_floor = false;        // the floor receives the sun or a moving ship lantern; else baked colours
     const D3DLIGHT9 *sun = nullptr; // the directional light of the lit draws
     Plate plate = Plate::None;
     shim::Texture2D *texture = nullptr;
+    uint64_t ship = 0;            // the floor belongs to this ship's reported still geometry
 };
 
 class Harness
@@ -139,8 +141,13 @@ class Harness
                                      0xFF909090u,
                                      {0.0f, 0.0f}});
             }
-        check(d_.DrawPrimitiveUP(D3DPT_TRIANGLELIST, static_cast<UINT>(floor.size() / 3), floor.data(), sizeof(Vertex)),
-              "draw floor");
+        {
+            // A ship's deck is already in its lantern's still atlas; it must not also cast into that lantern's
+            // dynamic atlas, just as SHIP::Realize marks its own model with EffectsShipDraw.
+            const render::EffectsShipDraw still(scene.ship);
+            check(d_.DrawPrimitiveUP(D3DPT_TRIANGLELIST, static_cast<UINT>(floor.size() / 3), floor.data(), sizeof(Vertex)),
+                  "draw floor");
+        }
 
         // The plate: its texture at stage 0, the alpha of the texture tested as the game tests it.
         if (scene.plate != Plate::None)
@@ -305,8 +312,12 @@ int main()
                  {-1.125f, -1.125f}, {-1.125f, -0.375f}, 0, false, true},
                 {"lamp, still geometry, replacement inverse checkerboard released after the report", true, true, Plate::None,
                  nullptr, {-1.125f, -0.375f}, {-1.125f, -1.125f}, 0, false, true, true},
+                {"ship's lantern, ship's still geometry, checkerboard retained", true, false, Plate::None,
+                 checker, {-1.125f, -1.125f}, {-1.125f, -0.375f}, 0, true},
                 {"ship's lantern, ship's still geometry, checkerboard released after the report", true, false, Plate::None,
                  nullptr, {-1.125f, -1.125f}, {-1.125f, -0.375f}, 0, true, true},
+                {"ship's lantern, ship's still geometry, opaque retained", true, false, Plate::None,
+                 opaque, {-1.125f, -1.125f}, {-1.125f, -0.375f}, 1, true},
                 {"lamp, character, checkerboard", true, false, Plate::Character, checker, {-1.125f, -1.125f}, {-1.125f, -0.375f}, 0},
                 {"lamp, character, opaque", true, false, Plate::Character, opaque, {-1.125f, -1.125f}, {-1.125f, -0.375f}, 1},
                 {"lamp, glass (blended, no depth)", true, false, Plate::Glass, opaque, {-1.125f, -1.125f}, {-1.125f, -0.375f}, 2},
@@ -317,7 +328,8 @@ int main()
             for (const Case &c : cases)
             {
                 Scene scene;
-                scene.lit_floor = !c.lamps;
+                scene.lit_floor = !c.lamps || c.ship;
+                scene.ship = c.ship ? kShip : 0;
                 scene.sun = c.lamps ? nullptr : &sun;
                 scene.plate = c.plate;
                 scene.texture = c.texture;
@@ -336,7 +348,12 @@ int main()
                     texture = nullptr;
                 }
                 // The ship stands where the world is (its space is the world's); its lantern hangs where the lamp is.
-                constexpr uint64_t kShip = 7, kShipSignature = 1;
+                constexpr uint64_t kShipSignature = 1;
+                // Each control has fresh geometry, even though the synthetic ship and its reported signature
+                // remain the same. Otherwise a preceding retained case can hide a missing released-case report.
+                if (c.ship)
+                    render::SetEffectsShipGeometry(kShip, 0, {});
+                bool ship_geometry_reported = false;
                 render::EffectsShip ship;
                 ship.id = kShip;
                 ship.world = {1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f};
@@ -360,8 +377,12 @@ int main()
                                 break;
                             }
                             render::SetEffectsShipGeometry(kShip, kShipSignature, {positions, uvs, with_plate, std::span(&surface, 1)});
-                            texture->Release();
-                            texture = nullptr;
+                            ship_geometry_reported = true;
+                            if (c.released)
+                            {
+                                texture->Release();
+                                texture = nullptr;
+                            }
                         }
                     }
                     else if (c.lamps)
@@ -377,12 +398,13 @@ int main()
                         break;
                     SDL_Delay(5);
                 }
-                if (c.released && texture)
+                if (c.ship && !ship_geometry_reported)
                 {
                     std::printf("FAIL %s: the ship's still geometry was never asked for\n", c.name);
-                    texture->Release();
                     ok = false;
                 }
+                if (c.released && texture)
+                    texture->Release();
                 if (const char *dump = std::getenv("CUTOUT_CHECK_DUMP"))
                 {
                     char file[512];
