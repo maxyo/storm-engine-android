@@ -9,6 +9,7 @@
 #include <cstdio>
 #include <functional>
 #include <fstream>
+#include <map>
 #include <iterator>
 
 using namespace storm::ui;
@@ -2207,6 +2208,100 @@ static void Items(const std::string &models)
     ExpectEqual(surface.Last(), "widget:items\tMAP_EXIT_BTN\t-1\tpress", "back is the map's close");
 }
 
+// Every kind of item gets the action the game's EQUIP_BUTTON has for it (android_hero.c AndroidItemAction, items.c
+// EquipPress), and the one that destroys an item (taking off a timed artefact) is never a plain tap.
+static void ItemCategories(const std::string &models)
+{
+    struct Case
+    {
+        const char *what;
+        std::map<std::string, std::string> fact; // the selected row's adapter fact (tr1)
+        const char *game_label;                  // EQUIP_BUTTON's label
+        bool ready;                              // the game lets the button be pressed
+        Json action;                             // the expected detail action fields (null: no action)
+        bool error = false;                      // the screen reports the row
+    };
+    const Json none = nullptr;
+    const std::vector<Case> cases = {
+        {"a worn weapon: the game's own words", {{"slot", "blade"}, {"worn", "1"}, {"action", "equip"}}, "Take off", true,
+         {{"label", "Take off"}, {"variant", "primary"}, {"hold", false}, {"disabled", false}}},
+        {"a weapon in the bag", {{"slot", "blade"}, {"worn", "0"}, {"action", "equip"}}, "Equip", true,
+         {{"label", "Equip"}, {"variant", "primary"}, {"hold", false}, {"disabled", false}}},
+        {"a worn timed artefact: taking it off uses it up, held to confirm", {{"slot", "amulet"}, {"worn", "1"}, {"action", "amulet"}, {"days", "70"}, {"remain", "64"}},
+         "Delete", true, {{"label", "Delete"}, {"variant", "danger"}, {"hold", true}, {"disabled", false}}},
+        {"a worn artefact without a term stays in the bag: taken off", {{"slot", "amulet"}, {"worn", "1"}, {"action", "amulet"}}, "Delete", true,
+         {{"label", "<items.take_off>"}, {"variant", "primary"}, {"hold", false}, {"disabled", false}}},
+        {"an artefact in the bag goes on", {{"slot", "amulet"}, {"worn", "0"}, {"action", "amulet"}, {"days", "70"}}, "Equip", true,
+         {{"label", "Equip"}, {"variant", "primary"}, {"hold", false}, {"disabled", false}}},
+        {"an artefact of another kind than the worn one: the reason", {{"slot", "amulet"}, {"worn", "0"}, {"action", "amulet"}, {"days", "70"}, {"block", "kind"}},
+         "Equip", false, {{"label", "Equip"}, {"disabled", true}, {"reason", "<items.block_kind>"}}},
+        {"all three artefact slots taken: the reason", {{"slot", "amulet"}, {"worn", "0"}, {"action", "amulet"}, {"block", "slots"}}, "Equip", false,
+         {{"label", "Equip"}, {"disabled", true}, {"reason", "<items.block_slots>"}}},
+        {"a potion, a jewel: the game has no action, none is shown", {{"slot", ""}, {"worn", "0"}, {"action", ""}}, "Equip", false, none},
+        {"a quest letter is read (quest items keep the game's action)", {{"slot", ""}, {"worn", "0"}, {"quest", "1"}, {"action", "use"}}, "Equip", true,
+         {{"label", "<items.use>"}, {"variant", "primary"}, {"hold", false}, {"disabled", false}}},
+        {"a quest item without a use has no action at all", {{"slot", ""}, {"worn", "0"}, {"quest", "1"}, {"action", ""}}, "Equip", false, none},
+        {"a map opens", {{"slot", ""}, {"worn", "0"}, {"map", "1"}, {"action", "map"}}, "Equip", true, {{"label", "<items.open_map>"}, {"variant", "primary"}}},
+        {"ammunition is loaded", {{"slot", ""}, {"worn", "0"}, {"action", "ammo"}}, "Equip", true, {{"label", "<items.load>"}, {"variant", "primary"}}},
+        {"an action the screen does not know is reported, not guessed", {{"slot", ""}, {"worn", "0"}, {"action", "drop"}}, "Equip", true, none, true},
+    };
+    for (const Case &c : cases)
+    {
+        FakeSurface surface;
+        Router router(surface);
+        InterfaceModel model = Load(models, "items.json");
+        for (Widget &widget : model.widgets)
+        {
+            if (widget.node == "ANDROID_ITEMS" && widget.row_id == "tr1")
+            {
+                widget.context.clear();
+                for (const auto &[key, value] : c.fact)
+                    widget.context[key] = value;
+            }
+            if (widget.node == "EQUIP_BUTTON")
+            {
+                widget.label = c.game_label;
+                if (!c.ready)
+                    widget.actions.clear(), widget.row_id.clear();
+            }
+        }
+        router.SetInterface(model);
+        const Json &action = surface.props["detail"]["action"];
+        Expect(c.error == !surface.errors.empty(), std::string(c.what) + ": errors " + std::to_string(surface.errors.size()));
+        if (c.action.is_null())
+        {
+            Expect(action.is_null(), std::string(c.what) + ": no action, got " + action.dump());
+            continue;
+        }
+        bool fields = action.is_object();
+        for (const auto &[key, value] : c.action.items())
+            fields = fields && action.contains(key) && action[key] == value;
+        Expect(fields, std::string(c.what) + ": " + action.dump());
+        // Nothing that destroys an item is a plain tap.
+        Expect(action.value("variant", "") != "danger" || action.value("hold", false) == true, std::string(c.what) + ": a destroying action is held");
+    }
+    {
+        // The worn timed artefact: its term in the facts, the days it has left as its slot's caption.
+        FakeSurface surface;
+        Router router(surface);
+        InterfaceModel model = Load(models, "items.json");
+        for (Widget &widget : model.widgets)
+            if (widget.node == "ANDROID_ITEMS" && widget.row_id == "tr1")
+                widget.context = {{"slot", "amulet"}, {"worn", "1"}, {"action", "amulet"}, {"days", "70"}, {"remain", "64"}};
+        Widget slot = Make("ANDROID_SLOTS", "fact", "Voodoo doll");
+        slot.row_id = "slot1";
+        slot.context = {{"label", "Voodoo doll"}, {"group", "ITEMS_3"}, {"image", "itm1"}, {"remain", "64"}, {"time", "70"}};
+        model.widgets.push_back(slot);
+        router.SetInterface(model);
+        bool term = false;
+        for (const Json &fact : surface.props["detail"]["facts"])
+            term = term || fact == Json({{"k", "<items.term>"}, {"v", "<items.days_left>"}});
+        Expect(term, "the worn artefact's term: " + surface.props["detail"]["facts"].dump());
+        const Json &tile = surface.props["slots"][7];
+        Expect(tile["id"] == "slot1" && tile["label"] == "<items.days>" && !tile.contains("sub"), "the artefact's slot: its days as the caption: " + tile.dump());
+    }
+}
+
 // A HUD tap opens the character or the ship screen on its subject (hud::Hud::RequestSubject):
 // the screen selects it with the header's switch, as the player would, once.
 struct SubjectMount final : storm::ui::hud::Mount
@@ -2949,6 +3044,7 @@ int main(int argc, char **argv)
     Nations(models);
     Hero(models);
     Items(models);
+    ItemCategories(models);
     Ship(models);
     OpenOnSubject(models);
     Journal(models);

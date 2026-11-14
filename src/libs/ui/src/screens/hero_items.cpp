@@ -2,10 +2,12 @@
 // the pack screen <s-items>: the equipment slots on the left (a tap filters the list to what
 // fits; a tap on a row of the filtered list puts the item on), the item list with the game's
 // four tabs, the selected item's description on parchment with the game's own action
-// (EQUIP_BUTTON: put on, take off, use), and the game's map window drawn as the map sheet.
+// (EQUIP_BUTTON: put on, take off, use, open a map, load ammunition; taking off a timed artefact
+// destroys it and is held to confirm), and the game's map window drawn as the map sheet.
 //
 // What the stock screen does not show by row (the slot an item goes to, worn or not, a quest
-// item) and what each slot holds come from the interface adapter android_hero.c
+// item, what the button does with it, an artefact's days) and what each slot holds come from
+// the interface adapter android_hero.c
 // (ANDROID_ITEMS, ANDROID_SLOTS; ANDROID_POSTS for the officer switch).
 #include "hero.h"
 
@@ -150,8 +152,10 @@ class ItemsScreen final : public Screen
                 picture.image = Field(item, "image");
                 tile["image"] = PictureOf(&picture);
                 tile["icon"] = slot.icon;
+                // A timed artefact: the days of force it has left (they run down while it is worn) in place of the
+                // slot's caption (the three amulet slots are captioned alike; a second line does not fit the tile).
                 if (!Field(item, "remain").empty())
-                    tile["sub"] = Field(item, "remain") + " / " + Field(item, "time");
+                    tile["label"] = Fill(bindings.Text("items.days"), {Field(item, "remain")});
             }
             else
             {
@@ -409,7 +413,6 @@ class ItemsScreen final : public Screen
     Json DetailView(Bindings &bindings, const Widget &row, const Widget *fact, const Widget *against)
     {
         const bool worn = Field(fact, "worn") == "1";
-        const bool quest = Field(fact, "quest") == "1";
         // The slot the item is worn in; an item that is not worn anywhere (a ring, a gem) has none.
         const std::string slot = Field(fact, "slot");
         const char *slot_label = SlotLabel(slot);
@@ -450,26 +453,70 @@ class ItemsScreen final : public Screen
             for (const Widget *part : a_->All("INFO_TEXT"))
                 if (const std::string paragraph = Trim(part->label); !paragraph.empty())
                     text += (text.empty() ? "" : "\n") + Decimal(paragraph, language);
-        Json detail{{"title", Trim(row.CellText(0))}, {"sub", sub}, {"facts", facts}, {"text", text}, {"image", image}};
-        const Widget *equip = a_->One("EQUIP_BUTTON");
-        // A quest item has no action (the game offers none either).
-        if (equip && !quest && !Trim(equip->label).empty())
+        // A timed artefact's term: its days, and while it is worn the days it has left of them.
+        if (const std::string days = Field(fact, "days"); !days.empty())
         {
-            const bool ready = equip->Offers("press") && equip->row_id == row.row_id;
-            detail["action"] = Json{{"id", "item-equip"},
-                                    {"label", Trim(equip->label)},
-                                    {"disabled", !ready},
-                                    // The stock screen gives no reason; a tap on the disabled action says so.
-                                    {"reason", !equip->unavailable_reason.empty() ? equip->unavailable_reason : bindings.Text("items.unavailable")},
-                                    {"busy", bindings.Pending("item-equip")}};
-            const Widget *target = equip;
-            bindings.On("item-equip", "", [this, &bindings, target](const Event &) {
-                sent_revision_ = 0;
-                if (target->Offers("press") && !target->row_id.empty())
-                    Step(bindings, target, "press", target->row_id);
-            });
+            const std::string remain = Field(fact, "remain");
+            facts.push_back(Json{{"k", bindings.Text("items.term")},
+                                 {"v", remain.empty() ? Fill(bindings.Text("items.days"), {days}) : Fill(bindings.Text("items.days_left"), {remain, days})}});
         }
+        Json detail{{"title", Trim(row.CellText(0))}, {"sub", sub}, {"facts", facts}, {"text", text}, {"image", image}};
+        detail["action"] = Action(bindings, row, fact, worn);
         return detail;
+    }
+
+    // The game's EQUIP_BUTTON for the selected row, by what it does with the item (the adapter's `action`,
+    // items.c EquipPress): put on / take off with the game's own words; use, open a map, load ammunition with
+    // ours (the game writes «Взять» on all of them); nothing for an item the game has no use for (a jewel, a
+    // potion drunk in the field). Taking off a timed artefact uses it up (RemoveCharacterArtefactEquip): the
+    // game's «Удалить», held to confirm. Quest items keep their action: a letter is read, a quest map opened.
+    Json Action(Bindings &bindings, const Widget &row, const Widget *fact, bool worn)
+    {
+        const Widget *equip = a_->One("EQUIP_BUTTON");
+        if (!equip)
+            return nullptr;
+        // Without the adapter's row the game's button is shown as the game labels it.
+        const std::string kind = fact ? Field(fact, "action") : std::string("equip");
+        if (kind.empty())
+            return nullptr;
+        std::string label = Trim(equip->label);
+        bool destroys = false;
+        if (kind == "use")
+            label = bindings.Text("items.use");
+        else if (kind == "map")
+            label = bindings.Text("items.open_map");
+        else if (kind == "ammo")
+            label = bindings.Text("items.load");
+        else if (kind == "amulet" && worn)
+        {
+            destroys = !Field(fact, "days").empty();
+            if (!destroys) // an artefact without a term stays in the bag (the game still writes «Удалить»)
+                label = bindings.Text("items.take_off");
+        }
+        else if (kind != "equip" && kind != "amulet")
+        {
+            bindings.Error("items: unknown action '" + kind + "'");
+            return nullptr;
+        }
+        if (label.empty())
+            return nullptr;
+        const bool ready = equip->Offers("press") && equip->row_id == row.row_id;
+        // The stock screen gives no reason; the adapter knows why an artefact cannot go on.
+        std::string reason = equip->unavailable_reason;
+        if (reason.empty())
+        {
+            const std::string block = Field(fact, "block");
+            reason = bindings.Text(block == "slots" ? "items.block_slots" : block == "kind" ? "items.block_kind" : "items.unavailable");
+        }
+        Json action{{"id", "item-equip"}, {"label", label}, {"variant", destroys ? "danger" : "primary"}, {"hold", destroys},
+                    {"disabled", !ready}, {"reason", reason}, {"busy", bindings.Pending("item-equip")}};
+        const Widget *target = equip;
+        bindings.On("item-equip", "", [this, &bindings, target](const Event &) {
+            sent_revision_ = 0;
+            if (target->Offers("press") && !target->row_id.empty())
+                Step(bindings, target, "press", target->row_id);
+        });
+        return action;
     }
 };
 
