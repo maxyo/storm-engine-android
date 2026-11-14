@@ -2,6 +2,8 @@
 // host renders with every map in place).
 //   storm_relief_cli <game RESOURCE/Textures> <relief dir> <model dir (the build's, src/libs/relief/model/README.md)> [map size, default fx::kReliefMapSize] [threads]
 #include "relief.hpp"
+
+#include <algorithm>
 #include "storm/fx/relief_store.hpp"
 
 #include <cstdio>
@@ -23,9 +25,10 @@ int main(int argc, char **argv)
         std::ifstream in(std::string(argv[3]) + "/" + name, std::ios::binary);
         return std::vector<uint8_t>{std::istreambuf_iterator<char>(in), {}};
     };
-    const std::vector<uint8_t> normal = read("pbrify-normal-int8.onnx"), height = read("pbrify-height-int8.onnx"),
-                               roughness = read("pbrify-roughness-int8.onnx");
-    if (normal.empty() || height.empty() || roughness.empty())
+    std::vector<std::vector<uint8_t>> files;
+    for (const char *name : kModelFiles)
+        files.push_back(read(name));
+    if (std::any_of(files.begin(), files.end(), [](const auto &bytes) { return bytes.empty(); }))
     {
         std::fprintf(stderr, "cannot read the models in %s\n", argv[3]);
         return 2;
@@ -33,7 +36,7 @@ int main(int argc, char **argv)
     Job job;
     job.textures = argv[1];
     job.output = argv[2];
-    job.models = {normal, height, roughness};
+    job.models = {files[0], files[1], files[2], files[3], files[4], files[5], files[6], files[7], files[8]};
     job.map_size = argc > 4 ? std::atoi(argv[4]) : storm::fx::kReliefMapSize;
     job.threads = argc > 5 ? std::atoi(argv[5]) : 0;
     const Result result = Prepare(job, nullptr);

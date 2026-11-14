@@ -1,4 +1,5 @@
-// Relief maps from PBRify's normal and height models (fx/relief_model.hpp) through onnxruntime, for the game's stone,
+// Relief maps from PBRify's normal, height and roughness models (fx/relief_model.hpp) on the GPU (ncnn) or the CPU
+// (onnxruntime), for the game's stone,
 // wood, building, plaster and ground textures, made from the player's game files into the relief directory (fx/relief_store.hpp) the game reads.
 // The game makes them while it runs (renderer_bgfx effects/relief_generator.hpp: Session, List, Prune, MarkComplete);
 // the host tool makes a whole game at once (Prepare). Contract: README.md here.
@@ -29,15 +30,25 @@ enum class Outcome
     Failed,   // logged with the reason
 };
 
-// The three model files (model/README.md).
+// The model files (model/README.md): the int8 models for the CPU and their ncnn graphs for the GPU (empty: the CPU).
 struct Models
 {
-    std::span<const uint8_t> normal; // pbrify-normal-int8.onnx
-    std::span<const uint8_t> height; // pbrify-height-int8.onnx
+    std::span<const uint8_t> normal;    // pbrify-normal-int8.onnx
+    std::span<const uint8_t> height;    // pbrify-height-int8.onnx
     std::span<const uint8_t> roughness; // pbrify-roughness-int8.onnx
+    std::span<const uint8_t> normal_param, normal_bin;       // pbrify-normal.ncnn.param, .bin
+    std::span<const uint8_t> height_param, height_bin;       // pbrify-height.ncnn.param, .bin
+    std::span<const uint8_t> roughness_param, roughness_bin; // pbrify-roughness.ncnn.param, .bin
 };
+// The model files' names, in Models' order.
+inline constexpr const char *kModelFiles[] = {"pbrify-normal-int8.onnx",   "pbrify-height-int8.onnx",
+                                              "pbrify-roughness-int8.onnx", "pbrify-normal.ncnn.param",
+                                              "pbrify-normal.ncnn.bin",     "pbrify-height.ncnn.param",
+                                              "pbrify-height.ncnn.bin",     "pbrify-roughness.ncnn.param",
+                                              "pbrify-roughness.ncnn.bin"};
 
-// The models loaded once (onnxruntime, CPU provider) for many textures. One thread at a time (Cancel aside).
+// The models loaded once for many textures, on the device measured for this game (backend.hpp ChooseDevice: the GPU
+// through ncnn, or the CPU through onnxruntime; logged). One thread at a time (Cancel aside).
 class Session
 {
   public:
@@ -47,8 +58,10 @@ class Session
         double infer_seconds = 0.0, max_texture_ms = 0.0;
         std::string provider;
     };
-    // `threads`: inference threads; 0 = every core. Null and `error` on failure.
-    static std::unique_ptr<Session> Open(const Models &models, int threads, std::string &error);
+    // `threads`: the CPU's inference threads; 0 = every core. `cache`: where the device choice is kept (the cache
+    // root's relief directory). Null and `error` on failure.
+    static std::unique_ptr<Session> Open(const Models &models, int threads, const std::filesystem::path &cache,
+                                         std::string &error);
     ~Session();
     // One texture file under `textures` (the game's RESOURCE/Textures; the key does not depend on where the game
     // lies), unless its map is there already.

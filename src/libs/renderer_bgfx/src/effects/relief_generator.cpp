@@ -76,9 +76,8 @@ void ReliefGenerator::shutdown()
         worker_.join();
     running_ = nullptr;
     session_.reset();
-    normal_model_.clear();
-    height_model_.clear();
-    roughness_model_.clear();
+    for (std::vector<uint8_t> &bytes : models_)
+        bytes = {};
 }
 
 void ReliefGenerator::request(const std::shared_ptr<NormalMapEntry> &entry, std::filesystem::path file)
@@ -163,9 +162,8 @@ void ReliefGenerator::run()
                     {
                         running_ = nullptr;
                         session_.reset();
-                        normal_model_ = {};
-                        height_model_ = {};
-                        roughness_model_ = {};
+                        for (std::vector<uint8_t> &bytes : models_)
+                            bytes = {};
                         shim::logf("effects: relief generation idle: the relief models are released");
                         continue;
                     }
@@ -220,30 +218,38 @@ bool ReliefGenerator::open_session()
         return false;
     }
     const Clock::time_point start = Clock::now();
-    normal_model_ = setup_.model("pbrify-normal-int8.onnx");
-    height_model_ = setup_.model("pbrify-height-int8.onnx");
-    roughness_model_ = setup_.model("pbrify-roughness-int8.onnx");
     std::string error = "the relief models could not be read";
+    bool read = true;
+    for (size_t i = 0; i < std::size(relief::kModelFiles); ++i)
+    {
+        models_[i] = setup_.model(relief::kModelFiles[i]);
+        if (models_[i].empty())
+        {
+            read = false;
+            error = std::string("cannot read the model file ") + relief::kModelFiles[i];
+        }
+    }
     // All cores but the game's main and render threads.
     const unsigned cores = std::thread::hardware_concurrency();
     const int threads = cores > 2 ? static_cast<int>(cores - 2) : 1;
+    const relief::Models models{models_[0], models_[1], models_[2], models_[3], models_[4],
+                                models_[5], models_[6], models_[7], models_[8]};
     std::unique_ptr<relief::Session> session =
-        normal_model_.empty() || height_model_.empty() || roughness_model_.empty()
-            ? nullptr
-            : relief::Session::Open({normal_model_, height_model_, roughness_model_}, threads, error);
+        read ? relief::Session::Open(models, threads, setup_.directory, error) : nullptr;
     if (!session)
     {
         model_failed_ = true;
-        normal_model_.clear();
-        height_model_.clear();
-        roughness_model_.clear();
+        for (std::vector<uint8_t> &bytes : models_)
+            bytes = {};
         shim::logf("ERROR: effects: relief generation unavailable (%s): textures without a map get no relief",
                    error.c_str());
         return false;
     }
-    shim::logf("effects: relief generation: PBRify models loaded (%.1f MB, onnxruntime %s) in %.0f ms",
-               static_cast<double>(normal_model_.size() + height_model_.size() + roughness_model_.size()) / 1048576.0, session->stats().provider.c_str(),
-               Ms(start));
+    size_t bytes = 0;
+    for (const std::vector<uint8_t> &model : models_)
+        bytes += model.size();
+    shim::logf("effects: relief generation: PBRify models loaded (%.1f MB) on %s in %.0f ms",
+               static_cast<double>(bytes) / 1048576.0, session->stats().provider.c_str(), Ms(start));
     std::lock_guard lock(mutex_);
     if (stopping_)
         return false;

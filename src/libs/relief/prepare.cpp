@@ -1,5 +1,7 @@
 #include "relief.hpp"
 
+#include "backend.hpp"
+
 #include "formats.hpp"
 #include "storm/fx/relief_model.hpp"
 #include "storm/fx/gloss_map.hpp"
@@ -7,7 +9,6 @@
 #include "storm/fx/normal_map.hpp"
 #include "storm/fx/relief_store.hpp"
 
-#include <onnxruntime_c_api.h>
 
 #include <algorithm>
 #include <atomic>
@@ -284,148 +285,6 @@ std::optional<uint64_t> PreparedKey(const Candidate &candidate, const TxFile &tx
     return relief == fx::ReliefClass::None ? std::nullopt : key;
 }
 
-bool OrtOk(const OrtApi *api, OrtStatus *status, std::string &error)
-{
-    if (!status)
-        return true;
-    error = std::string("onnxruntime: ") + api->GetErrorMessage(status);
-    api->ReleaseStatus(status);
-    return false;
-}
-
-// onnxruntime's environment for the three models: one thread pool and one memory arena for all of them (they run one
-// after the other: their own pools and arenas held three times the threads and the peak memory, ~1.4 GB on a host).
-class Runtime
-{
-  public:
-    ~Runtime()
-    {
-        if (memory_)
-            api_->ReleaseMemoryInfo(memory_);
-        if (env_)
-            api_->ReleaseEnv(env_);
-    }
-
-    bool Open(int threads, std::string &error)
-    {
-        api_ = OrtGetApiBase()->GetApi(ORT_API_VERSION);
-        if (!api_)
-        {
-            error = "onnxruntime does not offer API version " + std::to_string(ORT_API_VERSION);
-            return false;
-        }
-        // `threads` cores; waiting threads sleep instead of spinning: the game's threads share the cores, and spinning
-        // threads that wait for each other on an oversubscribed CPU cost many times the work itself.
-        OrtThreadingOptions *threading = nullptr;
-        bool ok = OrtOk(api_, api_->CreateThreadingOptions(&threading), error) &&
-                  OrtOk(api_, api_->SetGlobalIntraOpNumThreads(threading, threads), error) &&
-                  OrtOk(api_, api_->SetGlobalInterOpNumThreads(threading, 1), error) &&
-                  OrtOk(api_, api_->SetGlobalSpinControl(threading, 0), error) &&
-                  OrtOk(api_, api_->CreateEnvWithGlobalThreadPools(ORT_LOGGING_LEVEL_WARNING, "storm-relief", threading, &env_),
-                        error);
-        if (threading)
-            api_->ReleaseThreadingOptions(threading);
-        // No usage telemetry (onnxruntime's Android build would try its 1DS client); the shared arena.
-        return ok && OrtOk(api_, api_->DisableTelemetryEvents(env_), error) &&
-               OrtOk(api_, api_->CreateCpuMemoryInfo(OrtArenaAllocator, OrtMemTypeDefault, &memory_), error) &&
-               OrtOk(api_, api_->CreateAndRegisterAllocator(env_, memory_, nullptr), error);
-    }
-
-    const OrtApi *api() const { return api_; }
-    OrtEnv *env() const { return env_; }
-
-  private:
-    const OrtApi *api_ = nullptr;
-    OrtEnv *env_ = nullptr;
-    OrtMemoryInfo *memory_ = nullptr;
-};
-
-// One of the relief models: one session on the runtime's threads, on each whole texture.
-class Model
-{
-  public:
-    ~Model()
-    {
-        if (!api_)
-            return;
-        if (session_)
-            api_->ReleaseSession(session_);
-        if (run_)
-            api_->ReleaseRunOptions(run_);
-        if (options_)
-            api_->ReleaseSessionOptions(options_);
-        if (memory_)
-            api_->ReleaseMemoryInfo(memory_);
-    }
-
-    bool Open(const Runtime &runtime, std::span<const uint8_t> model, int threads, std::string &error)
-    {
-        api_ = runtime.api();
-        // onnxruntime's CPU provider (MLAS kernels, NEON on arm64). Its XNNPACK provider aborts inside onnxruntime
-        // 1.31.1 while the session is created (x86_64 emulator, src/libs/relief/README.md); NNAPI is deprecated.
-        if (!Ok(api_->CreateSessionOptions(&options_), error) ||
-            !Ok(api_->SetSessionGraphOptimizationLevel(options_, ORT_ENABLE_ALL), error) ||
-            !Ok(api_->DisablePerSessionThreads(options_), error) ||
-            !Ok(api_->AddSessionConfigEntry(options_, "session.use_env_allocators", "1"), error))
-            return false;
-        provider_ = "CPU, " + std::to_string(threads) + " threads of " + std::to_string(std::thread::hardware_concurrency()) +
-                    " cores, no spinning";
-        if (!Ok(api_->CreateSessionFromArray(runtime.env(), model.data(), model.size(), options_, &session_), error) ||
-            !Ok(api_->CreateCpuMemoryInfo(OrtArenaAllocator, OrtMemTypeDefault, &memory_), error) ||
-            !Ok(api_->CreateRunOptions(&run_), error))
-            return false;
-        return true;
-    }
-
-    // One padded image: three colour planes in, three planes out.
-    bool Infer(const float *image, int width, int height, float *planes, std::string &error)
-    {
-        const int64_t shape[4] = {1, 3, height, width};
-        const size_t texels = static_cast<size_t>(width) * height;
-        OrtValue *input = nullptr, *output = nullptr;
-        bool ok = Ok(api_->CreateTensorWithDataAsOrtValue(memory_, const_cast<float *>(image), texels * 3 * sizeof(float), shape, 4,
-                                                          ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &input),
-                     error);
-        const char *in_names[] = {"input"}, *out_names[] = {"output"};
-        ok = ok && Ok(api_->Run(session_, run_, in_names, &input, 1, out_names, 1, &output), error);
-        float *data = nullptr;
-        ok = ok && Ok(api_->GetTensorMutableData(output, reinterpret_cast<void **>(&data)), error);
-        if (ok)
-            std::memcpy(planes, data, texels * 3 * sizeof(float));
-        if (input)
-            api_->ReleaseValue(input);
-        if (output)
-            api_->ReleaseValue(output);
-        return ok;
-    }
-
-    // Any thread: the running inference stops with an error, and every later one.
-    void Cancel()
-    {
-        if (OrtStatus *status = api_->RunOptionsSetTerminate(run_))
-            api_->ReleaseStatus(status);
-    }
-
-    const std::string &provider() const { return provider_; }
-
-  private:
-    bool Ok(OrtStatus *status, std::string &error)
-    {
-        if (!status)
-            return true;
-        error = std::string("onnxruntime: ") + api_->GetErrorMessage(status);
-        api_->ReleaseStatus(status);
-        return false;
-    }
-
-    const OrtApi *api_ = nullptr;
-    OrtSessionOptions *options_ = nullptr;
-    OrtSession *session_ = nullptr;
-    OrtMemoryInfo *memory_ = nullptr;
-    OrtRunOptions *run_ = nullptr;
-    std::string provider_;
-};
-
 } // namespace
 
 long long PeakRssKb()
@@ -484,8 +343,8 @@ std::vector<std::filesystem::path> List(const std::filesystem::path &textures)
 
 struct Session::Impl
 {
-    Runtime runtime;                 // before the models: released after them
-    Model normal, height, roughness; // PBRify's three networks
+    std::unique_ptr<CpuRuntime> runtime;                // before the networks: released after them
+    std::unique_ptr<Network> normal, height, roughness; // PBRify's three networks, on the chosen device
     Stats stats;
     std::atomic<bool> cancelled{false};
 };
@@ -495,27 +354,55 @@ Session::Session(std::unique_ptr<Impl> impl) : impl_(std::move(impl))
 }
 Session::~Session() = default;
 
-std::unique_ptr<Session> Session::Open(const Models &models, int threads, std::string &error)
+std::unique_ptr<Session> Session::Open(const Models &models, int threads, const std::filesystem::path &cache,
+                                       std::string &error)
 {
     auto impl = std::make_unique<Impl>();
     threads = threads > 0 ? threads : static_cast<int>(std::max(1u, std::thread::hardware_concurrency()));
-    if (!impl->runtime.Open(threads, error) || !impl->normal.Open(impl->runtime, models.normal, threads, error) ||
-        !impl->height.Open(impl->runtime, models.height, threads, error) ||
-        !impl->roughness.Open(impl->runtime, models.roughness, threads, error))
+    impl->runtime = CpuRuntime::Open(threads, error);
+    if (impl->runtime)
+        impl->normal = impl->runtime->Load(models.normal, error);
+    if (!impl->normal)
     {
         Log("ERROR: %s", error.c_str());
         return nullptr;
     }
-    impl->stats.provider = impl->normal.provider();
+    // The device: measured once per GPU, driver and models (backend.hpp ChooseDevice), with the normal network.
+    const bool gpu_models = !models.normal_param.empty() && !models.height_param.empty() && !models.roughness_param.empty();
+    const Device device = gpu_models ? ChooseDevice(cache, *impl->normal, models.normal_param, models.normal_bin,
+                                                    fx::kReliefModelPad, threads)
+                                     : Device::Cpu;
+    if (!gpu_models)
+        Log("relief device: CPU (no ncnn graphs given)");
+    if (device == Device::Gpu)
+    {
+        impl->normal = LoadGpuNetwork(models.normal_param, models.normal_bin, fx::kReliefModelPad, 1, error);
+        if (impl->normal)
+            impl->height = LoadGpuNetwork(models.height_param, models.height_bin, fx::kReliefModelPad, 1, error);
+        if (impl->height)
+            impl->roughness = LoadGpuNetwork(models.roughness_param, models.roughness_bin, fx::kReliefModelPad, 1, error);
+    }
+    else
+    {
+        impl->height = impl->runtime->Load(models.height, error);
+        if (impl->height)
+            impl->roughness = impl->runtime->Load(models.roughness, error);
+    }
+    if (!impl->normal || !impl->height || !impl->roughness)
+    {
+        Log("ERROR: %s", error.c_str());
+        return nullptr;
+    }
+    impl->stats.provider = impl->normal->Describe();
     return std::unique_ptr<Session>(new Session(std::move(impl)));
 }
 
 void Session::Cancel()
 {
     impl_->cancelled = true;
-    impl_->normal.Cancel();
-    impl_->height.Cancel();
-    impl_->roughness.Cancel();
+    impl_->normal->Cancel();
+    impl_->height->Cancel();
+    impl_->roughness->Cancel();
 }
 
 const Session::Stats &Session::stats() const
@@ -585,7 +472,7 @@ Outcome Session::PrepareFile(const std::filesystem::path &textures, const std::f
     fx::NormalMapSize(width, height, options, gw, gh);
     double infer_ms = 0.0;
     std::string per_model; // each inference: the model, its padded size, its time
-    const auto run = [&](Model &model, const std::vector<float> &input, int w, int h) {
+    const auto run = [&](Network &model, const std::vector<float> &input, int w, int h) {
         return fx::ReliefModelRun(input, w, h, [&](const float *image, int pw, int ph, float *out) {
             const Clock::time_point infer_start = Clock::now();
             const bool ok = model.Infer(image, pw, ph, out, failure);
@@ -593,7 +480,7 @@ Outcome Session::PrepareFile(const std::filesystem::path &textures, const std::f
             infer_ms += ms;
             char part[64];
             std::snprintf(part, sizeof(part), "%s%s %dx%d %.0f ms", per_model.empty() ? "" : ", ",
-                          &model == &impl_->normal ? "normal" : &model == &impl_->height ? "height" : "roughness", pw, ph, ms);
+                          &model == impl_->normal.get() ? "normal" : &model == impl_->height.get() ? "height" : "roughness", pw, ph, ms);
             per_model += part;
             return ok;
         });
@@ -605,18 +492,18 @@ Outcome Session::PrepareFile(const std::filesystem::path &textures, const std::f
     if (key)
     {
         const std::vector<float> input = fx::ReliefModelInput(rgba, width, height, mw, mh);
-        normal_planes = run(impl_->normal, input, mw, mh);
+        normal_planes = run(*impl_->normal, input, mw, mh);
         failed |= normal_planes.empty();
         if (height_class && !failed)
         {
-            height_planes = run(impl_->height, input, mw, mh);
+            height_planes = run(*impl_->height, input, mw, mh);
             failed |= height_planes.empty();
         }
     }
     if (gloss_wanted && !failed)
     {
         const std::vector<float> input = fx::ReliefModelInput(rgba, width, height, gw, gh);
-        roughness_planes = run(impl_->roughness, input, gw, gh);
+        roughness_planes = run(*impl_->roughness, input, gw, gh);
         failed |= roughness_planes.empty();
         // The gloss's grooves read the height at its own size: the map's halved, or the height network at the gloss's
         // size when the texture has no relief height.
@@ -624,7 +511,7 @@ Outcome Session::PrepareFile(const std::filesystem::path &textures, const std::f
             gloss_height = HalveTo(fx::ReliefModelHeight(height_planes, mw, mh), mw, mh, gw, gh);
         else if (!failed)
         {
-            const std::vector<float> planes = run(impl_->height, input, gw, gh);
+            const std::vector<float> planes = run(*impl_->height, input, gw, gh);
             failed |= planes.empty();
             if (!failed)
                 gloss_height = fx::ReliefModelHeight(planes, gw, gh);
@@ -831,7 +718,7 @@ Result Prepare(const Job &job, const std::function<bool(const Progress &)> &prog
 {
     const Clock::time_point start = Clock::now();
     Result result;
-    std::unique_ptr<Session> session = Session::Open(job.models, job.threads, result.error);
+    std::unique_ptr<Session> session = Session::Open(job.models, job.threads, job.output, result.error);
     if (!session)
     {
         result.status = 2;

@@ -49,10 +49,19 @@ made. The build makes that directory (below); its path is in `<build>/relief_mod
   material texture is stored beside the normals in the same file (EAC RG11 with mips) for every relief texture; the
   textures of a gloss class without relief (glass...) get their own gloss map
   (`<key>.gloss`: R the metal mask, G the gloss) from the roughness and the height models at 256², in the same queue.
-- Runtime: onnxruntime 1.31.1 (MIT), Microsoft's prebuilt Android AAR (`libonnxruntime.so` of the ABI, C API) and Linux
-  x64 release on the host; notices in `third_party/licenses/onnxruntime-*`. The CPU execution provider (MLAS kernels),
-  waiting threads sleep (no spinning). The XNNPACK provider aborts inside onnxruntime 1.31.1 while the session is
-  created (x86_64 emulator), so it is not used; NNAPI is deprecated.
+- Devices (`backend.hpp`): the GPU through ncnn 20261020 (BSD-3-Clause; Vulkan compute, its in-house loader opening
+  libvulkan at run time; `cmake/ncnn.cmake`; notices in `third_party/licenses/ncnn-*`, `glslang-*`), running ncnn
+  graphs of the same float models (fp16 weights, made at build time by pnnx: `model/make_ncnn_models.py`), or the CPU
+  through onnxruntime 1.31.1 (MIT; Microsoft's prebuilt Android AAR and Linux x64 release; notices in
+  `third_party/licenses/onnxruntime-*`), the int8 models on its CPU provider (MLAS), waiting threads sleeping. The
+  device is measured once per game: a probe tile on both (`ChooseDevice`), the faster taken, logged with both numbers
+  (`relief device: GPU (measured now on <GPU>, driver <v>: ... GPU x ms ..., CPU y ms ...)`) and kept in the relief
+  directory's `relief-device.txt` for that GPU, driver, model and thread count; «Очистить кэш» measures again. Without
+  a Vulkan compute device the CPU is taken and the reason logged. On the GPU the image runs in tiles of 128 texels with
+  the networks' 24-texel reach around each (no seams), each tile one GPU submission, made smaller while one takes
+  longer than 6 ms, so the game's frames do not wait on a long one. ncnn's fp16 output against the CPU's int8 models:
+  PSNR 40–48 dB on a brick pattern (relief_check); against the float models 58 dB. Neither XNNPACK (slower than MLAS
+  on a Galaxy S23) nor NNAPI (deprecated) is used.
 - Maps: the models run on the texture downscaled to 512 px (`fx::kReliefMapSize`, the owner's choice); the GPU's
   bilinear filter upsamples it over the texture. Высокая uses it whole, Средняя from its second mip. On an x86-64 host
   with 4 threads both models take about 0.4 s for a 512 texture.

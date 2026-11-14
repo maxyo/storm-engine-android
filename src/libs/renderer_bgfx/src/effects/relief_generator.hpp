@@ -16,6 +16,7 @@
 // The maps persist: a texture's map is made once per game, method and map size.
 #pragma once
 
+#include <array>
 #include <chrono>
 #include <condition_variable>
 #include <cstdint>
@@ -99,7 +100,7 @@ class ReliefGenerator
     Stats stats_;
     // Worker only.
     std::unique_ptr<relief::Session> session_;
-    std::vector<uint8_t> normal_model_, height_model_, roughness_model_; // onnxruntime keeps no copy of the bytes it was given
+    std::array<std::vector<uint8_t>, 9> models_; // relief::kModelFiles; onnxruntime keeps no copy of the bytes it was given
     bool model_failed_ = false;
     std::vector<std::filesystem::path> rest_;
     size_t rest_at_ = 0;

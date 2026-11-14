@@ -2,10 +2,14 @@
 // prepared (a stone texture's relief with its material, a window glass's own gloss map), marked complete, keyed as the game
 // keys it, resumed without work, stale maps pruned, cancelled.
 #include "relief.hpp"
+
+#include "backend.hpp"
 #include "storm/fx/gloss_map.hpp"
+#include "storm/fx/relief_model.hpp"
 #include "storm/fx/height_map.hpp"
 #include "storm/fx/relief_store.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -67,8 +71,10 @@ int main(int argc, char **argv)
         std::ifstream in(std::string(argv[1]) + "/" + name, std::ios::binary);
         return std::vector<uint8_t>{std::istreambuf_iterator<char>(in), {}};
     };
-    const std::vector<uint8_t> normal = read("pbrify-normal-int8.onnx"), height = read("pbrify-height-int8.onnx"),
-                               roughness = read("pbrify-roughness-int8.onnx");
+    std::vector<std::vector<uint8_t>> files;
+    for (const char *name : relief::kModelFiles)
+        files.push_back(read(name));
+    const std::vector<uint8_t> &normal = files[0], &height = files[1], &roughness = files[2];
     const std::filesystem::path root = std::filesystem::temp_directory_path() / "storm_relief_check";
     std::filesystem::remove_all(root);
     const std::filesystem::path textures = root / "RESOURCE/Textures", output = root / "relief";
@@ -79,6 +85,7 @@ int main(int argc, char **argv)
     relief::Job job;
     job.textures = textures;
     job.output = output;
+    // The CPU (no ncnn graphs): the int8 models' maps; the GPU's are checked against them below.
     job.models = {normal, height, roughness};
     job.map_size = 128;
     job.threads = 2;
@@ -130,6 +137,47 @@ int main(int argc, char **argv)
     const std::vector<uint8_t> junk(100, 7);
     job.models = {normal, height, junk};
     CHECK(relief::Prepare(job, nullptr).status == 2);
+    // The GPU path (ncnn, fp16 graphs of the float models) against the CPU's int8 models, network by network, on a
+    // brick pattern with the game's padding: the same maps within the int8 models' own error, and the tiles join.
+    if (relief::Gpu().available)
+    {
+        std::string error;
+        const auto cpu_runtime = relief::CpuRuntime::Open(2, error);
+        const int size = 200 + 2 * fx::kReliefModelPad; // two tiles across, the second one partial
+        std::vector<float> image(static_cast<size_t>(size) * size * 3);
+        for (int c = 0; c < 3; ++c)
+            for (int y = 0; y < size; ++y)
+                for (int x = 0; x < size; ++x)
+                {
+                    const bool mortar = y % 16 < 2 || (x + (y / 16 % 2) * 16) % 32 < 2;
+                    image[(static_cast<size_t>(c) * size + y) * size + x] = (mortar ? 0.2f : 0.7f) * (0.8f + 0.1f * c);
+                }
+        for (int n = 0; n < 3; ++n)
+        {
+            const auto cpu = cpu_runtime ? cpu_runtime->Load(files[n], error) : nullptr;
+            const auto gpu = relief::LoadGpuNetwork(files[3 + 2 * n], files[4 + 2 * n], fx::kReliefModelPad, 1, error);
+            std::vector<float> a(image.size()), b(image.size());
+            CHECK(cpu && gpu && cpu->Infer(image.data(), size, size, a.data(), error) &&
+                  gpu->Infer(image.data(), size, size, b.data(), error));
+            double squared = 0.0;
+            size_t count = 0;
+            for (int c = 0; c < 3; ++c)
+                for (int y = fx::kReliefModelPad; y < size - fx::kReliefModelPad; ++y)
+                    for (int x = fx::kReliefModelPad; x < size - fx::kReliefModelPad; ++x)
+                    {
+                        const size_t i = (static_cast<size_t>(c) * size + y) * size + x;
+                        const double d = std::clamp(a[i], 0.0f, 1.0f) - std::clamp(b[i], 0.0f, 1.0f);
+                        squared += d * d;
+                        ++count;
+                    }
+            const double psnr = 10.0 * std::log10(1.0 / std::max(squared / static_cast<double>(count), 1e-12));
+            std::printf("%s: %s against the CPU's int8: PSNR %.1f dB\n", relief::kModelFiles[n], gpu ? gpu->Describe().c_str() : "-",
+                        psnr);
+            CHECK(psnr > 30.0);
+        }
+    }
+    else
+        std::printf("no GPU check: %s\n", relief::Gpu().why.c_str());
     std::filesystem::remove_all(root);
     if (failures)
     {

@@ -67,7 +67,42 @@ storm_derived_files(storm_relief_models storm_relief_models
     SOURCES ${storm_relief_sources}
     INPUTS ${storm_relief_inputs}
     OUTPUTS ${storm_relief_pins})
-set(STORM_RELIEF_MODELS "${storm_relief_models_DIR}")
+# The same float models as ncnn's graphs for the GPU (fp16 weights), by pnnx (model/make_ncnn_models.py).
+storm_derived_files(storm_relief_ncnn_models storm_relief_ncnn_models
+    SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/model/make_ncnn_models.py"
+    REQUIREMENTS "${CMAKE_CURRENT_SOURCE_DIR}/model/requirements-ncnn.txt"
+    FILES "${CMAKE_CURRENT_SOURCE_DIR}/model/pins.py"
+    SOURCES ${storm_relief_sources}
+    INPUTS ${storm_relief_inputs}
+    OUTPUTS pbrify-normal.ncnn.param=6f6d55ceb44b7b0387e4c6cab96a10ee548ce0939e24d19de3189659627f5c9c
+            pbrify-normal.ncnn.bin=bc13e7082ffb70533a7e3cc91f1e99be0346fad3913b952d863e3f6d0bfc58cf
+            pbrify-height.ncnn.param=6f6d55ceb44b7b0387e4c6cab96a10ee548ce0939e24d19de3189659627f5c9c
+            pbrify-height.ncnn.bin=d54154e6179a217891516c7c8a00033a10c8447074728f89f234b7d49b6c5226
+            pbrify-roughness.ncnn.param=6f6d55ceb44b7b0387e4c6cab96a10ee548ce0939e24d19de3189659627f5c9c
+            pbrify-roughness.ncnn.bin=3fe407f25ac9f0d0585209483f8e4920f5d8698129e86b666fe1ffd9edf9c908)
+set(storm_relief_model_files pbrify-normal-int8.onnx pbrify-height-int8.onnx pbrify-roughness-int8.onnx)
+set(storm_relief_ncnn_files pbrify-normal.ncnn.param pbrify-normal.ncnn.bin pbrify-height.ncnn.param pbrify-height.ncnn.bin
+    pbrify-roughness.ncnn.param pbrify-roughness.ncnn.bin)
+# Both sets in one folder, as the game reads them (relief.hpp kModelFiles): <build>/game/assets on Android (packaged),
+# <build>/relief_models on the host (engine.ini relief_models, the checks).
+if(ANDROID)
+    set(STORM_RELIEF_MODELS "${CMAKE_BINARY_DIR}/game/assets")
+else()
+    set(STORM_RELIEF_MODELS "${CMAKE_BINARY_DIR}/relief_models")
+endif()
+set(storm_relief_copies "")
+foreach(file ${storm_relief_model_files})
+    list(APPEND storm_relief_copies COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${storm_relief_models_DIR}/${file}" "${STORM_RELIEF_MODELS}/${file}")
+endforeach()
+foreach(file ${storm_relief_ncnn_files})
+    list(APPEND storm_relief_copies COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${storm_relief_ncnn_models_DIR}/${file}" "${STORM_RELIEF_MODELS}/${file}")
+endforeach()
+add_custom_target(storm_relief_model_files
+    COMMAND "${CMAKE_COMMAND}" -E make_directory "${STORM_RELIEF_MODELS}" ${storm_relief_copies}
+    VERBATIM)
+add_dependencies(storm_relief_model_files storm_relief_models storm_relief_ncnn_models)
+
+include("${CMAKE_CURRENT_LIST_DIR}/../../../cmake/ncnn.cmake")
 
 add_library(storm_onnxruntime SHARED IMPORTED GLOBAL)
 if(ANDROID)
@@ -80,10 +115,10 @@ else()
         IMPORTED_SONAME libonnxruntime.so.1 INTERFACE_INCLUDE_DIRECTORIES "${storm_onnxruntime_SOURCE_DIR}/include")
 endif()
 
-add_library(storm_relief_core STATIC prepare.cpp relief.hpp)
+add_library(storm_relief_core STATIC prepare.cpp relief.hpp backend.cpp backend.hpp)
 target_compile_features(storm_relief_core PUBLIC cxx_std_20)
 target_include_directories(storm_relief_core PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
-target_link_libraries(storm_relief_core PUBLIC storm_bgfx_fx_core storm_texture_core storm_onnxruntime)
+target_link_libraries(storm_relief_core PUBLIC storm_bgfx_fx_core storm_texture_core storm_onnxruntime PRIVATE ncnn)
 if(ANDROID)
     target_link_libraries(storm_relief_core PUBLIC log)
 endif()
@@ -95,11 +130,8 @@ if(ANDROID)
     add_custom_target(storm_relief_package
         COMMAND "${CMAKE_COMMAND}" -E make_directory "${CMAKE_BINARY_DIR}/game/assets"
         COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${onnxruntime_library}" "${CMAKE_BINARY_DIR}/game/libonnxruntime.so"
-        COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${STORM_RELIEF_MODELS}/pbrify-normal-int8.onnx" "${CMAKE_BINARY_DIR}/game/assets/pbrify-normal-int8.onnx"
-        COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${STORM_RELIEF_MODELS}/pbrify-height-int8.onnx" "${CMAKE_BINARY_DIR}/game/assets/pbrify-height-int8.onnx"
-        COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${STORM_RELIEF_MODELS}/pbrify-roughness-int8.onnx" "${CMAKE_BINARY_DIR}/game/assets/pbrify-roughness-int8.onnx"
         VERBATIM)
-    add_dependencies(storm_relief_package storm_relief_models)
+    add_dependencies(storm_relief_package storm_relief_model_files)
 endif()
 # The same job from a shell: host checks, and timing on a device or emulator (adb push with libonnxruntime.so).
 add_executable(storm_relief_cli cli.cpp)
@@ -110,7 +142,7 @@ if(NOT ANDROID)
     add_executable(storm_relief_check tests/relief_check.cpp)
     target_link_libraries(storm_relief_check PRIVATE storm_relief_core)
     set_target_properties(storm_relief_check PROPERTIES BUILD_RPATH "${storm_onnxruntime_SOURCE_DIR}/lib")
-    add_dependencies(storm_relief_check storm_relief_models)
+    add_dependencies(storm_relief_check storm_relief_model_files)
     # The models' directory for the runner (not a compile definition: absolute paths there defeat ccache).
     file(WRITE "${CMAKE_BINARY_DIR}/relief_models_path.txt" "${STORM_RELIEF_MODELS}")
 endif()
