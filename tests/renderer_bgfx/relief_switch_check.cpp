@@ -257,6 +257,59 @@ int main()
         expect(both, "that line holds every reason seen in the window");
     }
 
+    {
+        effects::FfDraw draw;
+        draw.parallax_variant = true;
+        draw.parallax = {0.01f, 0.01f, 0.0f};
+        expect(!draw.has_parallax(), "cavity-only variant with no UV steps is not counted as parallax");
+        draw.parallax[2] = 1.0f;
+        expect(draw.has_parallax(), "offset mapping submission is counted");
+        draw.parallax[2] = 8.0f;
+        expect(draw.has_parallax(), "occlusion mapping submission is counted");
+        draw.parallax[0] = draw.parallax[1] = 0.0f;
+        expect(!draw.has_parallax(), "zero depth or zero-strength submission is not counted as parallax");
+        draw.parallax_variant = false;
+        expect(!draw.has_parallax(), "ordinary normal mapping is not counted as parallax");
+    }
+
+    // No GPU required: Uploaded entries stand in for successful uploads; pending/failed detail must not hide the
+    // colour texture's normal map. The selected stage also owns the sampler/UV and census/probe entry.
+    {
+        effects::NormalMaps selection_maps;
+        fx::Lighting gpu_lighting;
+        auto colour_store = Store(colour), detail_store = Store(height);
+        colour_store->normal_map = std::make_shared<effects::NormalMapEntry>();
+        detail_store->normal_map = std::make_shared<effects::NormalMapEntry>();
+        auto &base = *colour_store->normal_map;
+        auto &detail = *detail_store->normal_map;
+        base.name = "bricksfu1";
+        base.relief = fx::ReliefClass::Stone;
+        base.state = effects::NormalMapEntry::Uploaded;
+        base.handle = {123};
+        detail.name = "bump_city";
+        detail.relief = fx::ReliefClass::HeightMap;
+        for (const auto state : {effects::NormalMapEntry::Pending, effects::NormalMapEntry::Waiting,
+                                 effects::NormalMapEntry::Missing, effects::NormalMapEntry::Failed})
+        {
+            detail.state = state;
+            const auto selected = selection_maps.select(colour_store.get(), detail_store.get(), gpu_lighting);
+            expect(selected.stage == 0 && selected.entry == &base && selected.map.handle.idx == 123,
+                   "unavailable detail keeps the ready colour normal map and its stage");
+        }
+        detail.state = effects::NormalMapEntry::Uploaded;
+        detail.handle = {124};
+        const auto ready = selection_maps.select(colour_store.get(), detail_store.get(), gpu_lighting);
+        expect(ready.stage == 1 && ready.entry == &detail && ready.map.handle.idx == 124,
+               "ready detail retains its original priority");
+        const auto disabled = selection_maps.select(colour_store.get(), nullptr, gpu_lighting);
+        expect(disabled.stage == 0 && disabled.entry == &base, "disabled detail uses the colour map");
+        base.state = detail.state = effects::NormalMapEntry::Pending;
+        const auto waiting = selection_maps.select(colour_store.get(), detail_store.get(), gpu_lighting);
+        expect(waiting.stage == 1 && waiting.entry == &detail && !bgfx::isValid(waiting.map.handle),
+               "two pending maps retain the detail entry for missing-map diagnostics");
+        base.handle = detail.handle = BGFX_INVALID_HANDLE;
+    }
+
     effects::ReliefGenerator::instance().shutdown();
     std::filesystem::remove_all(root);
     if (failures)

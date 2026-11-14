@@ -14,6 +14,7 @@ enum class Match : uint8_t
     Folder,   // the path starts with the pattern (a folder, "ships/"); the name is not looked at
     Prefix,   // the file name starts with the pattern
     Contains, // the file name contains the pattern
+    Exact,    // the file name equals the pattern
 };
 
 // `folder`: only paths in this folder ("" = any).
@@ -25,6 +26,8 @@ inline bool Matches(std::string_view path, const char *folder, Match match, cons
     const std::string_view name = slash == std::string_view::npos ? path : path.substr(slash + 1);
     switch (match)
     {
+    case Match::Exact:
+        return name == pattern;
     case Match::Folder:
         return true;
     case Match::Prefix:

@@ -135,6 +135,15 @@ class NormalMaps
         int width = 0, height_texels = 0;                 // the top mip
     };
     Relief handle(shim::TexStore &store, fx::Lighting &lighting);
+    struct Selection
+    {
+        Relief map;
+        const NormalMapEntry *entry = nullptr;
+        int stage = -1;
+    };
+    // Enabled stages only (disabled stages are null). A pending/failed detail map cannot hide a ready colour map.
+    // If neither is ready, retain the preferred entry so the probe can explain the missing relief.
+    Selection select(shim::TexStore *colour, shim::TexStore *detail, fx::Lighting &lighting);
 
     // Gloss maps: as configure() and handle(), for Settings::gloss and Settings::gloss_map_size.
     void configure_gloss(bool enabled, int max_size);

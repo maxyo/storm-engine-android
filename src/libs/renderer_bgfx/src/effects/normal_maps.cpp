@@ -341,6 +341,24 @@ NormalMaps::Relief NormalMaps::handle(shim::TexStore &store, fx::Lighting &light
     return store.normal_map ? upload(store.normal_map, lighting, max_size_) : Relief{};
 }
 
+NormalMaps::Selection NormalMaps::select(shim::TexStore *colour, shim::TexStore *detail, fx::Lighting &lighting)
+{
+    Selection selected;
+    shim::TexStore *stages[] = {colour, detail};
+    for (const int stage : {1, 0})
+    {
+        shim::TexStore *store = stages[stage];
+        if (!store || !store->normal_map)
+            continue;
+        const Relief map = handle(*store, lighting);
+        if (!selected.entry || bgfx::isValid(map.handle))
+            selected = {map, store->normal_map.get(), stage};
+        if (bgfx::isValid(map.handle))
+            break;
+    }
+    return selected;
+}
+
 NormalMaps::Relief NormalMaps::gloss(shim::TexStore &store, fx::Lighting &lighting)
 {
     return store.gloss_map ? upload(store.gloss_map, lighting, gloss_max_size_) : Relief{};
@@ -362,6 +380,7 @@ NormalMaps::Relief NormalMaps::upload(const std::shared_ptr<NormalMapEntry> &ent
         read_stored(entry);
         return {};
     case NormalMapEntry::Derived:
+        fx::RefreshReliefDepth(entry->map, entry->relief);
         fx::DropTopMips(entry->map, max_size);
         entry->handle = lighting.CreateNormalMap(entry->map); // logs why when it cannot
         entry->bytes = entry->map.rg.size();

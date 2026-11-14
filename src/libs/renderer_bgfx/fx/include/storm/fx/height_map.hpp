@@ -40,6 +40,9 @@ bool ReliefTakesParallax(ReliefClass relief);
 // in the world: a plank's texture, small on the object, gets a small depth, a wall's large one, between the limits of
 // kParallaxMaxDepth.
 float ReliefDepthTexels(ReliefClass relief);
+// Refresh class metadata when uploading an existing map: a reclassified building atlas may retain its former wood
+// depth in the cache. Its normal/height/trust bytes stay unchanged; no cache regeneration is needed for this depth.
+void RefreshReliefDepth(NormalMap &map, ReliefClass relief);
 
 // The deepest the parallax goes, in metres: where a texture is stretched over a large surface (a house wall's atlas),
 // its depth in texels is a lot of centimetres. The shallowest is a fifth of it (5 mm): the texture of a plank, a post

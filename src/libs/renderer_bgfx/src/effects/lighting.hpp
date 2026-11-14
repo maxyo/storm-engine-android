@@ -129,6 +129,8 @@ struct FfDraw
     std::array<float, 4> gloss{};
     std::array<float, 8> parallax{};
     bool parallax_variant = false; // the FX_LIGHT_PARALLAX variant: u_fxParallax is set
+    // The parallax variant also carries cavity-only draws. Count UV displacement only when it is enabled.
+    bool has_parallax() const { return parallax_variant && parallax[2] > 0.0f && parallax[0] > 0.0f && parallax[1] > 0.0f; }
     bool parallax_untrusted = false; // ... but the texture's mask or a list takes the parallax from it (the cavity still draws)
     const NormalMapEntry *relief_entry = nullptr; // the relief texture's entry (its map ready or not): the parallax probe
     bool shadow = false;           // FX_LIGHT_SHADOW variant: submit() binds the map for `view`

@@ -73,6 +73,20 @@ const Rule kRules[] = {
     STORM_RULE("ammo/", Folder, "", M),
 
     // Names. Buildings whose names start like an excluded word come first.
+    // These are complete building atlases (masonry, plaster, wood and window patches), not window overlays or
+    // wooden props. Keep their normal maps and the same bounded, masked parallax as the other house atlases.
+    STORM_RULE("", Exact, "foudation_win_door", B),
+    STORM_RULE("", Exact, "foudation_win2door", B),
+    STORM_RULE("", Exact, "hut1_walls", B),
+    STORM_RULE("", Exact, "hut2_walls", B),
+    STORM_RULE("", Exact, "hut3_walls", B),
+    STORM_RULE("", Exact, "hut4_walls", B),
+    STORM_RULE("", Exact, "barn2_wall", B),
+    STORM_RULE("", Exact, "hut1", B),
+    STORM_RULE("", Exact, "hut2", B),
+    STORM_RULE("", Exact, "hut3", B),
+    STORM_RULE("", Exact, "hut4", B),
+    STORM_RULE("", Exact, "barn2", B),
     STORM_RULE("", Contains, "windmill", B),
     STORM_RULE("", Contains, "fonar", M), // lanterns
     STORM_RULE("", Contains, "lighthouse", S),

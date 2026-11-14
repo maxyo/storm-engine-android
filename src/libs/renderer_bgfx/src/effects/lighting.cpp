@@ -258,18 +258,17 @@ void Lighting::prepare(const shim::Device &device, const shim::LayoutInfo &layou
     NormalMaps::Relief relief_map;
     if ((flags_ & fx::kLightingNormalMap) && lighting_ && layout.has_normal && device.s.tss[0][D3DTSS_COLOROP] != D3DTOP_DISABLE &&
         !(lit && material_ == Material::Character))
-        for (const int stage : {1, 0})
-        {
-            shim::TexStore *store = shim::store_of(device.s.textures[stage]);
-            if (!store || !store->normal_map || device.s.tss[stage][D3DTSS_COLOROP] == D3DTOP_DISABLE)
-                continue;
-            relief_map = normal_maps_.handle(*store, fx_);
-            draw.relief_entry = store->normal_map.get();
-            normal_map = relief_map.handle;
-            relief_fade = relief_map.fade;
-            relief_stage = stage;
-            break;
-        }
+    {
+        const auto enabled_store = [&](int stage) {
+            return device.s.tss[stage][D3DTSS_COLOROP] != D3DTOP_DISABLE ? shim::store_of(device.s.textures[stage]) : nullptr;
+        };
+        const auto selected = normal_maps_.select(enabled_store(0), enabled_store(1), fx_);
+        relief_map = selected.map;
+        draw.relief_entry = selected.entry;
+        normal_map = relief_map.handle;
+        relief_fade = relief_map.fade;
+        relief_stage = selected.stage;
+    }
     baked |= !lit_state && bgfx::isValid(normal_map);
     // Gloss: stage 0's colour texture's: the G of its relief's material texture when its relief class has a height
     // (relief_store.hpp), else its own gloss map (characters stay matte: no map, their material has no highlight).
@@ -524,7 +523,7 @@ void Lighting::prepare(const shim::Device &device, const shim::LayoutInfo &layou
                              std::log2(static_cast<float>(std::max(relief_map.width, relief_map.height_texels))),
                              self_shadow ? fx::kParallaxShadow : 0.0f, settings_.parallax_debug ? 1.0f : 0.0f,
                              settings_.relief_cavity ? fx::kReliefCavity : 0.0f, fx::kParallaxMaxDepth};
-            if (!draw.parallax_untrusted)
+            if (draw.has_parallax())
                 ++frame_.parallax;
         }
     }
@@ -643,18 +642,13 @@ void Lighting::census(const shim::Device &device, const shim::LayoutInfo &layout
         return; // untextured
     // The relief's stage: stage 1's grey height texture when it took the draw, else stage 0's colour texture.
     const shim::TexStore *s1 = shim::store_of(device.s.textures[1]);
-    const bool stage1 = s1 && s1->normal_map && device.s.tss[1][D3DTSS_COLOROP] != D3DTOP_DISABLE;
+    const bool stage1 = s1 && s1->normal_map && device.s.tss[1][D3DTSS_COLOROP] != D3DTOP_DISABLE &&
+                        (!draw.relief_entry || draw.relief_entry == s1->normal_map.get());
     const int stage = stage1 ? 1 : 0;
     const shim::TexStore &texture = stage1 ? *s1 : *s0;
-    if (draw.parallax_variant)
+    if (draw.has_parallax())
     {
-        // counted as frame_.parallax
-        if (draw.parallax_untrusted)
-        {
-            ++frame_.parallax_miss[static_cast<size_t>(ParallaxMiss::NotTrusted)];
-            cover(texture, texture.normal_map->relief, static_cast<uint8_t>(ParallaxMiss::NotTrusted));
-            return;
-        }
+        // Only actual offset/POM submission, not the shared cavity-only shader variant.
         cover(texture, texture.normal_map->relief, kCoverageParallax);
         return;
     }
@@ -677,7 +671,7 @@ void Lighting::census(const shim::Device &device, const shim::LayoutInfo &layout
     else if (device.s.rs[D3DRS_LIGHTING] && material_ == Material::Character)
         miss = ParallaxMiss::Character;
     else if (!lighting_ || !(flags_ & fx::kLightingNormalMap) ||
-             (settings_.parallax == fx::ParallaxQuality::Off && !settings_.relief_cavity))
+             (settings_.parallax == fx::ParallaxQuality::Off || settings_.parallax_strength <= 0.0f))
         miss = ParallaxMiss::Off;
     else if (entry->state != NormalMapEntry::Uploaded)
         miss = ParallaxMiss::NotReady;
@@ -689,6 +683,8 @@ void Lighting::census(const shim::Device &device, const shim::LayoutInfo &layout
         miss = ParallaxMiss::Clamped;
     else if (!bgfx::isValid(draw.normal_map))
         miss = ParallaxMiss::NoRelief;
+    else if (draw.parallax_untrusted)
+        miss = ParallaxMiss::NotTrusted;
     ++frame_.parallax_miss[static_cast<size_t>(miss)];
     cover(texture, entry ? entry->relief : fx::ReliefClass::None, static_cast<uint8_t>(miss));
 }

@@ -1161,6 +1161,21 @@ void CheckReliefMaterial()
     CHECK(r(16, 16) < 120 && r(48, 16) > 180 && r(48, 16) - r(16, 16) > 90);
     CHECK(map.material[1] == 200); // G: the gloss
     CHECK(Near(map.depth, ReliefDepthTexels(ReliefClass::Stone) * 0.5f, 1e-5f)); // texels of this 256 map
+    // A building atlas cached under the old Wood classification retains its pixels, but must get the same depth as
+    // a newly generated Building map. Preset mip reduction still preserves depth in UV units.
+    NormalMap reclassified = map;
+    reclassified.depth = ReliefDepthTexels(ReliefClass::Wood) * static_cast<float>(n) / kReliefMapSize;
+    const auto cached_normals = reclassified.rg, cached_material = reclassified.material;
+    RefreshReliefDepth(reclassified, ReliefClass::Building);
+    CHECK(reclassified.depth == ReliefDepthTexels(ReliefClass::Building) * static_cast<float>(n) / kReliefMapSize);
+    CHECK(reclassified.rg == cached_normals && reclassified.material == cached_material);
+    const float reclassified_uv_depth = reclassified.depth / reclassified.width;
+    DropTopMips(reclassified, n / 2);
+    CHECK(reclassified.depth / reclassified.width == reclassified_uv_depth);
+    reclassified.material.clear();
+    RefreshReliefDepth(reclassified, ReliefClass::Building);
+    CHECK(reclassified.depth == 0.0f);
+
     // DropTopMips keeps the material with its mips and the depth in texels of the new top.
     NormalMap half = map;
     DropTopMips(half, n / 2);
@@ -1286,6 +1301,9 @@ void CheckReliefRules()
         {"Ships\\Barque1\\Hull3\\deckPlanksT3", W}, {"Ships\\deck", W}, {"cabinet1c", W},
         // building atlases
         {"BigHouse01", B}, {"Residence2_walls", B}, {"Tavern1_walls", B}, {"tavern1ins", B}, {"church2_walls", B},
+        {"Foudation_Win_Door.tga.tx", B}, {"Foudation_Win2Door.tga.tx", B},
+        {"hut1", B}, {"hut2", B}, {"hut3", B}, {"hut4", B}, {"barn2", B},
+        {"Hut1_walls", B}, {"Hut2_walls", B}, {"Hut3_walls", B}, {"Hut4_walls", B}, {"barn2_wall", B},
         {"windmill_walls", B}, {"FlH03", B}, {"SpH4_walls", B}, {"Shipyard1", B}, {"objects_tex2", W},
         // plaster, ground
         {"Celling", P}, {"floorU3", P}, {"groundK2", P}, {"1sand1", P}, {"shoreU5", P},
@@ -1301,7 +1319,8 @@ void CheckReliefRules()
         {"metalU4", ReliefClass::Metal}, {"cannon_T1", ReliefClass::Metal}, {"skelet3", ReliefClass::Prop}, {"telo", N}, {"Item_Rapier02", ReliefClass::Metal},
         {"ammo/katana", ReliefClass::Metal}, {"items/purse", ReliefClass::Prop}, {"islands/caiman/caiman", ReliefClass::Prop},
         {"islands/nevis/nevismask", N}, {"grass/grass_1", N}, {"Ships/Brig1/Hull1/cannon_brig", ReliefClass::Metal}, {"MenuWoodFlooooor01", N},
-        {"HiDeckalpha", N}, {"cap_deck_glass", N}, {"Particles_list", N}, {"shadow2", N}, {"back_jungle", N},
+        {"interfaces/Foudation_Win_Door", N}, {"loading/Hut2_walls", N}, {"windhutinside", N},
+        {"hutinside", W}, {"barn1", W}, {"hut2_bump", W}, {"hut2_walls_bump", W}, {"HiDeckalpha", N}, {"cap_deck_glass", N}, {"Particles_list", N}, {"shadow2", N}, {"back_jungle", N},
     };
     for (const auto &[path, expected] : cases)
         if (relief(path) != expected)

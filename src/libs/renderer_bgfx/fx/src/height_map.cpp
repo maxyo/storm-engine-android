@@ -53,6 +53,12 @@ float ReliefDepthTexels(ReliefClass relief)
     return 0.0f;
 }
 
+void RefreshReliefDepth(NormalMap &map, ReliefClass relief)
+{
+    map.depth = map.material.empty() ? 0.0f : ReliefDepthTexels(relief) * static_cast<float>(map.width) /
+                                               static_cast<float>(kReliefMapSize);
+}
+
 bool ReliefTakesParallax(ReliefClass relief)
 {
     return relief == ReliefClass::Stone || relief == ReliefClass::Building;
@@ -145,7 +151,7 @@ bool AddReliefMaterial(NormalMap &map, ReliefClass relief, std::span<const float
         lw = nw;
         lh = nh;
     }
-    map.depth = ReliefDepthTexels(relief) * scale;
+    RefreshReliefDepth(map, relief);
     return true;
 }
 
