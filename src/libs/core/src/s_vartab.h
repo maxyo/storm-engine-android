@@ -2,6 +2,7 @@
 
 #include "data.h"
 #include "string_compare.hpp"
+#include <memory>
 #include <unordered_map>
 #include <vector>
 

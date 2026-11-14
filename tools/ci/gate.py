@@ -15,13 +15,15 @@ Steps (README.md here):
 
 Build directories are the worktree's build/ui-host, build/host-ci and build/android-engine (the same
 depth in every worktree, so ccache serves a fresh one). The Android SDK/NDK/dependencies come from
-$STORM_CI_WORK (default <workspace>/storm-engine-android/build/android-ci); the game from $STORM_GAME_DIR
+$STORM_CI_WORK (default <workspace>/storm-engine-android/build/android-ci), the engine sources of the
+tree's pins from $STORM_CI_WORK/pins-<digest> (tools/android/engine_sources.py --shared); the game from $STORM_GAME_DIR
 (default <workspace>/local-testing/extracted/app). Several worktrees landing at once: tools/ci/land.py.
 """
 import argparse
 import concurrent.futures
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -88,12 +90,21 @@ def stage_game_checks(names):
 def stage_android():
     build = root / 'build/android-engine'
     env = dict(os.environ, PATH=f'{ci_work / "python/bin"}:{os.environ["PATH"]}')
+    # The pinned sources of this tree (immutable shared checkouts, tools/android/engine_sources.py).
+    prepared = subprocess.run([sys.executable, root / 'tools/android/engine_sources.py', '--shared', ci_work],
+                              capture_output=True, text=True)
+    if prepared.returncode:
+        (logs / 'android.log').write_text(prepared.stdout + prepared.stderr)
+        return False
+    sources = prepared.stdout.strip()
+    cache = build / 'CMakeCache.txt'
+    configured = re.search(r'^STORM_ANDROID_SOURCES:\w+=(.*)$', cache.read_text(), re.M) if cache.exists() else None
     commands = []
-    if not (build / 'CMakeCache.txt').exists():
+    if not configured or configured[1] != sources:  # first build, or this tree's pins changed
         commands.append(['cmake', '-S', root, '-B', build, '-G', 'Ninja', '-DCMAKE_BUILD_TYPE=Release',
                          f'-DCMAKE_TOOLCHAIN_FILE={root}/cmake/toolchains/android-arm64.cmake',
                          f'-DSTORM_ANDROID_NDK={ci_work}/tools/ndk/android-ndk-r30', f'-DSTORM_ANDROID_DEPS={ci_work}/prefix',
-                         f'-DSTORM_ANDROID_SOURCES={ci_work}/sources', f'-DSTORM_AUDIO_SOURCES={ci_work}/audio-host/patched'])
+                         f'-DSTORM_ANDROID_SOURCES={sources}', f'-DSTORM_AUDIO_SOURCES={ci_work}/audio-host/patched'])
     commands += [[root / 'tools/ccache/warmth', 'begin', build], ['ninja', '-C', build, 'engine'],
                  [root / 'tools/ccache/warmth', 'end', build]]
     return run_logged('android', commands, env)

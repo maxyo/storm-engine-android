@@ -11,8 +11,6 @@ Pinned sources:
 
 - SDL 2.0.18: `2e9821423a237a1206e3c09020778faacfe430be`
   (`https://github.com/libsdl-org/SDL`)
-- fmt 8.0.1: `d141cdbeb0fb422a3fb7173b285fd38e0d1772dc`
-  (`https://github.com/fmtlib/fmt`)
 
 The renderer (bgfx on OpenGL ES 3.0) is pinned and built by the engine itself;
 see `src/libs/renderer_bgfx/README.md`. Put CMake and Ninja on PATH.
@@ -21,25 +19,27 @@ see `src/libs/renderer_bgfx/README.md`. Put CMake and Ninja on PATH.
 python3 tools/android/build_dependencies.py \
   --ndk /path/to/android-ndk-r30 \
   --sdl-source /path/to/SDL \
-  --fmt-source /path/to/fmt \
   --build-dir /path/to/android-dependency-build \
   --prefix /path/to/android-dependency-install \
   --jobs 4
 ```
 
 The SDL patch fixes C89 declaration ordering and replaces removed
-`ALooper_pollAll` with `ALooper_pollOnce`. The fmt patch preserves consteval
-checks while reusing a single string view under Clang 21.
-
-The script applies patches to the supplied pinned SDL and fmt checkouts.
-Use checkouts dedicated to this experiment. It also builds shared fmt. The resulting Android libraries still
-need runtime validation and full engine integration.
+`ALooper_pollAll` with `ALooper_pollOnce`. The script applies it to the supplied
+pinned SDL checkout; use a checkout dedicated to this experiment.
 
 ## Full engine after dependency build
 
-Prepare extra pinned sources with `engine_sources.py --directory /path/to/sources`
-(spdlog 1.9.2, fast_float 3.4.0, mimalloc 2.0.3, Catch2 2.13.7, FFmpeg 8.1.3; exact Git hashes
-are in that script). CMake builds the LGPL FFmpeg for video from it once and caches it
+Prepare the other pinned sources with `engine_sources.py --directory /path/to/sources`
+(fmt 12.1.0, spdlog 1.17.0, fast_float 3.4.0, mimalloc 2.0.3, Catch2 2.13.7, FFmpeg 8.1.3; exact Git
+hashes are in that script). fmt is built by the engine's CMake and linked statically into the engine.
+On a machine where several worktrees build, use the shared directory instead:
+`engine_sources.py --shared "$STORM_CI_WORK"` prints `$STORM_CI_WORK/pins-<digest>`, a directory of
+immutable checkouts for exactly this tree's pins (`ci_engine.sh` and `tools/ci/gate.py` do this). Worktrees
+on different pins (a dependency bump landing while others still build the old one) then never switch a
+checkout under each other. CMake fails the configure step when `STORM_ANDROID_SOURCES` or
+`STORM_HOST_SOURCES` is not at the pins (`engine_sources.py --check`), e.g. the old `build/android-ci/sources`
+after a bump. CMake builds the LGPL FFmpeg for video from it once and caches it
 (`tools/ffmpeg/README.md`); package `runtime/ffmpeg/*.so` and `configure.txt` with the engine. Android uses the NDK/platform zlib ABI, not a bundled
 replacement libz. Prepare hashed/patched audio headers with `tests/audio/run.py`.
 The configure step builds the host shader compiler of the bgfx pin once per machine

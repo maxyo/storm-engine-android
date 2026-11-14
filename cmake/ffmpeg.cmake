@@ -1,15 +1,14 @@
 # FFmpeg (LGPL-2.1-or-later, shared libraries) for in-game video (src/libs/video).
 # tools/ffmpeg/build.py configures and builds the pinned source once per source revision,
 # flag set and compiler, at configure time, into a cache shared by all build directories that
-# use the same prepared sources. Flags and licence notes: tools/ffmpeg/README.md.
-#   STORM_FFMPEG_SOURCE  pinned checkout (tools/android/engine_sources.py), default <sources>/ffmpeg
+# use the same prepared sources. The source is <sources>/ffmpeg (tools/android/engine_sources.py).
+# Flags and licence notes: tools/ffmpeg/README.md.
 #   STORM_FFMPEG_CACHE   build cache, default <sources>/../ffmpeg-cache
 function(storm_ffmpeg sources target)
-    set(STORM_FFMPEG_SOURCE "${sources}/ffmpeg" CACHE PATH "Pinned FFmpeg source tree")
     get_filename_component(default_cache "${sources}/../ffmpeg-cache" ABSOLUTE)
     set(STORM_FFMPEG_CACHE "${default_cache}" CACHE PATH "FFmpeg build cache")
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
-    set(command "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tools/ffmpeg/build.py" --source "${STORM_FFMPEG_SOURCE}"
+    set(command "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tools/ffmpeg/build.py" --source "${sources}/ffmpeg"
         --cache "${STORM_FFMPEG_CACHE}" --target ${target})
     if(target MATCHES "^android-")
         list(APPEND command --ndk "${STORM_ANDROID_NDK}")

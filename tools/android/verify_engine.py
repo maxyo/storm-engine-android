@@ -28,9 +28,11 @@ deps=subprocess.check_output([str(bin/'llvm-readelf'),'-d',str(a.library)],text=
 # FFmpeg (in-game video) ships beside libengine.so; see tools/ffmpeg/README.md.
 # libbgfx.so (bgfx, bx, bimg) and libstorm_ui.so (the UI runtime) are shared with the application
 # screens; the process must have exactly one bgfx, so libengine.so must not carry its own.
-for library in ['libSDL2.so','libGLESv3.so','libbgfx.so','libstorm_ui.so','libfmt.so','libmimalloc.so','libc++_shared.so',
+for library in ['libSDL2.so','libGLESv3.so','libbgfx.so','libstorm_ui.so','libmimalloc.so','libc++_shared.so',
                 'libavformat.so','libavcodec.so','libswscale.so','libswresample.so','libavutil.so']:
     if library not in deps:raise SystemExit('Missing runtime dependency: '+library)
+# fmt is linked statically (cmake/android.cmake); the APK carries no libfmt.so.
+if 'libfmt.so' in deps:raise SystemExit('libengine.so needs libfmt.so; fmt must be linked statically')
 if 'bgfx::init(' in symbols:raise SystemExit('libengine.so links its own bgfx; it must use libbgfx.so')
 if 'fmod' in deps.lower():raise SystemExit('Unexpected FMOD dependency')
 print(f'PASS: full engine {a.abi} linked, SDL_main and real SoundService/miniaudio symbols, no FMOD')

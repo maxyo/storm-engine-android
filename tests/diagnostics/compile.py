@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Compile the real diagnostics translation unit; no SDK/library stubs.
 
-Provide existing official SDL 2.0.18, spdlog 1.9.2 source trees and the
+Provide existing official SDL 2.0.18 and spdlog/fmt source trees (tools/android/engine_sources.py) and the
 sentry-native 0.6.5 include directory. This is a host compile-only check,
 not a link, logging-runtime, crash-handler or full-engine test.
 """

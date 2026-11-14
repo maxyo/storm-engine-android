@@ -34,7 +34,6 @@ checkout_source() {
 }
 fetch_archive android-ndk-r30-linux.zip 753611f410d002cfcd3f3dc2ef49aad532089d3180b436c060a90bf0fcb64df2 "$work/tools/ndk"
 checkout_source SDL https://github.com/libsdl-org/SDL.git 2e9821423a237a1206e3c09020778faacfe430be
-checkout_source fmt https://github.com/fmtlib/fmt.git d141cdbeb0fb422a3fb7173b285fd38e0d1772dc
 sources_lock shared "$work/sources" # the dependency builds below compile from it
 python3 -m venv "$work/python"
 "$work/python/bin/pip" install --disable-pip-version-check cmake==3.22.1 ninja==1.13.0
@@ -44,7 +43,7 @@ if [[ -n "${JAVA_HOME_17_X64:-}" ]]; then
     export PATH="$JAVA_HOME/bin:$PATH"
 fi
 ndk="$work/tools/ndk/android-ndk-r30"
-python3 "$repo/tools/android/build_dependencies.py" --ndk "$ndk" --sdl-source "$work/sources/SDL" --fmt-source "$work/sources/fmt" --build-dir "$work/dependencies$sfx" --prefix "$work/prefix$sfx" --abi "$abi" --jobs "${STORM_BUILD_JOBS:-2}"
+python3 "$repo/tools/android/build_dependencies.py" --ndk "$ndk" --sdl-source "$work/sources/SDL" --build-dir "$work/dependencies$sfx" --prefix "$work/prefix$sfx" --abi "$abi" --jobs "${STORM_BUILD_JOBS:-2}"
 # Checks that run the compiler themselves compile through the Storm ccache launcher.
 cxx="$repo/tools/ccache/cxx"
 ndk_cxx="$ndk/toolchains/llvm/prebuilt/linux-x86_64/bin/${triple}24-clang++"
@@ -60,4 +59,3 @@ CXX="$cxx" python3 "$repo/tests/android_runtime/run.py" --sdl-source "$work/sour
 CXX="$cxx" STORM_CCACHE_CXX="$ndk_cxx" python3 "$repo/tests/android_runtime/run.py" --sdl-source "$work/sources/SDL" --compile-only
 CXX="$cxx" python3 "$repo/tests/host_hooks/run.py"
 CXX="$cxx" STORM_CCACHE_CXX="$ndk_cxx" python3 "$repo/tests/host_hooks/run.py" --sdl-source "$work/sources/SDL"
-python3 "$repo/tests/diagnostics/check_fmt.py" --fmt-source "$work/sources/fmt"

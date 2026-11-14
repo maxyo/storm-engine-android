@@ -55,11 +55,10 @@ def prepare_sources():
     subprocess.run([sys.executable, str(root / 'tools/android/engine_sources.py'), '--directory', str(sources)],
                    check=True, stdout=subprocess.DEVNULL)
     pipeline = (root / 'tools/android/ci_dependencies.sh').read_text()
-    for name in ('SDL', 'fmt'):
-        match = re.search(rf'^checkout_source {name} (\S+) ([0-9a-f]{{40}})$', pipeline, re.M)
-        if not match:
-            sys.exit(f'{name} revision not found in tools/android/ci_dependencies.sh')
-        checkout(name, match[1], match[2])
+    match = re.search(r'^checkout_source SDL (\S+) ([0-9a-f]{40})$', pipeline, re.M)
+    if not match:
+        sys.exit('SDL revision not found in tools/android/ci_dependencies.sh')
+    checkout('SDL', match[1], match[2])
     glm = work / 'glm'
     url = re.search(r'URL (https://\S+)', (root / 'cmake/glm.cmake').read_text())[1]
     stamp = glm / '.storm-url'
