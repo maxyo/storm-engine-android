@@ -39,14 +39,20 @@
 
 #include <array>
 #include <chrono>
+#include <memory>
 #include <utility>
 #include <vector>
 
 namespace storm::shim
 {
 struct Device;
-struct BaseTexture;
+struct TexStore;
 } // namespace storm::shim
+
+namespace storm::fx
+{
+struct AlphaMask;
+}
 
 namespace storm::effects
 {
@@ -135,7 +141,7 @@ class LampShadows
         bool leaving = false;   // fading out: the slot goes to another lamp
         float weight = 0.0f;    // 0..1, the fade
         bgfx::IndexBufferHandle triangles = BGFX_INVALID_HANDLE; // the solid still geometry within its radius
-        std::vector<std::pair<shim::BaseTexture *, bgfx::IndexBufferHandle>> cut; // ... and of each cut-out texture
+        std::vector<std::pair<std::shared_ptr<shim::TexStore>, bgfx::IndexBufferHandle>> cut; // ... and of each cut-out texture
         uint32_t casters = 0, last_casters = 0;                  // character draws this / the last frame
     };
 
@@ -169,7 +175,7 @@ class LampShadows
         std::vector<fx::Vec3> positions;           // the ship's space
         std::vector<uint32_t> indices;
         std::vector<int32_t> cut_of;               // per triangle: -1 casts whole, else its texture in `cut`
-        std::vector<shim::BaseTexture *> cut;      // the textures that cut holes
+        std::vector<std::shared_ptr<shim::TexStore>> cut;      // the textures that cut holes
         // Per lantern (its place in the ship's space): its fixture (fx::FindFixtures), found once.
         std::vector<std::pair<fx::Vec3, std::vector<uint32_t>>> fixtures;
         size_t triangles = 0;
@@ -201,11 +207,21 @@ class LampShadows
     std::vector<uint32_t> seen_;    // scratch of fx::TrianglesInSphere
     struct CutOut                   // the triangles of one texture whose alpha cuts holes
     {
-        shim::BaseTexture *texture = nullptr;
+        std::shared_ptr<shim::TexStore> store; // held while these triangles can be drawn
         std::vector<uint32_t> indices;
         fx::TriangleGrid grid;
     };
     std::vector<CutOut> cut_;
+    // Surface runs are part of the geometry's identity, including the storage and alpha mask. Equal counts alone
+    // do not mean equal shadows: a model reload may replace its texture or move a run to different triangles.
+    struct CutSurface
+    {
+        uint32_t first = 0, count = 0;
+        std::shared_ptr<shim::TexStore> store;
+        std::shared_ptr<const fx::AlphaMask> mask;
+        bool operator==(const CutSurface &) const = default;
+    };
+    std::vector<CutSurface> cut_surfaces_;
     std::vector<int32_t> list_of_;   // per triangle of indices_: -1 in solid_, else its cut_
     std::vector<uint32_t> local_of_; // ... its number in that list
     // Per merged lamp: the triangles of its own fixture (fx::FindFixtures, ascending): they cast no shadow of it.

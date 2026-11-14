@@ -661,21 +661,36 @@ void TexStore::sync()
         }
 }
 
-TexStore *store_of(BaseTexture *texture)
+namespace
+{
+const TexStorePtr *store_ptr_of(BaseTexture *texture)
 {
     if (!texture)
         return nullptr;
     switch (texture->GetType())
     {
     case D3DRTYPE_TEXTURE:
-        return static_cast<Texture2D *>(texture)->store.get();
+        return &static_cast<Texture2D *>(texture)->store;
     case D3DRTYPE_CUBETEXTURE:
-        return static_cast<CubeTexture *>(texture)->store.get();
+        return &static_cast<CubeTexture *>(texture)->store;
     case D3DRTYPE_VOLUMETEXTURE:
-        return static_cast<VolumeTexture *>(texture)->store.get();
+        return &static_cast<VolumeTexture *>(texture)->store;
     default:
         return nullptr;
     }
+}
+} // namespace
+
+TexStore *store_of(BaseTexture *texture)
+{
+    const TexStorePtr *store = store_ptr_of(texture);
+    return store ? store->get() : nullptr;
+}
+
+TexStorePtr shared_store_of(BaseTexture *texture)
+{
+    const TexStorePtr *store = store_ptr_of(texture);
+    return store ? *store : nullptr;
 }
 
 // ---------------------------------------------------------------------------

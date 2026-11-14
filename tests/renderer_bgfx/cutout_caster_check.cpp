@@ -213,7 +213,7 @@ float floor_at(const std::vector<uint8_t> &p, float x, float z)
 
 // A 64 x 64 A8R8G8B8 texture: white; with `checker` the alpha of every other 16-texel square is 0 (the square at
 // u, v < 0.25 is opaque). Reported to the effects as a game file, so they know whether it cuts holes.
-shim::Texture2D *make_texture(Device &device, bool checker, const char *name)
+shim::Texture2D *make_texture(Device &device, bool checker, const char *name, bool inverse = false)
 {
     shim::Texture2D *texture = nullptr;
     check(device.CreateTexture(64, 64, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &texture, nullptr), "CreateTexture");
@@ -222,7 +222,7 @@ shim::Texture2D *make_texture(Device &device, bool checker, const char *name)
     for (int y = 0; y < 64; ++y)
         for (int x = 0; x < 64; ++x)
         {
-            const bool hole = checker && ((x / 16 + y / 16) & 1);
+            const bool hole = checker && (bool((x / 16 + y / 16) & 1) != inverse);
             const uint32_t texel = hole ? 0x00FFFFFFu : 0xFFFFFFFFu;
             std::memcpy(static_cast<uint8_t *>(rect.pBits) + y * rect.Pitch + x * 4, &texel, 4);
         }
@@ -296,12 +296,15 @@ int main()
                 int expect;                 // 0: holes (the hole lit, the square dark), 1: whole shadow, 2: no shadow
                 bool ship = false;          // the plate is a ship's still geometry under its lantern (else the location's)
                 bool released = false;      // the game releases the texture right after reporting it
+                bool inverse = false;       // same geometry, new texture with the opposite holes
             };
             const Case cases[] = {
                 {"lamp, still geometry, checkerboard", true, true, Plate::None, checker, {-1.125f, -1.125f}, {-1.125f, -0.375f}, 0},
                 {"lamp, still geometry, opaque", true, true, Plate::None, opaque, {-1.125f, -1.125f}, {-1.125f, -0.375f}, 1},
                 {"lamp, still geometry, checkerboard released after the report", true, true, Plate::None, nullptr,
                  {-1.125f, -1.125f}, {-1.125f, -0.375f}, 0, false, true},
+                {"lamp, still geometry, replacement inverse checkerboard released after the report", true, true, Plate::None,
+                 nullptr, {-1.125f, -0.375f}, {-1.125f, -1.125f}, 0, false, true, true},
                 {"ship's lantern, ship's still geometry, checkerboard released after the report", true, false, Plate::None,
                  nullptr, {-1.125f, -1.125f}, {-1.125f, -0.375f}, 0, true, true},
                 {"lamp, character, checkerboard", true, false, Plate::Character, checker, {-1.125f, -1.125f}, {-1.125f, -0.375f}, 0},
@@ -320,7 +323,7 @@ int main()
                 scene.texture = c.texture;
                 shim::Texture2D *texture =
                     c.released ? make_texture(*device, true, c.ship ? "cutout_caster_check\\ship_released.tga"
-                                                                     : "cutout_caster_check\\location_released.tga")
+                                                                     : "cutout_caster_check\\location_released.tga", c.inverse)
                                : c.texture;
                 const render::EffectsLocationGeometry::Surface surface{6, 6, texture};
                 render::SetEffectsLocationGeometry({"cutout_caster_check", positions, colors, uvs,

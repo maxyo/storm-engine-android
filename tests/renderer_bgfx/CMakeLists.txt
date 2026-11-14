@@ -97,6 +97,11 @@ target_compile_definitions(cutout_caster_check PRIVATE NOMINMAX)
 target_compile_options(cutout_caster_check PRIVATE -fsigned-char)
 target_link_libraries(cutout_caster_check PRIVATE storm_bgfx storm_check_sdl)
 
+# Cached lamp geometry owns texture storage independently of the game's texture wrappers. No window/GPU.
+add_executable(lamp_lifetime_check lamp_lifetime_check.cpp)
+target_include_directories(lamp_lifetime_check PRIVATE "${CMAKE_CURRENT_LIST_DIR}/../../src/libs/renderer_bgfx/src")
+target_link_libraries(lamp_lifetime_check PRIVATE storm_bgfx storm_check_sdl)
+
 # sea_edge_check: the sea's soft edges (fs_port_sea2 + fx::SeaDepth, «Высокая») next to an object in front of the sea,
 # through the shim on OpenGL ES (an X display, like skinning_check): no water is faded where nothing lies under it.
 add_executable(sea_edge_check sea_edge_check.cpp)

@@ -202,18 +202,17 @@ void LampShadows::set_geometry(const render::EffectsLocationGeometry &geometry)
     const auto same = [](const auto &kept, const auto &given) {
         return kept.size() == given.size() && std::equal(kept.begin(), kept.end(), given.begin());
     };
-    const auto same_surfaces = [&] {
-        size_t cut_indices = 0;
-        for (const CutOut &cut : cut_)
-            cut_indices += cut.indices.size();
-        size_t given = 0;
+    std::vector<CutSurface> surfaces;
+    if (geometry.uvs.size() == geometry.positions.size())
         for (const auto &surface : geometry.surfaces)
-            if (const shim::TexStore *store = shim::store_of(surface.texture); store && store->cutout)
-                given += surface.index_count;
-        return cut_indices == given;
-    };
+        {
+            auto store = shim::shared_store_of(surface.texture);
+            if (store && store->cutout && surface.first_index <= geometry.indices.size() &&
+                surface.index_count <= geometry.indices.size() - surface.first_index)
+                surfaces.push_back({surface.first_index, surface.index_count, store, store->cutout});
+        }
     if (same(positions_, geometry.positions) && same(indices_, geometry.indices) && same(colors_, geometry.colors) &&
-        same(uvs_, geometry.uvs) && same_surfaces() && geometry.interior == interior_ && geometry.room_lo == room_lo_ &&
+        same(uvs_, geometry.uvs) && cut_surfaces_ == surfaces && geometry.interior == interior_ && geometry.room_lo == room_lo_ &&
         geometry.room_hi == room_hi_)
         return;
     for (Slot &slot : slot_)
@@ -228,19 +227,17 @@ void LampShadows::set_geometry(const render::EffectsLocationGeometry &geometry)
     // Triangles of a texture whose alpha cuts holes cast through it; all others cast whole.
     solid_.clear();
     cut_.clear();
+    cut_surfaces_ = std::move(surfaces);
     const size_t triangles = indices_.size() / 3;
     list_of_.assign(triangles, -1);
     local_of_.assign(triangles, 0);
     if (uvs_.size() == positions_.size())
-        for (const auto &surface : geometry.surfaces)
+        for (const auto &surface : cut_surfaces_)
         {
-            const shim::TexStore *store = shim::store_of(surface.texture);
-            if (!store || !store->cutout || surface.first_index + surface.index_count > indices_.size())
-                continue;
-            auto into = std::find_if(cut_.begin(), cut_.end(), [&](const CutOut &c) { return c.texture == surface.texture; });
+            auto into = std::find_if(cut_.begin(), cut_.end(), [&](const CutOut &c) { return c.store == surface.store; });
             if (into == cut_.end())
-                into = cut_.insert(cut_.end(), CutOut{surface.texture, {}});
-            for (uint32_t t = surface.first_index / 3; t < (surface.first_index + surface.index_count) / 3; ++t)
+                into = cut_.insert(cut_.end(), CutOut{surface.store, {}});
+            for (uint32_t t = surface.first / 3; t < (surface.first + surface.count) / 3; ++t)
             {
                 list_of_[t] = static_cast<int32_t>(into - cut_.begin());
                 local_of_[t] = static_cast<uint32_t>(into->indices.size() / 3);
@@ -400,7 +397,7 @@ void LampShadows::choose_slots(const std::array<float, 3> &eye)
         free->triangles = buffer(solid_grid_, solid_, skip[0]);
         for (size_t c = 0; c < cut_.size(); ++c)
             if (const bgfx::IndexBufferHandle cut = buffer(cut_[c].grid, cut_[c].indices, skip[1 + c]); bgfx::isValid(cut))
-                free->cut.emplace_back(cut_[c].texture, cut);
+                free->cut.emplace_back(cut_[c].store, cut);
         placed[lamp] = true;
         ++kept;
     }
@@ -552,7 +549,17 @@ void LampShadows::set_ship_geometry(uint64_t ship, uint64_t signature, const ren
     kept->triangles = geometry.indices.size() / 3;
     for (Slot &slot : slot_)
         if (slot.lamp == kMovingLamp && slot.ship == ship)
+        {
+            // The old per-lantern buffers and texture references belong to the replaced geometry, including when
+            // the new report is empty and draw_faces will have no ship vertices with which to rebuild them.
+            if (bgfx::isValid(slot.triangles))
+                bgfx::destroy(slot.triangles);
+            slot.triangles = BGFX_INVALID_HANDLE;
+            for (const auto &cut : slot.cut)
+                bgfx::destroy(cut.second);
+            slot.cut.clear();
             slot.redraw = true;
+        }
     if (geometry.positions.empty() || geometry.indices.empty())
         return; // the ship said why; its lanterns' still faces stay open
     const bool textured = geometry.uvs.size() == geometry.positions.size();
@@ -574,12 +581,13 @@ void LampShadows::set_ship_geometry(uint64_t ship, uint64_t signature, const ren
     if (textured)
         for (const auto &surface : geometry.surfaces)
         {
-            const shim::TexStore *store = shim::store_of(surface.texture);
-            if (!store || !store->cutout || surface.first_index + surface.index_count > geometry.indices.size())
+            auto store = shim::shared_store_of(surface.texture);
+            if (!store || !store->cutout || surface.first_index > geometry.indices.size() ||
+                surface.index_count > geometry.indices.size() - surface.first_index)
                 continue;
-            auto into = std::find(kept->cut.begin(), kept->cut.end(), surface.texture);
+            auto into = std::find(kept->cut.begin(), kept->cut.end(), store);
             if (into == kept->cut.end())
-                into = kept->cut.insert(kept->cut.end(), surface.texture);
+                into = kept->cut.insert(kept->cut.end(), std::move(store));
             for (uint32_t t = surface.first_index / 3; t < (surface.first_index + surface.index_count) / 3; ++t)
                 kept->cut_of[t] = static_cast<int32_t>(into - kept->cut.begin());
         }
@@ -800,7 +808,7 @@ void LampShadows::draw_faces(shim::Device &device, Casters &casters, int s)
     // ship's space. A lamp's and a ship lantern's own fixture are not among them.
     struct Part
     {
-        shim::BaseTexture *texture = nullptr; // null: solid
+        shim::TexStore *store = nullptr; // null: solid; otherwise held by a geometry or slot
         bgfx::IndexBufferHandle indices = BGFX_INVALID_HANDLE;
         bgfx::TransientIndexBuffer gathered{}; // when `indices` is not valid
     };
@@ -819,13 +827,13 @@ void LampShadows::draw_faces(shim::Device &device, Casters &casters, int s)
             if (bgfx::isValid(slot.triangles))
                 parts.push_back({nullptr, slot.triangles});
             for (const auto &cut : slot.cut)
-                parts.push_back({cut.first, cut.second});
+                parts.push_back({cut.first.get(), cut.second});
         }
     }
     else if (slot.moving && bgfx::isValid(static_vb_))
     {
         std::vector<uint32_t> near;
-        const auto gather = [&](const fx::TriangleGrid &grid, const std::vector<uint32_t> &triangles, shim::BaseTexture *texture) {
+        const auto gather = [&](const fx::TriangleGrid &grid, const std::vector<uint32_t> &triangles, shim::TexStore *store) {
             near.clear();
             fx::TrianglesInSphere(grid, triangles, slot.at.position, slot.at.range, near, seen_);
             const auto count = static_cast<uint32_t>(near.size());
@@ -840,21 +848,21 @@ void LampShadows::draw_faces(shim::Device &device, Casters &casters, int s)
                 transient_reported_ = true;
                 return;
             }
-            Part part{texture};
+            Part part{store};
             bgfx::allocTransientIndexBuffer(&part.gathered, count, true);
             memcpy(part.gathered.data, near.data(), near.size() * sizeof(uint32_t));
             parts.push_back(part);
         };
         gather(solid_grid_, solid_, nullptr);
         for (const CutOut &c : cut_)
-            gather(c.grid, c.indices, c.texture);
+            gather(c.grid, c.indices, c.store.get());
     }
     else if (bgfx::isValid(static_vb_))
     {
         if (bgfx::isValid(slot.triangles))
             parts.push_back({nullptr, slot.triangles});
         for (const auto &cut : slot.cut)
-            parts.push_back({cut.first, cut.second});
+            parts.push_back({cut.first.get(), cut.second});
     }
     // The slot's row back to "nothing as far as the lamp reaches": the caster shader writes the distance over the
     // radius, here a distance far beyond any radius.
@@ -876,9 +884,7 @@ void LampShadows::draw_faces(shim::Device &device, Casters &casters, int s)
         {
             // Solid, or with its texture, so the shadow has its holes (foliage, nets, gratings): the same rule as for
             // a draw, the still geometry's material with this texture (sets the cut's uniforms).
-            shim::TexStore *store = part.texture ? shim::store_of(part.texture) : nullptr;
-            if (part.texture && !store)
-                continue;
+            shim::TexStore *store = part.store;
             const bgfx::ProgramHandle program_part =
                 store ? casters.program(device, Casters::Pass::Lamp, false, location_caster_material(store)) : program;
             if (!bgfx::isValid(program_part))
@@ -1104,6 +1110,8 @@ void LampShadows::shutdown()
         free_slot(slot);
     for (ShipGeometry &geometry : ship_geometry_)
         free_ship_geometry(geometry);
+    cut_.clear();
+    cut_surfaces_.clear();
     for (bgfx::UniformHandle *u : {&s_static_, &s_dynamic_, &s_grid_, &s_room_, &u_view_, &u_lamps_, &u_grid_, &u_caster_})
         if (bgfx::isValid(*u))
             bgfx::destroy(*u);

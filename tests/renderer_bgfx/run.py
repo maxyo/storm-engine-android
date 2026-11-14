@@ -50,14 +50,14 @@ subprocess.run([str(warmth), 'begin', str(build)], check=True)
 subprocess.run(['cmake', '--build', str(build), '--target', 'storm_bgfx', 'storm_texture_tests', 'perf_check', 'skinning_check', 'uniform_commit_check',
                 'preset_switch_check', 'sea_edge_check', 'program_cache_check', 'render_thread_check',
                 'storm_fx_core_check', 'ao_volume_check',
-                'storm_relief_check', 'cutout_caster_check', 'relief_switch_check', 'texture_format_check', 'backend_select_check',
+                'storm_relief_check', 'cutout_caster_check', 'lamp_lifetime_check', 'relief_switch_check', 'texture_format_check', 'backend_select_check',
                 'buffer_pool_check', 'thumbnail_check', 'pipeline_prewarm_check', 'wet_surfaces_check'], check=True)
 subprocess.run([str(warmth), 'end', str(build)], check=True)
 # Every check is its own process: they run in parallel (STORM_CHECK_JOBS, default 6), the draws on OpenGL ES
 # and on Vulkan at once, longest first. A failing check's output is printed.
 import concurrent.futures
 jobs = int(os.environ.get('STORM_CHECK_JOBS', '6'))
-plain = [[str(build / 'renderer_bgfx' / 'storm_texture_tests')], [str(build / 'perf_check')], [str(build / 'backend_select_check')],
+plain = [[str(build / 'lamp_lifetime_check')], [str(build / 'renderer_bgfx' / 'storm_texture_tests')], [str(build / 'perf_check')], [str(build / 'backend_select_check')],
          [str(build / 'renderer_bgfx' / 'fx' / 'storm_fx_core_check')], [str(build / 'relief_switch_check')],
          [str(build / 'relief' / 'storm_relief_check'), (build / 'relief_models_path.txt').read_text()]]
 # The checks that draw, on OpenGL ES.

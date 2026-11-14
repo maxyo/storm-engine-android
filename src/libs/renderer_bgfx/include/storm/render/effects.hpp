@@ -188,7 +188,7 @@ struct EffectsLocationGeometry
     struct Surface
     {
         uint32_t first_index = 0, index_count = 0;
-        shim::BaseTexture *texture = nullptr; // alive until the next SetEffectsLocationGeometry
+        shim::BaseTexture *texture = nullptr; // alive during the call: the effects hold what they keep of it
     };
     std::span<const Surface> surfaces;
     // What the place is: most of where one walks lies under a roof (measured by the location from its walk patch
@@ -231,7 +231,7 @@ void SetEffectsShipLights(std::span<const EffectsShip> ships, std::span<const Ef
 // signature: the ship then reports it (SetEffectsShipGeometry) before the frame draws.
 bool EffectsShipGeometryWanted(uint64_t ship, uint64_t signature);
 // The ship's still geometry in its own space (triangle list; uvs and surfaces as in EffectsLocationGeometry, the
-// textures alive while the ship's lanterns are reported). Empty: it could not be read; the ship casts nothing still.
+// textures alive during the call). Empty: it could not be read; the ship casts nothing still.
 struct EffectsShipGeometry
 {
     std::span<const std::array<float, 3>> positions;

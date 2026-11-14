@@ -237,6 +237,9 @@ struct VolumeTexture final : BaseTexture
 
 // Returns the storage behind any of the three texture classes (or nullptr).
 TexStore *store_of(BaseTexture *texture);
+// The same, shared: whoever keeps it past the call (a cache of what a texture covers) keeps the storage alive after the
+// game releases the texture, instead of holding a pointer that dangles then.
+TexStorePtr shared_store_of(BaseTexture *texture);
 
 // ---------------------------------------------------------------------------
 // buffers
