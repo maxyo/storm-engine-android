@@ -170,7 +170,7 @@ class RepairScreen final : public Screen
                    {"summary", part.masts ? bindings.Text("common.of") + " " + std::to_string(full) : std::string("-")},
                    {"steps", Json::array({1, 10})},
                    {"all", true},
-                   {"allLabel", bindings.Text("repair.max")},
+                   {"allLabel", bindings.Text("common.all")},
                    {"disabled", idle || !less || !more}};
             parts.push_back(Json{{"id", part.id},
                                  {"icon", part.icon},

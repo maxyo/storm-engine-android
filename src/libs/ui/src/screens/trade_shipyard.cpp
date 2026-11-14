@@ -613,7 +613,7 @@ class ShipyardScreen final : public Screen
             {
                 const bool more = facts ? plan.All() != std::pair{shown[0], shown[1]} : offers(all, "press");
                 actions.push_back(Json{{"id", "sheet-all"},
-                                       {"label", all->label},
+                                       {"label", bindings.Text("common.all")}, // the word of every fill-to-the-end in the port
                                        {"disabled", !ready || !more},
                                        {"reason", !facts || !ready ? all->unavailable_reason
                                                   : plan.All() == std::pair{100, 100} ? std::string()
@@ -621,7 +621,7 @@ class ShipyardScreen final : public Screen
             }
             if (ok)
                 actions.push_back(Json{{"id", "sheet-ok"},
-                                       {"label", ok->label},
+                                       {"label", bindings.Text("repair.do")}, // as the self repair names it (the game says «Ок»)
                                        {"sub", price},
                                        {"variant", "primary"},
                                        {"disabled", !offers(ok, "press") || (shown[0] <= hull_.base && shown[1] <= sails_.base)},

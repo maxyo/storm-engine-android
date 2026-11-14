@@ -975,6 +975,7 @@ static void Repair(const std::string &models)
                parts[0]["q"]["floor"] == 62 && parts[0]["q"]["ceiling"] == 80,
            "hull: set 75 % on the whole 0…100 %, not below the 62 % it is now nor past the 80 % the materials allow");
     ExpectEqual(parts[0]["need"], "<repair.planks> 17", "the planks the set amount takes (linear in the full-repair need)");
+    ExpectEqual(parts[0]["q"]["allLabel"], "<common.all>", "fill to the end is «Все», as everywhere");
     Expect(parts[2]["short"] == true && parts[2]["disabled"] == true, "sails without sailcloth: the row is off and says why");
     Expect(surface.props["stock"][0]["value"] == "40" && surface.props["stock"][1]["value"] == "0", "planks and sailcloth in stock");
     ExpectEqual(surface.props["primary"]["sub"], "6 <save.hours> · <repair.planks> 17", "repair button: time and planks");
@@ -1397,6 +1398,8 @@ static void Shipyard(const std::string &models)
         const auto parts_of = [&all_surface](int part) { return all_surface.props["sheet"]["parts"][part]["q"]["value"]; };
         Expect(parts_of(0) == 100 && parts_of(1) == 82, "«Все»: hull 100 %, sails 82 % with the rest");
         Expect(all_surface.props["sheet"]["actions"][1]["sub"] == "2\xC2\xA0" "495", "the price of the order: 2 315 + 180");
+        Expect(all_surface.props["sheet"]["actions"][0]["label"] == "<common.all>" && all_surface.props["sheet"]["actions"][1]["label"] == "<repair.do>",
+               "the port's words: «Все» fills, «Починить» repairs (as the self repair)");
         Expect(all_surface.commands.size() == 1 && all_surface.commands[0].find("REPAIR_ALL") == std::string::npos &&
                    all_surface.commands[0] == "widget:shipyard\tREPAIR_RIGHT_H\t-5\tyard@7:30:step5",
                "the game is led there by its arrows, not by its own «all»: " + Json(all_surface.commands).dump());
