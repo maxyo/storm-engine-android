@@ -1,51 +1,67 @@
 diff --git a/src/renderer_gl.cpp b/src/renderer_gl.cpp
-index 58de3d40..27395689 100644
+index 58de3d4..52b08c7 100644
 --- a/src/renderer_gl.cpp
 +++ b/src/renderer_gl.cpp
-@@ -14,6 +14,9 @@
+@@ -11,9 +11,14 @@
+ #	include <bx/timer.h>
+ #	include <bx/scanner.h>
+ #	include "emscripten.h"
++#	include <atomic>
  
  namespace bgfx { namespace gl
  {
-+	// storm: anisotropy level cap applied at the next reset (see updateResolution).
-+	float g_stormMaxAnisotropy = 0.0f;
++	// storm: anisotropy level cap applied at the next reset (see updateResolution). Written by the engine's game
++	// thread, read by the render thread every frame.
++	std::atomic<float> g_stormMaxAnisotropy{0.0f};
 +
  	struct PrimInfo
  	{
  		GLenum m_type;
-@@ -4204,8 +4207,10 @@ namespace bgfx { namespace gl
+@@ -4204,8 +4209,11 @@ namespace bgfx { namespace gl
  
  		void updateResolution(const SwapChain& _swapChain, uint32_t _reset)
  		{
 +			// storm: the level is capped by g_stormMaxAnisotropy (0 = the device maximum), so presets can ask
 +			// for 4x / 8x; bgfx itself has one level for every sampler.
++			const float stormMaxAnisotropy = g_stormMaxAnisotropy.load(std::memory_order_relaxed);
  			float maxAnisotropy = !!(_reset & BGFX_RESET_MAXANISOTROPY)
 -				? m_maxAnisotropyDefault
-+				? (0.0f < g_stormMaxAnisotropy ? bx::min(m_maxAnisotropyDefault, g_stormMaxAnisotropy) : m_maxAnisotropyDefault)
++				? (0.0f < stormMaxAnisotropy ? bx::min(m_maxAnisotropyDefault, stormMaxAnisotropy) : m_maxAnisotropyDefault)
  				: 0.0f
  				;
  
 diff --git a/src/renderer_vk.cpp b/src/renderer_vk.cpp
-index b75807e..96fb346 100644
+index b75807e..d3daca0 100644
 --- a/src/renderer_vk.cpp
 +++ b/src/renderer_vk.cpp
-@@ -19,6 +19,9 @@
+@@ -9,6 +9,7 @@
+ #	include <bx/pixelformat.h>
+ #	include "renderer_vk.h"
+ #	include "video_vk.h"
++#	include <atomic>
+ 
+ #if BX_PLATFORM_OSX
+ #	import <Cocoa/Cocoa.h>
+@@ -19,6 +20,10 @@
  
  namespace bgfx { namespace vk
  {
-+	// storm: anisotropy level cap applied at the next reset (see updateResolution).
-+	float g_stormMaxAnisotropy = 0.0f;
++	// storm: anisotropy level cap applied at the next reset (see updateResolution). Written by the engine's game
++	// thread, read by the render thread every frame.
++	std::atomic<float> g_stormMaxAnisotropy{0.0f};
 +
  	struct PrimInfo
  	{
  		VkPrimitiveTopology m_topology;
-@@ -3742,7 +3745,11 @@ VK_IMPORT_DEVICE
+@@ -3742,7 +3747,12 @@ VK_IMPORT_DEVICE
  			float maxAnisotropy = 1.0f;
  			if (!!(_reset & BGFX_RESET_MAXANISOTROPY) )
  			{
 -				maxAnisotropy = m_deviceProperties.limits.maxSamplerAnisotropy;
 +				// storm: the level is capped by g_stormMaxAnisotropy (0 = the device maximum), as in the GL backend.
-+				maxAnisotropy = 0.0f < g_stormMaxAnisotropy
-+					? bx::min(m_deviceProperties.limits.maxSamplerAnisotropy, g_stormMaxAnisotropy)
++				const float stormMaxAnisotropy = g_stormMaxAnisotropy.load(std::memory_order_relaxed);
++				maxAnisotropy = 0.0f < stormMaxAnisotropy
++					? bx::min(m_deviceProperties.limits.maxSamplerAnisotropy, stormMaxAnisotropy)
 +					: m_deviceProperties.limits.maxSamplerAnisotropy
 +					;
  			}

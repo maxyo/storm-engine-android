@@ -7,10 +7,10 @@ the shader, other drivers read whatever the pool held). The host now gives bgfx 
 The kinds a program declares are part of the descriptor set's cache key.
 
 diff --git a/src/renderer_vk.cpp b/src/renderer_vk.cpp
-index 2b449fe..1b007bf 100644
+index 84a8bb6..ad3c95a 100644
 --- a/src/renderer_vk.cpp
 +++ b/src/renderer_vk.cpp
-@@ -37,12 +37,39 @@ namespace bgfx
+@@ -38,12 +38,39 @@ namespace bgfx
  	/// bgfx::shutdown; the struct must outlive the device.
  	void setVkPresentHooks(const VkPresentHooks* _hooks);
  
@@ -47,10 +47,10 @@ index 2b449fe..1b007bf 100644
 +		}
 +	}
 +
- 	// storm: anisotropy level cap applied at the next reset (see updateResolution).
- 	float g_stormMaxAnisotropy = 0.0f;
- 
-@@ -5475,9 +5502,30 @@ VK_IMPORT_DEVICE
+ 	// storm: anisotropy level cap applied at the next reset (see updateResolution). Written by the engine's game
+ 	// thread, read by the render thread every frame.
+ 	std::atomic<float> g_stormMaxAnisotropy{0.0f};
+@@ -5478,9 +5505,30 @@ VK_IMPORT_DEVICE
  
  			for (uint32_t stage = 0; stage < BGFX_CONFIG_MAX_TEXTURE_SAMPLERS; ++stage)
  			{
@@ -82,7 +82,7 @@ index 2b449fe..1b007bf 100644
  				if (kInvalidHandle != bind.m_idx
  				&&  isValid(bindInfo.uniformHandle) )
  				{
-@@ -7333,6 +7381,7 @@ VK_DESTROY
+@@ -7336,6 +7384,7 @@ VK_DESTROY
  
  		m_numTextures = 0;
  		m_msaaMask    = 0;
@@ -90,7 +90,7 @@ index 2b449fe..1b007bf 100644
  
  		for (uint8_t stage = 0; stage < BX_COUNTOF(m_bindInfo); ++stage)
  		{
-@@ -7371,6 +7420,7 @@ VK_DESTROY
+@@ -7374,6 +7423,7 @@ VK_DESTROY
  				{
  					m_textures[m_numTextures] = shader->m_textures[index];
  					m_msaaMask |= shader->m_textures[index].msaa ? UINT32_C(1) << stage : 0;
@@ -98,7 +98,7 @@ index 2b449fe..1b007bf 100644
  					index = m_numTextures;
  					m_numTextures++;
  				}
-@@ -12495,6 +12545,7 @@ VK_DESTROY
+@@ -12498,6 +12548,7 @@ VK_DESTROY
  						hash.begin();
  						hash.add(program.m_descriptorSetLayout);
  						hash.add(program.m_msaaMask);
@@ -106,7 +106,7 @@ index 2b449fe..1b007bf 100644
  						hash.add(bindIdx);
  						hash.add(currentSbo.buffer);
  						hash.add(vsSize);
-@@ -12858,6 +12909,7 @@ VK_DESTROY
+@@ -12861,6 +12912,7 @@ VK_DESTROY
  						hash.begin();
  						hash.add(program.m_descriptorSetLayout);
  						hash.add(program.m_msaaMask);
@@ -114,7 +114,7 @@ index 2b449fe..1b007bf 100644
  						hash.add(bindIdx);
  						hash.add(currentSbo.buffer);
  						hash.add(vsSize);
-@@ -13372,6 +13424,13 @@ VK_DESTROY
+@@ -13375,6 +13427,13 @@ VK_DESTROY
  		vk::s_presentHooks = _hooks;
  	}
  

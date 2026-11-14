@@ -15,19 +15,20 @@
 
 
 #include <algorithm>
+#include <atomic>
 #include <iterator>
 #include <cctype>
 #include <cmath>
 #include <cstring>
 
-// patches/bgfx-anisotropy-level.patch: the level cap of each backend.
+// patches/bgfx-anisotropy-level.patch: the level cap of each backend (read by the render thread every frame).
 namespace bgfx::gl
 {
-extern float g_stormMaxAnisotropy;
+extern std::atomic<float> g_stormMaxAnisotropy;
 }
 namespace bgfx::vk
 {
-extern float g_stormMaxAnisotropy;
+extern std::atomic<float> g_stormMaxAnisotropy;
 }
 
 namespace storm::effects
@@ -421,7 +422,8 @@ void Host::activate(const fx::Settings &settings, const fx::Support &support)
     renderer_state_ = state;
     // The level of every anisotropic sampler (patches/bgfx-anisotropy-level.patch: one cap per backend), applied
     // at the next reset.
-    bgfx::gl::g_stormMaxAnisotropy = bgfx::vk::g_stormMaxAnisotropy = static_cast<float>(state.max_anisotropy);
+    bgfx::gl::g_stormMaxAnisotropy.store(static_cast<float>(state.max_anisotropy), std::memory_order_relaxed);
+    bgfx::vk::g_stormMaxAnisotropy.store(static_cast<float>(state.max_anisotropy), std::memory_order_relaxed);
     lighting_.configure(settings_, renderer_state_);
 }
 

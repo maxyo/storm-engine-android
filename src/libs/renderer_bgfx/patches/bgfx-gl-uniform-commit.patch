@@ -11,14 +11,10 @@ Emscripten only): a map lookup per vec4 register, never reset when GL reuses a d
 bgfx::gl::g_stormUniformUploadCalls / Bytes count every glUniform* the backend issues (engine render metrics).
 
 diff --git a/src/renderer_gl.cpp b/src/renderer_gl.cpp
-index 15f7053..935bd24 100644
+index 803b452..d827a67 100644
 --- a/src/renderer_gl.cpp
 +++ b/src/renderer_gl.cpp
-@@ -11,9 +11,21 @@
- #	include <bx/timer.h>
- #	include <bx/scanner.h>
- #	include "emscripten.h"
-+#	include <atomic>
+@@ -15,6 +15,17 @@
  
  namespace bgfx { namespace gl
  {
@@ -33,10 +29,10 @@ index 15f7053..935bd24 100644
 +		g_stormUniformUploadBytes.fetch_add(_bytes, std::memory_order_relaxed);
 +	}
 +
- 	// storm: anisotropy level cap applied at the next reset (see updateResolution).
- 	float g_stormMaxAnisotropy = 0.0f;
- 
-@@ -4134,6 +4146,7 @@ namespace bgfx { namespace gl
+ 	// storm: anisotropy level cap applied at the next reset (see updateResolution). Written by the engine's game
+ 	// thread, read by the render thread every frame.
+ 	std::atomic<float> g_stormMaxAnisotropy{0.0f};
+@@ -4136,6 +4147,7 @@ namespace bgfx { namespace gl
  			ProgramGL& program = m_program[_blitter.m_program.idx];
  			setProgram(program.m_id);
  			setUniform1i(program.m_sampler[0], 0);
@@ -44,7 +40,7 @@ index 15f7053..935bd24 100644
  
  			float proj[16];
  			bx::mtxOrtho(proj, 0.0f, (float)width, (float)height, 0.0f, 0.0f, 1000.0f, 0.0f, g_caps.homogeneousDepth);
-@@ -4936,9 +4949,16 @@ namespace bgfx { namespace gl
+@@ -4925,9 +4937,16 @@ namespace bgfx { namespace gl
  			}
  		}
  
@@ -62,7 +58,7 @@ index 15f7053..935bd24 100644
  
  			for (;;)
  			{
-@@ -4969,6 +4989,17 @@ namespace bgfx { namespace gl
+@@ -4958,6 +4977,17 @@ namespace bgfx { namespace gl
  
  				uint32_t loc = _uniformBuffer.read();
  
@@ -80,7 +76,7 @@ index 15f7053..935bd24 100644
  				switch (type)
  				{
  #if BX_PLATFORM_EMSCRIPTEN
-@@ -5023,6 +5054,8 @@ namespace bgfx { namespace gl
+@@ -5012,6 +5042,8 @@ namespace bgfx { namespace gl
  					break;
  				}
  			}
@@ -89,7 +85,7 @@ index 15f7053..935bd24 100644
  		}
  
  		void clearQuad(const ClearQuad& _clearQuad, const Rect& _rect, const Clear& _clear, uint32_t _height, const float _palette[][4])
-@@ -5428,7 +5461,7 @@ namespace bgfx { namespace gl
+@@ -5417,7 +5449,7 @@ namespace bgfx { namespace gl
  
  				if (NULL != program.m_constantBuffer)
  				{
@@ -98,7 +94,7 @@ index 15f7053..935bd24 100644
  				}
  
  				const uint8_t skipMask = _clear.getColorSkipMask(numMrt);
-@@ -5477,6 +5510,7 @@ namespace bgfx { namespace gl
+@@ -5466,6 +5498,7 @@ namespace bgfx { namespace gl
  			if (m_uniformStateCache.updateUniformCache(loc, value) )
  			{
  				GL_CHECK(glUniform1i(loc, value) );
@@ -106,7 +102,7 @@ index 15f7053..935bd24 100644
  			}
  		}
  
-@@ -5493,6 +5527,7 @@ namespace bgfx { namespace gl
+@@ -5482,6 +5515,7 @@ namespace bgfx { namespace gl
  			if (changed)
  			{
  				GL_CHECK(glUniform1iv(loc, num, data) );
@@ -114,7 +110,7 @@ index 15f7053..935bd24 100644
  			}
  		}
  
-@@ -5502,6 +5537,7 @@ namespace bgfx { namespace gl
+@@ -5491,6 +5525,7 @@ namespace bgfx { namespace gl
  			if (m_uniformStateCache.updateUniformCache(loc, f) )
  			{
  				GL_CHECK(glUniform4f(loc, x, y, z, w) );
@@ -122,7 +118,7 @@ index 15f7053..935bd24 100644
  			}
  		}
  
-@@ -5518,6 +5554,7 @@ namespace bgfx { namespace gl
+@@ -5507,6 +5542,7 @@ namespace bgfx { namespace gl
  			if (changed)
  			{
  				GL_CHECK(glUniform4fv(loc, num, data) );
@@ -130,7 +126,7 @@ index 15f7053..935bd24 100644
  			}
  		}
  
-@@ -5534,6 +5571,7 @@ namespace bgfx { namespace gl
+@@ -5523,6 +5559,7 @@ namespace bgfx { namespace gl
  			if (changed)
  			{
  				GL_CHECK(glUniformMatrix3fv(loc, num, transpose, data) );
@@ -138,7 +134,7 @@ index 15f7053..935bd24 100644
  			}
  		}
  
-@@ -5550,6 +5588,7 @@ namespace bgfx { namespace gl
+@@ -5539,6 +5576,7 @@ namespace bgfx { namespace gl
  			if (changed)
  			{
  				GL_CHECK(glUniformMatrix4fv(loc, num, transpose, data) );
@@ -146,7 +142,7 @@ index 15f7053..935bd24 100644
  			}
  		}
  
-@@ -5974,6 +6013,12 @@ namespace bgfx { namespace gl
+@@ -5963,6 +6001,12 @@ namespace bgfx { namespace gl
  		}
  		m_numPredefined = 0;
  
@@ -159,7 +155,7 @@ index 15f7053..935bd24 100644
  		if (0 != m_id)
  		{
  			s_renderGL->setProgram(0);
-@@ -6211,6 +6256,7 @@ namespace bgfx { namespace gl
+@@ -6200,6 +6244,7 @@ namespace bgfx { namespace gl
  					UniformType::Enum type = convertGlType(gltype);
  					m_constantBuffer->writeUniformHandle(uint8_t(type), 0, info->m_handle, uint16_t(num) );
  					m_constantBuffer->write(loc);
@@ -167,7 +163,7 @@ index 15f7053..935bd24 100644
  
  					const GLenum target = samplerTarget(gltype);
  					if (GL_ZERO != target
-@@ -6238,6 +6284,11 @@ namespace bgfx { namespace gl
+@@ -6227,6 +6272,11 @@ namespace bgfx { namespace gl
  		if (NULL != m_constantBuffer)
  		{
  			m_constantBuffer->finish();
@@ -179,7 +175,7 @@ index 15f7053..935bd24 100644
  		}
  
  		if (piqSupported)
-@@ -10000,7 +10051,7 @@ namespace bgfx { namespace gl
+@@ -9989,7 +10039,7 @@ namespace bgfx { namespace gl
  							if (constantsChanged
  							&&  NULL != program.m_constantBuffer)
  							{
@@ -188,7 +184,7 @@ index 15f7053..935bd24 100644
  							}
  
  							viewState.setPredefined<1>(this, view, *renderView, program, _render, compute);
-@@ -10538,7 +10589,7 @@ namespace bgfx { namespace gl
+@@ -10527,7 +10577,7 @@ namespace bgfx { namespace gl
  					if (constantsChanged
  					&&  NULL != program.m_constantBuffer)
  					{

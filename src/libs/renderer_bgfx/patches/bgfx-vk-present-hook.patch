@@ -7,10 +7,10 @@ was created and when it is about to go. VK_GOOGLE_display_timing, the device ext
 with vkQueuePresentKHR. Upstream bgfx has no present hook; keep the patch until it does.
 
 diff --git a/src/renderer_vk.cpp b/src/renderer_vk.cpp
-index 96fb346..2f76eb8 100644
+index ff0a16d..84a8bb6 100644
 --- a/src/renderer_vk.cpp
 +++ b/src/renderer_vk.cpp
-@@ -17,8 +17,32 @@
+@@ -18,8 +18,32 @@
  #	import <Metal/Metal.h>
  #endif // BX_PLATFORM_OSX
  
@@ -40,10 +40,10 @@ index 96fb346..2f76eb8 100644
  {
 +	static const VkPresentHooks* s_presentHooks = NULL;
 +
- 	// storm: anisotropy level cap applied at the next reset (see updateResolution).
- 	float g_stormMaxAnisotropy = 0.0f;
- 
-@@ -414,6 +438,7 @@ VK_IMPORT_DEVICE
+ 	// storm: anisotropy level cap applied at the next reset (see updateResolution). Written by the engine's game
+ 	// thread, read by the render thread every frame.
+ 	std::atomic<float> g_stormMaxAnisotropy{0.0f};
+@@ -416,6 +440,7 @@ VK_IMPORT_DEVICE
  
  #	if BX_PLATFORM_ANDROID
  			KHR_android_surface,
@@ -51,7 +51,7 @@ index 96fb346..2f76eb8 100644
  #	elif BX_PLATFORM_LINUX
  			KHR_wayland_surface,
  			KHR_xlib_surface,
-@@ -469,6 +494,9 @@ VK_IMPORT_DEVICE
+@@ -471,6 +496,9 @@ VK_IMPORT_DEVICE
  		{ "VK_NV_low_latency2",                     2, false, false, false,                                                         Layer::Count },
  #	if BX_PLATFORM_ANDROID
  		{ VK_KHR_ANDROID_SURFACE_EXTENSION_NAME,    1, false, false, true,                                                          Layer::Count },
@@ -61,7 +61,7 @@ index 96fb346..2f76eb8 100644
  #	elif BX_PLATFORM_LINUX
  		{ VK_KHR_WAYLAND_SURFACE_EXTENSION_NAME,    1, false, false, true,                                                          Layer::Count },
  		{ VK_KHR_XLIB_SURFACE_EXTENSION_NAME,       1, false, false, true,                                                          Layer::Count },
-@@ -9986,6 +10014,12 @@ VK_DESTROY
+@@ -10007,6 +10035,12 @@ VK_DESTROY
  
  		m_sci.oldSwapchain = m_swapChain;
  
@@ -74,7 +74,7 @@ index 96fb346..2f76eb8 100644
  		result = vkGetSwapchainImagesKHR(device, m_swapChain, &m_numSwapChainImages, NULL);
  		if (VK_SUCCESS != result)
  		{
-@@ -10118,6 +10152,13 @@ VK_DESTROY
+@@ -10139,6 +10173,13 @@ VK_DESTROY
  			release(m_renderDoneSemaphore[ii]);
  		}
  
@@ -88,7 +88,7 @@ index 96fb346..2f76eb8 100644
  		release(m_swapChain);
  		m_numSwapChainImages = 0;
  	}
-@@ -10750,7 +10791,11 @@ VK_DESTROY
+@@ -10771,7 +10812,11 @@ VK_DESTROY
  				BGFX_PROFILER_SCOPE("vkQueuePresentHKR", kColorFrame);
  				LowLatencyScope lowLatencyScope(*this);
  
@@ -101,7 +101,7 @@ index 96fb346..2f76eb8 100644
  			}
  
  			if (result != VK_SUCCESS)
-@@ -13302,7 +13347,14 @@ VK_DESTROY
+@@ -13323,7 +13368,14 @@ VK_DESTROY
  		kick();
  	}
  
