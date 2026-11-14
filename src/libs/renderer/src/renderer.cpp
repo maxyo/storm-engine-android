@@ -1337,6 +1337,163 @@ void Renderer::MakePostProcess()
     storm::render::EffectsSceneComplete();
 }
 
+void Renderer::DrawParallaxProbe()
+{
+    const storm::render::ParallaxProbeState &probe = storm::render::EffectsParallaxProbe();
+    if (!probe.on)
+    {
+        if (probeMaskTexture >= 0)
+            TextureRelease(probeMaskTexture);
+        probeMaskTexture = -1;
+        return;
+    }
+    // The mask of a new target (or a new verdict): green where the height is trusted, red where the parallax is taken.
+    if (probe.serial != probeMaskSerial)
+    {
+        probeMaskSerial = probe.serial;
+        if (probeMaskTexture >= 0)
+            TextureRelease(probeMaskTexture);
+        probeMaskTexture = -1;
+        if (!probe.trust.empty() &&
+            probe.trust.size() == static_cast<size_t>(probe.trust_width) * static_cast<size_t>(probe.trust_height))
+        {
+            probeMaskTexture = TextureCreate(probe.trust_width, probe.trust_height, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED);
+            D3DLOCKED_RECT locked{};
+            if (probeMaskTexture >= 0 && TextureLock(probeMaskTexture, 0, locked, 0))
+            {
+                for (int y = 0; y < probe.trust_height; ++y)
+                {
+                    auto *row = reinterpret_cast<uint32_t *>(static_cast<uint8_t *>(locked.pBits) + y * locked.Pitch);
+                    for (int x = 0; x < probe.trust_width; ++x)
+                    {
+                        const uint32_t t = probe.trust[static_cast<size_t>(y) * probe.trust_width + x];
+                        row[x] = 0xE0000000u | ((255u - t) << 16) | (t << 8) | 0x20u;
+                    }
+                }
+                TextureUnlock(probeMaskTexture, 0);
+            }
+            else
+                spdlog::error("parallax probe: the {}x{} mask of {} cannot be shown", probe.trust_width, probe.trust_height,
+                              probe.target);
+        }
+    }
+
+    // The fixed-function states of the overlay, restored afterwards.
+    constexpr uint32_t kStates[] = {D3DRS_ZENABLE,  D3DRS_ZWRITEENABLE,    D3DRS_ALPHABLENDENABLE, D3DRS_SRCBLEND,
+                                    D3DRS_DESTBLEND, D3DRS_ALPHATESTENABLE, D3DRS_LIGHTING,         D3DRS_CULLMODE,
+                                    D3DRS_FOGENABLE};
+    constexpr uint32_t kStageStates[] = {D3DTSS_COLOROP, D3DTSS_COLORARG1, D3DTSS_COLORARG2,
+                                         D3DTSS_ALPHAOP, D3DTSS_ALPHAARG1, D3DTSS_ALPHAARG2};
+    uint32_t states[std::size(kStates)], stage0[std::size(kStageStates)], stage1_color = 0, mag = 0, min = 0, mip = 0;
+    for (size_t i = 0; i < std::size(kStates); ++i)
+        GetRenderState(kStates[i], &states[i]);
+    for (size_t i = 0; i < std::size(kStageStates); ++i)
+        GetTextureStageState(0, kStageStates[i], &stage0[i]);
+    GetTextureStageState(1, D3DTSS_COLOROP, &stage1_color);
+    GetSamplerState(0, D3DSAMP_MAGFILTER, &mag);
+    GetSamplerState(0, D3DSAMP_MINFILTER, &min);
+    GetSamplerState(0, D3DSAMP_MIPFILTER, &mip);
+    SetRenderState(D3DRS_ZENABLE, FALSE);
+    SetRenderState(D3DRS_ZWRITEENABLE, FALSE);
+    SetRenderState(D3DRS_ALPHABLENDENABLE, TRUE);
+    SetRenderState(D3DRS_SRCBLEND, D3DBLEND_SRCALPHA);
+    SetRenderState(D3DRS_DESTBLEND, D3DBLEND_INVSRCALPHA);
+    SetRenderState(D3DRS_ALPHATESTENABLE, FALSE);
+    SetRenderState(D3DRS_LIGHTING, FALSE);
+    SetRenderState(D3DRS_CULLMODE, D3DCULL_NONE);
+    SetRenderState(D3DRS_FOGENABLE, FALSE);
+    SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
+    SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_DIFFUSE);
+    SetTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_DIFFUSE);
+    SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_SELECTARG1);
+    SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1);
+
+    const float w = static_cast<float>(screen_size.x), h = static_cast<float>(screen_size.y);
+    const float cx = std::floor(w * 0.5f), cy = std::floor(h * 0.5f);
+    const float unit = std::max(1.0f, h / 720.0f);
+    std::vector<RS_LINE2D> lines;
+    const auto line = [&lines](float x0, float y0, float x1, float y1, uint32_t color) {
+        lines.push_back({{x0, y0, 0.0f}, 1.0f, color});
+        lines.push_back({{x1, y1, 0.0f}, 1.0f, color});
+    };
+    // The crosshair: four arms around the probed pixel, dark under bright to read on any picture.
+    for (const auto &[offset, color] : {std::pair{1.0f, 0xFF000000u}, std::pair{0.0f, 0xFFFFE000u}})
+    {
+        const float gap = 4.0f * unit, arm = 18.0f * unit;
+        line(cx - arm + offset, cy + offset, cx - gap + offset, cy + offset, color);
+        line(cx + gap + offset, cy + offset, cx + arm + offset, cy + offset, color);
+        line(cx + offset, cy - arm + offset, cx + offset, cy - gap + offset, color);
+        line(cx + offset, cy + gap + offset, cx + offset, cy + arm + offset, color);
+    }
+    // The mask, upscaled point-sampled over a panel at the right, framed.
+    const float panel = std::floor(h * 0.32f);
+    float pw = panel, ph = panel;
+    if (probe.trust_width > 0 && probe.trust_height > 0)
+        ph = std::floor(panel * static_cast<float>(probe.trust_height) / static_cast<float>(probe.trust_width));
+    const float px = w - pw - 24.0f * unit, py = std::floor(h * 0.30f);
+    line(px - 1, py - 1, px + pw + 1, py - 1, 0xFFFFFFFFu);
+    line(px + pw + 1, py - 1, px + pw + 1, py + ph + 1, 0xFFFFFFFFu);
+    line(px + pw + 1, py + ph + 1, px - 1, py + ph + 1, 0xFFFFFFFFu);
+    line(px - 1, py + ph + 1, px - 1, py - 1, 0xFFFFFFFFu);
+    TextureSet(0, -1);
+    DrawLines2D(lines.data(), lines.size() / 2);
+    if (probeMaskTexture >= 0)
+    {
+        TextureSet(0, probeMaskTexture);
+        SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
+        SetTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_TEXTURE);
+        SetSamplerState(0, D3DSAMP_MAGFILTER, D3DTEXF_POINT);
+        SetSamplerState(0, D3DSAMP_MINFILTER, D3DTEXF_POINT);
+        SetSamplerState(0, D3DSAMP_MIPFILTER, D3DTEXF_NONE);
+        RS_SPRITE quad[4];
+        FillSpriteVertex(quad[0], px, py, 0.0f, 0xFFFFFFFF, 0.0f, 0.0f);
+        FillSpriteVertex(quad[1], px + pw, py, 0.0f, 0xFFFFFFFF, 1.0f, 0.0f);
+        FillSpriteVertex(quad[2], px + pw, py + ph, 0.0f, 0xFFFFFFFF, 1.0f, 1.0f);
+        FillSpriteVertex(quad[3], px, py + ph, 0.0f, 0xFFFFFFFF, 0.0f, 1.0f);
+        DrawSprites(quad, 1);
+        TextureSet(0, -1);
+    }
+    for (size_t i = 0; i < std::size(kStates); ++i)
+        SetRenderState(kStates[i], states[i]);
+    for (size_t i = 0; i < std::size(kStageStates); ++i)
+        SetTextureStageState(0, kStageStates[i], stage0[i]);
+    SetTextureStageState(1, D3DTSS_COLOROP, stage1_color);
+    SetSamplerState(0, D3DSAMP_MAGFILTER, mag);
+    SetSamplerState(0, D3DSAMP_MINFILTER, min);
+    SetSamplerState(0, D3DSAMP_MIPFILTER, mip);
+
+    // The text: what is under the crosshair and its parallax.
+    const int32_t font = idFontCurrent;
+    const int32_t step = std::max<int32_t>(CharHeight(font), 12) + static_cast<int32_t>(4.0f * unit);
+    const int32_t tx = static_cast<int32_t>(px), ty = static_cast<int32_t>(py + ph + 8.0f * unit);
+    constexpr uint32_t kWhite = 0xFFFFFFFF, kGreen = 0xFF60FF60, kRed = 0xFFFF6060;
+    if (!probe.available)
+        ExtPrint(font, kRed, 0, PR_ALIGN_LEFT, true, 1.0f, screen_size.x, screen_size.y, tx, ty, "Прицел: occlusion-запросы не работают (лог)");
+    else if (probe.target.empty())
+        ExtPrint(font, kWhite, 0, PR_ALIGN_LEFT, true, 1.0f, screen_size.x, screen_size.y, tx, ty, "Прицел: нет рельефной текстуры");
+    else
+    {
+        const size_t slash = probe.target.find_last_of("\\/");
+        const std::string file = slash == std::string::npos ? probe.target : probe.target.substr(slash + 1);
+        const std::string folder = slash == std::string::npos ? std::string() : probe.target.substr(0, slash);
+        ExtPrint(font, kWhite, 0, PR_ALIGN_LEFT, true, 1.0f, screen_size.x, screen_size.y, tx, ty, "Прицел: %s", file.c_str());
+        int32_t y = ty + step;
+        if (!folder.empty())
+        {
+            ExtPrint(font, kWhite, 0, PR_ALIGN_LEFT, true, 0.8f, screen_size.x, screen_size.y, tx, y, "%s", folder.c_str());
+            y += step;
+        }
+        ExtPrint(font, kWhite, 0, PR_ALIGN_LEFT, true, 1.0f, screen_size.x, screen_size.y, tx, y, "класс %s, доверие %.0f%%",
+                 probe.relief_class.c_str(), static_cast<double>(probe.coverage * 100.0f));
+        y += step;
+        if (probe.parallax)
+            ExtPrint(font, kGreen, 0, PR_ALIGN_LEFT, true, 1.0f, screen_size.x, screen_size.y, tx, y, "параллакс: вкл");
+        else
+            ExtPrint(font, kRed, 0, PR_ALIGN_LEFT, true, 1.0f, screen_size.x, screen_size.y, tx, y, "параллакс: выкл (%s)",
+                     probe.reason.c_str());
+    }
+}
+
 //################################################################################
 bool Renderer::DrawFrameStats()
 {
@@ -1382,6 +1539,8 @@ bool Renderer::DrawFrameStats()
         Print(80, 130, "d : %d, lv: %d, li: %d", dwNumDrawPrimitive, dwNumLV, dwNumLI);
         Print(80, 150, "s : %d, %.3f, %.3f", dwSoundBuffersCount, dwSoundBytes / 1024.f, dwSoundBytesCached / 1024.f);
     }
+
+    DrawParallaxProbe(); // over the finished picture, before it is presented
 
     // Try to drop video conveyor
     if (bDropVideoConveyor && pDropConveyorVBuffer)

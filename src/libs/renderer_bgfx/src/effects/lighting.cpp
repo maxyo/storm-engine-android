@@ -264,6 +264,7 @@ void Lighting::prepare(const shim::Device &device, const shim::LayoutInfo &layou
             if (!store || !store->normal_map || device.s.tss[stage][D3DTSS_COLOROP] == D3DTOP_DISABLE)
                 continue;
             relief_map = normal_maps_.handle(*store, fx_);
+            draw.relief_entry = store->normal_map.get();
             normal_map = relief_map.handle;
             relief_fade = relief_map.fade;
             relief_stage = stage;
@@ -995,6 +996,7 @@ void Lighting::end_frame()
 
 void Lighting::shutdown()
 {
+    probe_.shutdown();
     fx_.Shutdown();
     shadows_.shutdown();
     town_light_.shutdown();
@@ -1017,6 +1019,7 @@ void Lighting::shutdown()
 
 void Lighting::on_device_lost()
 {
+    probe_.on_device_lost();
     fx_.OnDeviceLost();
     shadows_.on_device_lost();
     town_light_.on_device_lost();

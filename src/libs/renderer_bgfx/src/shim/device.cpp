@@ -523,6 +523,12 @@ HRESULT Device::Present()
         release_paused_picture();
     const TexStorePtr &shown_store = paused_picture ? paused_picture : back_color->store;
     const TexStore &shown = *shown_store;
+    // A frame whose scene never completed (no interface ended it) still has its probe draws placed after it; an
+    // unused probe view goes back to its place (effects/parallax_probe.hpp).
+    effects::ParallaxProbe &probe = effects.lighting().probe();
+    if (views_used > 0)
+        probe.place(static_cast<bgfx::ViewId>(render::kGameViewBegin + views_used - 1));
+    probe.before_frame();
     if (context.ready())
         copy_frame(shown_store);
     const uint32_t presented = context.last_frame();
@@ -578,6 +584,10 @@ void Device::scene_complete()
     }
     scene_done = true;
     auto &host = effects::Host::instance();
+    // Effects: the parallax probe's draws run right after the scene's last view, on its final depth
+    // (effects/parallax_probe.hpp); the depth must then outlive that view.
+    const bool probe_placed = views_used > 0 && host.lighting().probe().place(
+                                                    static_cast<bgfx::ViewId>(render::kGameViewBegin + views_used - 1));
     // A scaled scene is upscaled straight onto the parked display-size picture; a display-size one ping-pongs.
     const bool scaled = held_color != nullptr;
     if (!(host.post_active() || scaled) || !Context::instance().ready())
@@ -622,7 +632,7 @@ void Device::scene_complete()
     // vkCmdResolveImage; a depth an effect reads: a shader pass), so the discard would leave nothing to resolve.
     // Only a multisampled depth that nothing reads can go there.
     if (view_color == scene && (scene->target_flags & BGFX_TEXTURE_RT_MSAA_MASK) &&
-        (back_depth->store->target_flags & BGFX_TEXTURE_RT_MSAA_MASK))
+        (back_depth->store->target_flags & BGFX_TEXTURE_RT_MSAA_MASK) && !probe_placed)
     {
         uint16_t discard = BGFX_CLEAR_DISCARD_COLOR_0 | BGFX_CLEAR_DISCARD_DEPTH | BGFX_CLEAR_DISCARD_STENCIL;
         if (Context::instance().device_info().vulkan)
@@ -783,7 +793,9 @@ uint16_t Device::new_view()
             depth = nullptr;
         }
     }
-    bgfx::setViewFrameBuffer(view, framebuffer(color, rt->face, rt->level, depth));
+    view_framebuffer = framebuffer(color, rt->face, rt->level, depth);
+    view_depth = depth;
+    bgfx::setViewFrameBuffer(view, view_framebuffer);
     bgfx::setViewMode(view, bgfx::ViewMode::Sequential);
     // The display-size depth back from parking (render scale) holds an old frame: cleared in the first view that
     // uses it, in the same pass (a tile GPU loads nothing).
@@ -815,6 +827,9 @@ uint16_t Device::new_view()
     const uint32_t y = Context::instance().flip_y() ? target_height - std::min<uint32_t>(target_height, y0 + h) : y0;
     bgfx::setViewRect(view, static_cast<int16_t>(x0), static_cast<int16_t>(y), static_cast<uint16_t>(w),
                       static_cast<uint16_t>(h), vp.MinZ, vp.MaxZ);
+    view_rect = {static_cast<uint16_t>(x0), static_cast<uint16_t>(y), static_cast<uint16_t>(w), static_cast<uint16_t>(h)};
+    view_min_z = vp.MinZ;
+    view_max_z = vp.MaxZ;
     return view;
 }
 

@@ -285,6 +285,24 @@ void ConfigureRelief(const ReliefConfig &config);
 // The owner's parallax tuning file (fx/parallax_exclusions.hpp): `exclude <texture>` / `include <texture>` lines, written by
 // the debug view's toggle. Kept in the app's files directory: his choices, not a cache. Before the first texture is loaded.
 void ConfigureParallaxExclusions(const std::filesystem::path &user_file);
+// The parallax probe (option fx_pom_probe=1; the renderer draws it over the picture): the relief texture under the
+// screen centre, found exactly on the GPU (effects/parallax_probe.hpp), and its parallax. fx_pom_toggle switches that
+// texture's parallax on or off (the user file above). `serial` changes whenever anything below does.
+struct ParallaxProbeState
+{
+    bool on = false;          // fx_pom_probe
+    bool available = true;    // the device has occlusion queries (else logged once, nothing is found)
+    std::string target;       // the texture under the centre (normalized path); empty: no relief texture there
+    std::string relief_class; // fx::ReliefClassName
+    bool uploaded = false;    // its relief is on the GPU
+    bool parallax = false;    // it draws with the parallax
+    float coverage = 1.0f;    // the share of its trusted texels (fx/parallax_trust.hpp)
+    std::string reason;       // no parallax: why (not made yet, no height, a list, too few trusted texels)
+    int trust_width = 0, trust_height = 0;
+    std::vector<uint8_t> trust; // its trust mask, R8 (255 trusted), trust_width x trust_height; empty: none stored
+    uint32_t serial = 0;
+};
+const ParallaxProbeState &EffectsParallaxProbe();
 // Before the renderer goes: stops the generator (the texture in progress is abandoned, its map made next time).
 void ShutdownRelief();
 // Any thread, the system low on memory (Android onTrimMemory / onLowMemory): the relief's models are released after

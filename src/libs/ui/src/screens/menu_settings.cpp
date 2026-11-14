@@ -260,6 +260,15 @@ class SettingsScreen final : public Screen
                     DebugSegment(bindings, debug, "fx_sea_waves_debug", "Море: волны, отладка", {-1, 0, 1, 2},
                                  {"пресет", "выкл", "слои", "наклон"});
                 }
+                // The parallax probe (engine effects/parallax_probe.hpp): the relief texture under the screen centre, its
+                // parallax and trust mask drawn over the picture; the second row switches that texture's parallax.
+                // Settings reach the engine as stored values applied with «Готово», not as events: every change of
+                // fx_pom_toggle's value is one press (the engine switches on the change, never on the value itself).
+                if (Known("fx_pom_probe"))
+                {
+                    DebugSegment(bindings, debug, "fx_pom_probe", "Прицел: текстура и параллакс", {-1, 1}, {"выкл", "вкл"});
+                    DebugSegment(bindings, debug, "fx_pom_toggle", "Прицел: переключить параллакс", {-1, 1}, {"А", "Б"});
+                }
                 // The renderer's thread, its frame overlap and the graphics API (read at the game's start).
                 if (Known("render_backend"))
                 {

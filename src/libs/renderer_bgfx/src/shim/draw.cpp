@@ -1151,38 +1151,36 @@ HRESULT Device::draw(const DrawCall &call)
     // Slope-biased draws (projected shadows: unlit decals) keep the depth-writing fixed-function variant.
     effects::Lighting &fx_lighting = effects::Host::instance().lighting();
     effects::FfDraw fx_draw;
-    if (!vs_port && !ps_port && fs_variant != 4 && !fx_lighting.idle())
+    // The lights are chosen for the part of the world the draw covers (its vertices' sphere in world space), computed
+    // only when prepare() or the parallax probe needs it (effects::DrawSphereSource).
+    struct SphereContext
     {
-        // The lights are chosen for the part of the world the draw covers (its vertices' sphere in world space),
-        // computed only when prepare() needs it (effects::DrawSphereSource).
-        struct SphereContext
-        {
-            Device *device;
-            const DrawCall *call;
-            const LayoutInfo *layout;
-            uint32_t element_count;
-        } sphere_context{this, &call, layout, element_count};
-        const effects::DrawSphereSource sphere(
-            [](const void *context) {
-                const auto &c = *static_cast<const SphereContext *>(context);
-                effects::DrawSphere result;
-                float center[3], radius = 0.0f;
-                if (c.device->draw_bounds(*c.call, *c.layout, c.element_count, center, radius))
-                {
-                    const D3DMATRIX &w = c.device->s.world;
-                    for (int k = 0; k < 3; ++k)
-                        result.center[k] = center[0] * w.m[0][k] + center[1] * w.m[1][k] + center[2] * w.m[2][k] + w.m[3][k];
-                    float scale = 0.0f;
-                    for (int r = 0; r < 3; ++r)
-                        scale = std::max(scale, std::sqrt(w.m[r][0] * w.m[r][0] + w.m[r][1] * w.m[r][1] + w.m[r][2] * w.m[r][2]));
-                    result.radius = radius * scale;
-                    result.valid = true;
-                }
-                return result;
-            },
-            &sphere_context);
+        Device *device;
+        const DrawCall *call;
+        const LayoutInfo *layout;
+        uint32_t element_count;
+    } sphere_context{this, &call, layout, element_count};
+    const effects::DrawSphereSource sphere(
+        [](const void *context) {
+            const auto &c = *static_cast<const SphereContext *>(context);
+            effects::DrawSphere result;
+            float center[3], radius = 0.0f;
+            if (c.device->draw_bounds(*c.call, *c.layout, c.element_count, center, radius))
+            {
+                const D3DMATRIX &w = c.device->s.world;
+                for (int k = 0; k < 3; ++k)
+                    result.center[k] = center[0] * w.m[0][k] + center[1] * w.m[1][k] + center[2] * w.m[2][k] + w.m[3][k];
+                float scale = 0.0f;
+                for (int r = 0; r < 3; ++r)
+                    scale = std::max(scale, std::sqrt(w.m[r][0] * w.m[r][0] + w.m[r][1] * w.m[r][1] + w.m[r][2] * w.m[r][2]));
+                result.radius = radius * scale;
+                result.valid = true;
+            }
+            return result;
+        },
+        &sphere_context);
+    if (!vs_port && !ps_port && fs_variant != 4 && !fx_lighting.idle())
         fx_lighting.prepare(*this, *layout, fs_variant, sphere, fx_draw);
-    }
     fx_lighting.census(*this, *layout, vs_port || ps_port, fs_variant == 4, fs_variant, fx_draw);
     if (layout->skinned && (vs_port || !store_of(s.vertex_texture)))
     {
@@ -1534,8 +1532,37 @@ HRESULT Device::draw(const DrawCall &call)
         bgfx::setScissor(static_cast<uint16_t>(std::max<int32_t>(0, left)), static_cast<uint16_t>(std::max(0, y)),
                          static_cast<uint16_t>(std::max(0, w)), static_cast<uint16_t>(std::max(0, h)));
     }
-    // Effects: a sun shadow caster keeps its buffers for the depth-only copy into the shadow view (effects/shadows.hpp).
-    bgfx::submit(view_id, handle, 0, fx_draw.caster ? BGFX_DISCARD_NONE : BGFX_DISCARD_ALL);
+    // Effects: the parallax probe (effects/parallax_probe.hpp) tests a relief draw of the game picture that writes depth
+    // and lies on the centre ray again after the scene, at the centre pixel, against the scene's final depth.
+    bgfx::OcclusionQueryHandle probe_query = BGFX_INVALID_HANDLE;
+    effects::ParallaxProbe &probe = fx_lighting.probe();
+    if (fx_draw.relief_entry && probe.enabled() && rt == back_color && view_depth == back_depth->store.get() &&
+        (bits & BGFX_STATE_WRITE_Z) && !layout->rhw)
+        if (const effects::DrawSphere &bounds = sphere.get(); bounds.valid)
+        {
+            const float center[3] = {bounds.center[0], bounds.center[1], bounds.center[2]};
+            probe_query = probe.candidate(fx_draw.relief_entry, &s.view.m[0][0], &s.proj.m[0][0], center, bounds.radius,
+                                          {view_framebuffer, view_rect, view_min_z, view_max_z});
+        }
+    // Effects: a sun shadow caster keeps its buffers for the depth-only copy into the shadow view (effects/shadows.hpp),
+    // and so does a probe draw for its copy.
+    bgfx::submit(view_id, handle, 0, fx_draw.caster || bgfx::isValid(probe_query) ? BGFX_DISCARD_NONE : BGFX_DISCARD_ALL);
+    if (bgfx::isValid(probe_query))
+    {
+        // The probe view runs elsewhere in the frame: every uniform of the program is set again for the copy (the
+        // shim sends only the changed ones, which the draws between would have changed).
+        invalidate_uniforms();
+        apply_ff_uniforms(*layout, vs_port, ps_port, fx_draw);
+        if (fx_draw.active)
+            fx_lighting.submit(fx_draw);
+        constexpr uint64_t kKept = BGFX_STATE_PT_MASK | BGFX_STATE_CULL_MASK | BGFX_STATE_MSAA | BGFX_STATE_BLEND_ALPHA_TO_COVERAGE;
+        bgfx::setState((bits & kKept) | BGFX_STATE_DEPTH_TEST_EQUAL);
+        bgfx::setStencil(BGFX_STENCIL_NONE); // the scene's stencil is not the one this draw saw
+        const uint32_t width = rt->store->level_width(rt->level), height = rt->store->level_height(rt->level);
+        bgfx::setScissor(static_cast<uint16_t>(width / 2), static_cast<uint16_t>(height / 2), 1, 1);
+        bgfx::submit(effects::ParallaxProbe::kView, handle, probe_query, 0,
+                     fx_draw.caster ? BGFX_DISCARD_NONE : BGFX_DISCARD_ALL);
+    }
     if (fx_draw.caster)
         fx_lighting.submit_caster(*this, s.world, layout->skinned);
     view_has_content = true;

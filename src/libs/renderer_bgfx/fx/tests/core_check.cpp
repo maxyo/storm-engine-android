@@ -19,6 +19,7 @@
 #include "storm/fx/height_map.hpp"
 #include "storm/fx/normal_map.hpp"
 #include "storm/fx/parallax_exclusions.hpp"
+#include "storm/fx/parallax_probe.hpp"
 #include "storm/fx/parallax_trust.hpp"
 #include "storm/fx/relief_store.hpp"
 #include "storm/fx/settings.hpp"
@@ -2209,6 +2210,81 @@ void CheckGlossMaps()
 
 // The parallax trust (parallax_trust.hpp): plain relief keeps it, a dark pane set into a wall loses it, a texture of
 // nothing but panes is below the coverage a texture needs; the exclusion lists (parallax_exclusions.hpp).
+// The parallax probe's CPU side (fx_pom_probe): the centre-ray candidates, the pick from the occlusion queries, the view
+// order that runs the probe view after the scene, the toggle's edge.
+void CheckParallaxProbe()
+{
+    // Camera at the origin looking down +z (identity view), symmetric perspective.
+    const float identity[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+    const float proj[16] = {1.5f, 0, 0, 0, 0, 2.0f, 0, 0, 0, 0, 1.001f, 1, 0, 0, -0.1f, 0};
+    const float ahead[3] = {0.3f, -0.2f, 10.0f}, aside[3] = {3.0f, 0.0f, 10.0f}, behind[3] = {0.0f, 0.0f, -5.0f};
+    CHECK(OnCentreRay(identity, proj, ahead, 0.5f));
+    CHECK(!OnCentreRay(identity, proj, aside, 0.5f));
+    CHECK(OnCentreRay(identity, proj, aside, 3.5f));
+    CHECK(!OnCentreRay(identity, proj, behind, 1.0f));
+    CHECK(OnCentreRay(identity, proj, behind, 6.0f)); // the camera inside the sphere
+    // A view that moves the world 10 units back along z: a sphere at the origin is then ahead.
+    const float moved[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 10, 1};
+    const float origin[3] = {0.0f, 0.0f, 0.0f};
+    CHECK(OnCentreRay(moved, proj, origin, 0.1f));
+    // An off-centre projection: its centre ray leans by -_31 / _11.
+    const float skewed[16] = {1.0f, 0, 0, 0, 0, 1.0f, 0, 0, -0.5f, 0, 1.001f, 1, 0, 0, -0.1f, 0};
+    const float leaning[3] = {5.0f, 0.0f, 10.0f};
+    CHECK(OnCentreRay(identity, skewed, leaning, 0.2f));
+    CHECK(!OnCentreRay(identity, proj, leaning, 0.2f));
+
+    const int32_t none[] = {0, 0};
+    const int32_t wall_and_decal[] = {4, 0, 2};
+    const int32_t pending[] = {4, kProbeNoResult};
+    CHECK(PickProbeTarget(none).conclusive && PickProbeTarget(none).index == -1);
+    CHECK(PickProbeTarget(wall_and_decal).conclusive && PickProbeTarget(wall_and_decal).index == 2);
+    CHECK(!PickProbeTarget(pending).conclusive);
+    CHECK(PickProbeTarget({}).conclusive && PickProbeTarget({}).index == -1);
+
+    // bgfx::setViewOrder's swaps (bgfx_p.h), from identity: the probe view runs right after `last`, the rest keep
+    // their order; a reset (null order) restores identity.
+    constexpr int kViews = 40;
+    uint16_t remap[kViews], position[kViews];
+    const auto set_order = [&](uint16_t first, uint16_t count, const uint16_t *order) {
+        for (uint16_t i = 0; i < count; ++i)
+        {
+            const uint16_t pos = first + i, id = order ? order[i] : pos;
+            const uint16_t prev_pos = position[id], prev_id = remap[pos];
+            remap[pos] = id;
+            position[id] = pos;
+            remap[prev_pos] = prev_id;
+            position[prev_id] = prev_pos;
+        }
+    };
+    for (uint16_t i = 0; i < kViews; ++i)
+        remap[i] = position[i] = i;
+    for (const uint16_t last : {uint16_t(12), uint16_t(30)})
+    {
+        set_order(0, kViews, nullptr);
+        const std::vector<uint16_t> order = ProbeViewOrder(7, last);
+        CHECK(order.size() == static_cast<size_t>(last - 7 + 1));
+        set_order(7, static_cast<uint16_t>(order.size()), order.data());
+        bool ok = position[7] == position[last] + 1 && position[last + 1] == position[7] + 1;
+        for (uint16_t id = 0; id + 1 < kViews; ++id)
+            if (id != 7 && id + 1 != 7)
+                ok = ok && position[id] < position[id + 1];
+        CHECK(ok);
+    }
+    set_order(0, kViews, nullptr);
+    bool identity_again = true;
+    for (uint16_t i = 0; i < kViews; ++i)
+        identity_again = identity_again && remap[i] == i;
+    CHECK(identity_again);
+    CHECK(ProbeViewOrder(7, 7).empty());
+
+    EdgeTrigger toggle;
+    CHECK(!toggle.Apply(-1)); // the stored value at the start
+    CHECK(!toggle.Apply(-1)); // re-applied unchanged
+    CHECK(toggle.Apply(1));
+    CHECK(!toggle.Apply(1));
+    CHECK(toggle.Apply(-1));
+}
+
 void CheckParallaxTrust()
 {
     const int n = 256;
@@ -2326,6 +2402,7 @@ int main()
     CheckOccluderBackdrop();
     CheckBounce();
     CheckParallaxTrust();
+    CheckParallaxProbe();
     CheckSeaWaves();
     CheckGlossMaps();
     if (failures)

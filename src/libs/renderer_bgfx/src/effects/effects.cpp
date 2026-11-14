@@ -298,11 +298,18 @@ void Host::apply()
     requested_ = fx::Settings::FromPreset(static_cast<fx::QualityPreset>(preset_));
     bool profile = false;
     caps_profile_ = fx::CapsProfile::Device;
+    // The parallax probe's options are no settings of the picture (they never start a switch): fx_pom_probe turns it
+    // on; fx_pom_toggle is a trigger, -1 (left out) a value like the others, so that every change fires.
+    int pom_probe = -1, pom_toggle = -1;
     for (const auto &option : options_)
     {
-        if (option.value < 0)
+        if (option.name == "fx_pom_probe")
+            pom_probe = option.value;
+        else if (option.name == "fx_pom_toggle")
+            pom_toggle = option.value;
+        else if (option.value < 0)
             continue; // the preset's value
-        if (option.name == "fx_gpu_profile")
+        else if (option.name == "fx_gpu_profile")
             profile = option.value != 0;
         else if (option.name == "fx_caps_profile")
             caps_profile_ = static_cast<fx::CapsProfile>(std::clamp(option.value, 0, static_cast<int>(fx::CapsProfile::Count) - 1));
@@ -313,6 +320,9 @@ void Host::apply()
     }
     for (const auto &error : report_.errors)
         shim::logf("ERROR: effects: %s", error.c_str());
+    lighting_.probe().set_enabled(pom_probe > 0);
+    if (pom_toggle_.Apply(pom_toggle))
+        lighting_.probe().toggle(lighting_.normal_maps());
     if (device_ready_ && profile != profile_)
     {
         bgfx::setDebug(profile ? BGFX_DEBUG_PROFILER : BGFX_DEBUG_NONE);
@@ -605,6 +615,7 @@ void Host::end_frame(bool scene_frame, uint32_t frame)
     }
     weather_this_frame_ = false;
     sun_glare_ = sun_ghosts_ = 0.0f;
+    lighting_.probe().end_frame(scene_frame, lighting_.normal_maps());
     lighting_.end_frame();
     {
         const auto now = std::chrono::steady_clock::now();
@@ -719,7 +730,11 @@ const std::vector<EffectsOptionInfo> &EffectsOptionNames()
         std::vector<EffectsOptionInfo> list{{"fx_preset", "0 Низкая, 1 Средняя, 2 Высокая"},
                                             {"fx_caps_profile", "0 device, 1 gles30-minimal, 2 mali-g5x, 3 mali-g7x, 4 adreno-6xx, "
                                                                 "5 adreno-7xx-8xx, 6 powervr, 7 xclipse (development)"},
-                                            {"fx_gpu_profile", "1: log GPU timer averages every 30 frames (measurements)"}};
+                                            {"fx_gpu_profile", "1: log GPU timer averages every 30 frames (measurements)"},
+                                            {"fx_pom_probe", "0 off, 1 the relief texture under the screen centre, its parallax "
+                                                             "and trust mask over the picture (logged)"},
+                                            {"fx_pom_toggle", "a trigger: every change of the value switches the parallax of "
+                                                              "the texture under the centre (the user exclusion list)"}};
         for (const auto &option : effects::kOptions)
             list.push_back({option.name, option.values});
         return list;
@@ -730,6 +745,11 @@ const std::vector<EffectsOptionInfo> &EffectsOptionNames()
 EffectsReport ConfigureEffects(int preset, const std::vector<EffectsOption> &options)
 {
     return effects::Host::instance().configure(preset, options);
+}
+
+const ParallaxProbeState &EffectsParallaxProbe()
+{
+    return effects::Host::instance().lighting().probe().state();
 }
 
 void EffectsSceneComplete()

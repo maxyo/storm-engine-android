@@ -39,6 +39,7 @@
 #include "effects/casters.hpp"
 #include "effects/lamp_shadows.hpp"
 #include "effects/normal_maps.hpp"
+#include "effects/parallax_probe.hpp"
 #include "effects/shadows.hpp"
 #include "effects/town_light.hpp"
 #include "storm/fx/lighting.hpp"
@@ -123,6 +124,7 @@ struct FfDraw
     std::array<float, 8> parallax{};
     bool parallax_variant = false; // the FX_LIGHT_PARALLAX variant: u_fxParallax is set
     bool parallax_untrusted = false; // ... but the texture's mask or a list takes the parallax from it (the cavity still draws)
+    const NormalMapEntry *relief_entry = nullptr; // the relief texture's entry (its map ready or not): the parallax probe
     bool shadow = false;           // FX_LIGHT_SHADOW variant: submit() binds the map for `view`
     bool caster = false;           // the shim also submits this draw into the shadow view (submit_caster)
     std::array<float, 16> view{};  // the draw's device world -> view (the sun cascade: casters and receivers alike)
@@ -191,6 +193,7 @@ class Lighting
     // The location's visibility volume for this frame's lit and baked draws (null: none yet, or no location).
     void set_visibility(const Visibility::Bound *volume) { visibility_ = volume; }
     NormalMaps &normal_maps() { return normal_maps_; }
+    ParallaxProbe &probe() { return probe_; }
     SunShadows &shadows() { return shadows_; }
     TownLight &town_light() { return town_light_; }
     // After the draw was submitted with its buffers kept (BGFX_DISCARD_NONE for buffers): the depth-only copy.
@@ -281,6 +284,7 @@ class Lighting
     uint32_t fs_lit_[2][3][2][3] = {};
     uint32_t fs_baked_[2][3][2][3] = {}; // [specular][relief][linear][sun shadow: none, one tap, soft]
     NormalMaps normal_maps_;
+    ParallaxProbe probe_;
     SunShadows shadows_;
     TownLight town_light_;
     LampShadows lamps_;

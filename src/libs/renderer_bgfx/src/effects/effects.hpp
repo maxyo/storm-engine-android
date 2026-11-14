@@ -174,6 +174,7 @@ class Host
     fx::Support target_support_{};
     fx::Support support_device_{}; // what DetectSupport found
     fx::CapsProfile caps_profile_ = fx::CapsProfile::Device;
+    fx::EdgeTrigger pom_toggle_; // fx_pom_toggle: a change of its value switches the probe target's parallax
     bool msaa_broken_ = false; // the self-test found the multisampled scene target broken on this device
     bool post_broken_ = false; // ... or the post chain
     bool device_ready_ = false;

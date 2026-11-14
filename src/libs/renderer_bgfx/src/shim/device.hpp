@@ -486,6 +486,12 @@ struct Device final : Object
     float view_clear_z = 1.0f;
     uint8_t view_clear_stencil = 0;
     TexStore *view_color = nullptr; // the current view's colour target
+    TexStore *view_depth = nullptr; // ... and its depth (null: none)
+    // The current view's framebuffer, rect (x, y, w, h) and depth range, as new_view() set them: the parallax probe's
+    // view takes the same (effects/parallax_probe.hpp).
+    bgfx::FrameBufferHandle view_framebuffer = BGFX_INVALID_HANDLE;
+    std::array<uint16_t, 4> view_rect{};
+    float view_min_z = 0.0f, view_max_z = 1.0f;
     bool scaled_copy_logged = false;
     std::array<uint32_t, 3> scene_size_logged{}; // scene width, height and internal height last logged
     bool scene_done = false;  // the post chain ran (or was not needed) in this presented frame

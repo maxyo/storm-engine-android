@@ -3,7 +3,8 @@
 // (first consumer: src/libs/ui). API version history is at the bottom.
 //
 // Frame layout (bgfx view ids, all ViewMode::Sequential):
-//   [kPreGameViewBegin .. +kPreGameViewCount)  reserved for passes that precede the scene.
+//   [kPreGameViewBegin .. +kPreGameViewCount)  reserved for passes that precede the scene. Its last id is the
+//                               renderer's parallax probe, moved right behind the scene's last view while it runs.
 //   [kGameViewBegin .. kGameViewEnd)  game: D3D9-shaped shim. Renders into an offscreen
 //                               "game backbuffer" (its size may differ from the surface's:
 //                               scaled blit) and other render targets.

@@ -131,6 +131,11 @@ class Renderer : public VRenderer
     // Renderer: Render Target/Begin/End/Clear
     bool ClearFrame(int32_t type); // D3DCLEAR_STENCIL | D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER
     bool DrawFrameStats();
+    // The parallax probe (fx_pom_probe, storm::render::EffectsParallaxProbe): the crosshair, the texture under it, its
+    // parallax and its trust mask over the picture.
+    void DrawParallaxProbe();
+    int32_t probeMaskTexture = -1; // the target's mask, green trusted, red not (a code texture)
+    uint32_t probeMaskSerial = 0;
 
     // Renderer: Materials/Lights Section
     bool SetLight(uint32_t dwIndex, const D3DLIGHT9 *pLight) override;
