@@ -311,9 +311,9 @@ int AmountDraft::Value(int low, int high) const
     return !open_ ? origin_ : std::clamp(target_, low, std::max(low, high));
 }
 
-void AmountDraft::Bind(Bindings &bindings, const std::string &id, int low, int high, const std::string &more_reason)
+void AmountDraft::Bind(Bindings &bindings, const std::string &id, int low, int high, const std::string &more_reason, int grain)
 {
-    const auto set = [this, &bindings, low, high = std::max(low, high), more_reason](const Event &event) {
+    const auto set = [this, &bindings, low, high = std::max(low, high), more_reason, grain = std::max(1, grain)](const Event &event) {
         const int wanted = std::atoi(event.value.c_str());
         // Past the end the purse or the room allows: the reason, once per push (a drag reports many samples).
         if (wanted > high && !more_reason.empty() && bindings.Now() - reason_at_ > 1.5)
@@ -322,15 +322,24 @@ void AmountDraft::Bind(Bindings &bindings, const std::string &id, int low, int h
             bindings.Toast(more_reason);
         }
         if (!sent_)
-            target_ = std::clamp(wanted, low, high);
+        {
+            int target = std::clamp(wanted, low, high);
+            if (grain > 1 && target != low && target != high)
+            {
+                // the nearest whole number of grains from the origin, the ends where it runs out
+                const int grains = static_cast<int>(std::lround(static_cast<double>(target - origin_) / grain));
+                target = std::clamp(origin_ + grains * grain, low, high);
+            }
+            target_ = target;
+        }
         bindings.Rebuild();
     };
     bindings.On(id, "change", set);
     bindings.On(id, "commit", set);
 }
 
-Json AmountDraft::Buttons(Bindings &bindings, Json &actions, int low, int high, Labels labels, const std::string &sub, bool disabled,
-                          const std::string &reason, std::function<void(int)> commit, std::function<void()> cancel)
+Json AmountDraft::Buttons(Bindings &bindings, int low, int high, Labels labels, const std::string &sub, bool disabled, const std::string &reason,
+                          std::function<void(int)> commit)
 {
     const int value = Value(low, high);
     const int delta = value - origin_;
@@ -344,13 +353,6 @@ Json AmountDraft::Buttons(Bindings &bindings, Json &actions, int low, int high, 
         bindings.On("primary", "", [](const Event &) {});
         return Json{{"label", label}, {"sub", sub}, {"disabled", false}, {"reason", ""}, {"busy", true}};
     }
-    actions.push_back(Json{{"id", "deal-cancel"}, {"label", bindings.Text("common.cancel")}, {"variant", "secondary"}, {"disabled", false}, {"reason", ""}, {"busy", false}});
-    bindings.On("deal-cancel", "", [this, &bindings, cancel](const Event &) {
-        target_ = origin_;
-        if (cancel)
-            cancel();
-        bindings.Rebuild();
-    });
     bindings.On("primary", "", [this, &bindings, value, delta, disabled, commit](const Event &) {
         if (disabled || sent_)
             return;
@@ -363,6 +365,17 @@ Json AmountDraft::Buttons(Bindings &bindings, Json &actions, int low, int high, 
                 {"disabled", disabled},
                 {"reason", reason},
                 {"busy", bindings.Pending("primary")}};
+}
+
+void AmountDraft::CancelAction(Bindings &bindings, Json &actions)
+{
+    if (!open_ || sent_ || target_ == origin_)
+        return;
+    actions.push_back(Json{{"id", "deal-cancel"}, {"label", bindings.Text("common.cancel")}, {"variant", "secondary"}, {"disabled", false}, {"reason", ""}, {"busy", false}});
+    bindings.On("deal-cancel", "", [this, &bindings](const Event &) {
+        target_ = origin_;
+        bindings.Rebuild();
+    });
 }
 
 void AmountDraft::Sent(int value, double now)

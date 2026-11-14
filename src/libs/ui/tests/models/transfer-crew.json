@@ -2993,7 +2993,11 @@
    "context": {
     "mode": "CREW_WINDOW",
     "exchange": "1",
-    "captainAlive": "1"
+    "captainAlive": "1",
+    "crewMin": "9",
+    "crewMax": "160",
+    "crewMin2": "21",
+    "crewMax2": "165"
    }
   }
  ]

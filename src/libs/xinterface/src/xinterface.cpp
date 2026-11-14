@@ -772,6 +772,35 @@ void XINTERFACE::Realize(uint32_t)
             }
             else
                 missing += " xi_refCharacter";
+            // The crew limits of both ships as characterUtilite.c has them (GetMinCrewQuantity, GetMaxCrewQuantity:
+            // RealShips[<character>.Ship.Type].MinCrew / MaxCrew): the crew window's slider marks the least crew each
+            // ship sails with, and the most it takes. A character without a ship has none (the script's 0).
+            auto *index = static_cast<VDATA *>(core.GetScriptVariable("nMainCharacterIndex"));
+            auto *characters = static_cast<VDATA *>(core.GetScriptVariable("Characters"));
+            auto *realShips = static_cast<VDATA *>(core.GetScriptVariable("RealShips"));
+            ATTRIBUTES *hero = index && characters && index->GetInt() >= 0 && static_cast<uint32_t>(index->GetInt()) < characters->GetElementsNum()
+                                   ? characters->GetAClass(index->GetInt())
+                                   : nullptr;
+            const auto crew = [&](ATTRIBUTES *character, const char *suffix) {
+                int32_t minimum = 0, maximum = 0;
+                const ATTRIBUTES *ship = character ? character->GetAttributeClass("Ship") : nullptr;
+                const int32_t shipType = ship ? static_cast<int32_t>(ship->GetAttributeAsDword("Type", static_cast<uint32_t>(-1))) : -1;
+                if (shipType >= 0 && realShips && static_cast<uint32_t>(shipType) < realShips->GetElementsNum())
+                    if (ATTRIBUTES *real = realShips->GetAClass(shipType))
+                    {
+                        minimum = static_cast<int32_t>(real->GetAttributeAsDword("MinCrew", 0));
+                        maximum = static_cast<int32_t>(real->GetAttributeAsDword("MaxCrew", 0));
+                    }
+                marker.context[std::string("crewMin") + suffix] = std::to_string(minimum);
+                marker.context[std::string("crewMax") + suffix] = std::to_string(maximum);
+            };
+            if (hero && realShips)
+            {
+                crew(hero, "");
+                crew(captain, "2");
+            }
+            else
+                missing += !hero ? " hero" : " RealShips";
             if (!missing.empty())
                 marker.unavailableReason = "transfer:missing=" + missing.substr(1);
             widgets.push_back(std::move(marker));

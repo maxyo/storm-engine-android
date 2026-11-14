@@ -8,8 +8,14 @@
 // below mirrors store.c / cannons.c / contraband.c / itemstrade.c ChangeQTY_EDIT), so the
 // control answers in the same frame. Only the confirmation goes out (AmountDraft, controls.h): the
 // amount and the game's OK in one flush, on «Купить / Продать N» of a money deal and «Взять / Отдать N»
-// of a free transfer alike; «Отмена» closes the game's window with nothing moved. The hand at a row's
-// end takes the whole stack in one tap.
+// of a free transfer alike. There is no «Отмена» (owner, 2026-11-14): another row, or the amount back where
+// it was, drops the draft (the game's window of the old row is closed with nothing moved). The hand at a
+// row's end takes the whole stack in one tap.
+//
+// Packs: the game trades goods by the piece. A price in the table is the price of a pack (Goods[].Units
+// pieces) and the total is pro rata (store.c: price * qty / units); the weight counts every started pack
+// whole (goods.h GetGoodWeightByType). So the amount steps by one piece, and the dock says what the prices
+// and the weight are for («за 20 шт.») instead of the game's «пачка 20 шт.».
 //
 // All six interfaces share the game's nodes (TABLE_LIST, QTY_*); they differ in the
 // columns of the table, described per interface below.
@@ -44,7 +50,28 @@ struct Layout
     int weight = -1;               // what one pack (goods) or one piece (items) weighs; -1 = the deal has no weight
     bool pieces = false;           // itemstrade.c: single pieces with fractional weights (else goods in packs, whole cwt)
     bool best = false;             // town loot: «Забрать самое ценное» (the adapter's ANDROID_LOOT values)
+    // Our captions of the two amount columns (string keys; nullptr: the game's), used while the game names the
+    // two sides differently (a store at sea names both «Товара в трюме»: ours / theirs then). Each with its icon.
+    const char *own_caption = nullptr;
+    const char *other_caption = nullptr;
+    const char *own_icon = "";
+    const char *other_icon = "";
+    const char *carry_icon = "capacity"; // the header figure of what we carry (the hold; a character's weight)
 };
+
+constexpr Layout Captioned(Layout layout, const char *own, const char *own_icon, const char *other, const char *other_icon)
+{
+    layout.own_caption = own;
+    layout.own_icon = own_icon;
+    layout.other_caption = other;
+    layout.other_icon = other_icon;
+    return layout;
+}
+constexpr Layout Carrying(Layout layout, const char *icon)
+{
+    layout.carry_icon = icon;
+    return layout;
+}
 
 // The arithmetic of a money deal exactly as the game's scripts do it (ChangeQTY_EDIT of store.c, cannons.c,
 // contraband.c for goods in packs; itemstrade.c for pieces), so that what the player sees while choosing is
@@ -93,15 +120,21 @@ struct DealMath
     }
 };
 
-constexpr Layout kStore{StringKey("trade.store"), 0, 5, 3, 2, 4, 6, "SHIPS_SCROLL", false, {-1, -1, -1}, false, {nullptr, nullptr, nullptr, nullptr}, 7};
-constexpr Layout kContraband{StringKey("trade.contraband"), 0, 5, 3, 2, 4, 6, "SHIPS_SCROLL", false, {-1, -1, -1}, false, {nullptr, nullptr, nullptr, nullptr}, 7};
-constexpr Layout kCannons{StringKey("trade.cannons"), 0, 5, 3, 2, 4, -1, "SHIPS_SCROLL", true, {7, 8, 9}, false, {nullptr, nullptr, nullptr, nullptr}, 6};
-constexpr Layout kItemsTrade{StringKey("trade.items"), 0, 5, 3, 2, 4, -1, "CHARACTERS_SCROLL", true, {-1, -1, -1}, false, {nullptr, nullptr, nullptr, nullptr}, 6, true};
-constexpr Layout kStorage{StringKey("trade.storage"), 0, 3, 2, -1, -1, 4, "SHIPS_SCROLL", false, {-1, -1, -1}, true};
+constexpr Layout kStore = Captioned({StringKey("trade.store"), 0, 5, 3, 2, 4, 6, "SHIPS_SCROLL", false, {-1, -1, -1}, false, {nullptr, nullptr, nullptr, nullptr}, 7},
+                                   StringKey("trade.in_hold"), "capacity", StringKey("trade.in_store"), "store");
+constexpr Layout kContraband = Captioned({StringKey("trade.contraband"), 0, 5, 3, 2, 4, 6, "SHIPS_SCROLL", false, {-1, -1, -1}, false, {nullptr, nullptr, nullptr, nullptr}, 7},
+                                         StringKey("trade.in_hold"), "capacity", nullptr, "");
+constexpr Layout kCannons = Captioned({StringKey("trade.cannons"), 0, 5, 3, 2, 4, -1, "SHIPS_SCROLL", true, {7, 8, 9}, false, {nullptr, nullptr, nullptr, nullptr}, 6},
+                                      StringKey("trade.in_hold"), "capacity", StringKey("trade.in_store"), "store");
+constexpr Layout kItemsTrade = Carrying({StringKey("trade.items"), 0, 5, 3, 2, 4, -1, "CHARACTERS_SCROLL", true, {-1, -1, -1}, false, {nullptr, nullptr, nullptr, nullptr}, 6, true}, "weight");
+constexpr Layout kStorage = Captioned({StringKey("trade.storage"), 0, 3, 2, -1, -1, 4, "SHIPS_SCROLL", false, {-1, -1, -1}, true, {nullptr, nullptr, nullptr, nullptr}, 5},
+                                      StringKey("trade.in_hold"), "capacity", nullptr, "");
 // Looting a captured colony (ColonyCapture.c): the hold, the town's stores, a free transfer.
-constexpr Layout kColonyCapture{StringKey("trade.loot"), 0, 3, 2, -1, -1, 4, "SHIPS_SCROLL", false, {-1, -1, -1}, true, {nullptr, nullptr, nullptr, nullptr}, 5, false, true};
-constexpr Layout kItemsBox{StringKey("trade.chest"), 0, 4, 2, -1, -1, -1, "CHARACTERS_SCROLL", true, {-1, -1, -1}, true,
-                           {StringKey("common.all"), StringKey("trade.tab_mine"), StringKey("trade.tab_here"), StringKey("trade.tab_weapons")}};
+constexpr Layout kColonyCapture = Captioned({StringKey("trade.loot"), 0, 3, 2, -1, -1, 4, "SHIPS_SCROLL", false, {-1, -1, -1}, true, {nullptr, nullptr, nullptr, nullptr}, 5, false, true},
+                                            StringKey("trade.in_hold"), "capacity", StringKey("trade.in_store"), "store");
+constexpr Layout kItemsBox = Carrying({StringKey("trade.chest"), 0, 4, 2, -1, -1, -1, "CHARACTERS_SCROLL", true, {-1, -1, -1}, true,
+                                       {StringKey("common.all"), StringKey("trade.tab_mine"), StringKey("trade.tab_here"), StringKey("trade.tab_weapons")}},
+                                      "weight");
 // The goods of the loot / exchange screen (transfer_main): ours, weight, name, theirs, weight.
 constexpr Layout kTransfer{StringKey("transfer.title"), 0, 3, 2, -1, -1, -1, "", false};
 
@@ -181,6 +214,43 @@ TradeType TradeTypeOf(uint32_t argb)
     default:
         return {};
     }
+}
+
+// The game's goods text ends with the line "Вес 1 ц, пачка 20 шт." (store.c, contraband.c, cannons.c, storage.c,
+// ColonyCapture.c, transfer_main.c ShowGoodsInfo: the word «пачка» is written into the scripts, the same in every
+// language). The dock shows the weight and what the figures are for as its own facts, so that line goes.
+std::string WithoutPackLine(const std::string &text, const std::string &units)
+{
+    if (units.empty())
+        return text;
+    const std::string mark = ", \xD0\xBF\xD0\xB0\xD1\x87\xD0\xBA\xD0\xB0 " + units; // ", пачка N"
+    std::string out;
+    size_t begin = 0;
+    while (begin <= text.size())
+    {
+        size_t end = text.find('\n', begin);
+        if (end == std::string::npos)
+            end = text.size();
+        const std::string line = text.substr(begin, end - begin);
+        if (line.find(mark) == std::string::npos)
+            out += (out.empty() ? "" : "\n") + line;
+        begin = end + 1;
+    }
+    while (!out.empty() && (out.back() == '\n' || out.back() == '\r' || out.back() == ' '))
+        out.pop_back();
+    return out;
+}
+
+bool Profitable(const TradeType &type)
+{
+    return type.word && (std::string(type.word) == StringKey("trade.export") || std::string(type.word) == StringKey("trade.import") ||
+                         std::string(type.word) == StringKey("trade.demand"));
+}
+
+// The prices' icons wear the colours of the quantity's zones: taking (buying) green, giving (selling) red.
+const char *IconTone(const std::string &icon)
+{
+    return icon == "price-buy" ? "green" : icon == "price-sell" ? "danger" : "brass";
 }
 
 // 1500 → "1 500".
@@ -272,15 +342,24 @@ class CommerceScreen final : public Screen
                        : std::string();
         };
 
-        // The two amount columns: the game's captions, unless it names both sides alike.
+        // The two amount columns: ours where the layout has them («В трюме», «В магазине»), else the game's
+        // captions; «У вас» / «Здесь» where the game names both sides alike (a store at sea: two holds).
         std::string own_caption = header(columns.own), other_caption = header(columns.other);
+        std::string own_icon, other_icon;
         if (own_caption.empty() || own_caption == other_caption)
         {
             own_caption = bindings.Text("trade.yours");
             other_caption = bindings.Text("trade.theirs");
         }
-        else if (other_caption.rfind(own_caption, 0) == 0) // "Предметов" / "Предметов торговца"
-            own_caption = bindings.Text("trade.yours");
+        else
+        {
+            if (other_caption.rfind(own_caption, 0) == 0) // "Предметов" / "Предметов торговца"
+                own_caption = bindings.Text("trade.yours");
+            if (columns.own_caption)
+                own_caption = bindings.Text(columns.own_caption), own_icon = columns.own_icon;
+            if (columns.other_caption)
+                other_caption = bindings.Text(columns.other_caption), other_icon = columns.other_icon;
+        }
 
         // The open deal is the player's draft until it is confirmed: what we hold and what the other side has
         // are taken when the game opens the row's amount window (the pivot of the control and its two ends),
@@ -449,15 +528,14 @@ class CommerceScreen final : public Screen
                     name = &cell;
             const TradeType type = name ? TradeTypeOf(name->color_argb) : TradeType();
             const char *tone = type.tone;
-            if (filter_ == 2 && (money ? std::string(tone) != "ok" : Number(row->CellText(columns.other)) == 0))
+            // «Выгодно»: what this place sells cheap (export) and buys dear (import, high demand), the game's own
+            // trade types of its goods (refStore.Goods.<good>.TradeType, told by the colour of the name).
+            if (filter_ == 2 && (money ? !Profitable(type) : Number(row->CellText(columns.other)) == 0))
                 continue;
-            // Beside the name: the trade type only (a 44 dp row keeps the name whole); the dock's second
-            // line adds the pack and the details (cannons: range, damage, reload).
+            // Beside the name: the trade type only (a 44 dp row keeps the name whole); the dock's second line
+            // adds the details (cannons: range, damage, reload); prices, weight and the pack are the dock's facts.
             const std::string meta = type.word ? bindings.Text(type.word) : std::string();
             std::string sub = meta;
-            const std::string pack = columns.pack >= 0 ? row->CellText(columns.pack) : std::string();
-            if (!pack.empty() && pack != "1")
-                sub += (sub.empty() ? "" : " · ") + header(columns.pack) + " " + pack;
             for (const int detail : columns.details)
                 if (detail >= 0 && !row->CellText(detail).empty())
                     sub += (sub.empty() ? "" : " · ") + header(detail) + " " + row->CellText(detail);
@@ -467,6 +545,7 @@ class CommerceScreen final : public Screen
                 cells.push_back(Json{{"text", row->CellText(columns.buy)}, {"bold", true}});
                 cells.push_back(Json{{"text", row->CellText(columns.sell)}, {"bold", true}});
             }
+            const std::string pack = columns.pack >= 0 ? row->CellText(columns.pack) : std::string();
             Json view{{"id", std::to_string(i)},
                       {"name", row->CellText(columns.name)},
                       {"image", PictureOf(name && !name->images.empty() ? &name->images.front() : row->FirstImage())},
@@ -478,6 +557,8 @@ class CommerceScreen final : public Screen
                       {"selected", row == selected},
                       {"disabled", !row->Offers("activate") && !row->Offers("select")},
                       {"reason", row->unavailable_reason}};
+            if (row == selected)
+                view["facts"] = Facts(bindings, *row, pack);
             if (row == selected && deal)
             {
                 // One slider for both directions: what we hold is the origin, the zone to its
@@ -508,7 +589,7 @@ class CommerceScreen final : public Screen
                 if (!quantity.contains("surface"))
                     quantity["surface"] = "wood";
                 deal_view = std::move(quantity);
-                view["text"] = admitted.Label("QTY_GOODS_INFO");
+                view["text"] = WithoutPackLine(admitted.Label("QTY_GOODS_INFO"), pack);
             }
             rows.push_back(std::move(view));
         }
@@ -604,6 +685,12 @@ class CommerceScreen final : public Screen
             Json figure = Figure(admitted.Label(node));
             if (figure.is_null() || stats.size() == 2)
                 continue;
+            // What we carry is its icon (the hold, a character's weight) beside the figure, without the game's word.
+            if (std::string(node) == "CAPACITY")
+            {
+                figure.erase("label");
+                figure["icon"] = columns.carry_icon;
+            }
             // (the preview is there from the moment the deal opens, so the header does not reflow at the first step)
             if (std::string(node) == "CAPACITY" && deal && money && math.capacity >= 0.0 && math.weight > 0.0)
             {
@@ -645,15 +732,16 @@ class CommerceScreen final : public Screen
 
         // The captions of a money deal's prices name the operation («Купить», «Продать»): the column is
         // what one pack costs in that direction.
-        std::vector<std::string> captions{own_caption, other_caption};
+        // Each caption with its icon: the hold, the store, the price we pay, the price we get.
+        std::vector<std::pair<std::string, std::string>> captions{{own_caption, own_icon}, {other_caption, other_icon}};
         if (money)
         {
-            captions.push_back(bindings.Text("trade.buy"));
-            captions.push_back(bindings.Text("trade.sell"));
+            captions.emplace_back(bindings.Text("trade.buy"), "price-buy");
+            captions.emplace_back(bindings.Text("trade.sell"), "price-sell");
         }
         Json cols = Json::array();
         for (size_t i = 0; i < captions.size(); ++i)
-            cols.push_back(Json{{"label", captions[i]}, {"sortable", true},
+            cols.push_back(Json{{"label", captions[i].first}, {"icon", captions[i].second}, {"iconTone", IconTone(captions[i].second)}, {"sortable", true},
                                 {"sort", sort_ == static_cast<int>(i) ? (sort_descending_ ? "desc" : "asc") : ""}});
         view["list"] = Json{{"label", header(columns.name)}, {"cols", cols}, {"rows", rows}, {"quick", columns.quick ? "hand" : ""}};
         view["deal"] = std::move(deal_view);
@@ -700,7 +788,8 @@ class CommerceScreen final : public Screen
         if (deal)
         {
             view["info"] = false;
-            bindings.On("goods", "info", [&bindings, text = admitted.Label("QTY_GOODS_INFO"), title = admitted.Label("QTY_CAPTION")](const Event &) {
+            const std::string units = selected && columns.pack >= 0 ? selected->CellText(columns.pack) : std::string();
+            bindings.On("goods", "info", [&bindings, text = WithoutPackLine(admitted.Label("QTY_GOODS_INFO"), units), title = admitted.Label("QTY_CAPTION")](const Event &) {
                 bindings.Read(title, text);
             });
         }
@@ -724,25 +813,20 @@ class CommerceScreen final : public Screen
         else if (deal && ok)
         {
             // The button names the deal in our words with its price (and the weight it moves): the amount and
-            // the game's OK go out together when it is pressed, nothing before; «Отмена» beside it closes the
-            // game's window.
+            // the game's OK go out together when it is pressed, nothing before.
             std::string sub = money ? Spaced(total) : std::string();
             if (math.weight > 0.0)
                 sub += (sub.empty() ? "" : " \xC2\xB7 ") + weight_text(weight) + (columns.pieces ? std::string() : " " + bindings.Text("transfer.cwt"));
             const AmountDraft::Labels labels = money ? AmountDraft::Labels{StringKey("trade.buy"), StringKey("trade.sell")}
                                                      : AmountDraft::Labels{StringKey("trade.take"), StringKey("trade.give")};
-            view["primary"] = draft_.Buttons(
-                bindings, actions, low, most, labels, sub, !ok->Offers("press") || !edit->Offers("edit"), ok->unavailable_reason,
-                [&bindings, edit, ok, row = selected->row_id](int delta) {
-                    // The game's edit box holds the amount to take, a negative one the amount to give; once it has
-                    // turned to giving it reads every later number so, and zero leaves it: zero goes first, same flush.
-                    bindings.SendAfter(0.0, *edit, "edit", std::to_string(delta), row, std::string("0"));
-                    bindings.SendAfter(0.0, *ok, "press", {}, row);
-                },
-                [&bindings, cancel, row = selected->row_id]() {
-                    if (cancel && cancel->Offers("press"))
-                        bindings.Send(*cancel, "press", {}, row);
-                });
+            view["primary"] = draft_.Buttons(bindings, low, most, labels, sub, !ok->Offers("press") || !edit->Offers("edit"), ok->unavailable_reason,
+                                             [&bindings, edit, ok, row = selected->row_id](int delta) {
+                                                 // The game's edit box holds the amount to take, a negative one the amount to give;
+                                                 // once it has turned to giving it reads every later number so, and zero leaves it:
+                                                 // zero goes first, same flush.
+                                                 bindings.SendAfter(0.0, *edit, "edit", std::to_string(delta), row, std::string("0"));
+                                                 bindings.SendAfter(0.0, *ok, "press", {}, row);
+                                             });
         }
         else if (!deal && columns.best)
         {
@@ -811,6 +895,29 @@ class CommerceScreen final : public Screen
     }
 
   private:
+    // The facts of the open row, in the dock under its name: the two prices, the weight (an icon, no word) and
+    // what they are for («за 20 шт.»: a pack of goods; the game sells it by the piece, see the top).
+    Json Facts(Bindings &bindings, const Widget &row, const std::string &pack) const
+    {
+        const Layout &columns = layout_;
+        Json facts = Json::array();
+        if (columns.buy >= 0)
+            for (const auto &[column, icon] : {std::pair{columns.buy, "price-buy"}, std::pair{columns.sell, "price-sell"}})
+            {
+                const std::string price = row.CellText(column);
+                // "-": the game does not trade it this way here (contraband is not sold back)
+                facts.push_back(price.find_first_of("0123456789") == std::string::npos
+                                    ? Json{{"icon", icon}, {"iconTone", IconTone(icon)}, {"v", "\xE2\x80\x94"}, {"tone", "dim"}}
+                                    : Json{{"icon", icon}, {"iconTone", IconTone(icon)}, {"v", Spaced(Number(price))}, {"tone", "gold"}});
+            }
+        if (columns.weight >= 0)
+            if (const std::string weight = OneLine(row.CellText(columns.weight)); !weight.empty())
+                facts.push_back(Json{{"icon", "weight"}, {"v", columns.pieces ? weight : weight + " " + bindings.Text("transfer.cwt")}});
+        if (!facts.empty() && !pack.empty() && pack != "1")
+            facts.push_back(Json{{"v", Fill(bindings.Text("trade.per_units"), {pack})}, {"tone", "dim"}});
+        return facts;
+    }
+
     static constexpr double kSelectHold = 0.5; // s: how long a tapped row may wait for its window
     const Layout &layout_;
     Json last_view_;           // what the screen shows (kept while a tapped row waits for its window)

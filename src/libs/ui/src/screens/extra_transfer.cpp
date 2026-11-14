@@ -14,6 +14,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <cstdlib>
 
 namespace storm::ui::screens
@@ -271,7 +272,7 @@ class TransferScreen final : public Screen
             bindings.Forward("primary", *take, "press");
         }
         // The amount set for the cargo row or the crew is a draft (AmountDraft): while it differs from what the
-        // game has, the bar is its «Отмена» and «Взять / Отдать N».
+        // game has, the bar is its «Взять / Отдать N»; another row or the amount set back drops it.
         if (crew_open)
             CrewDeal(admitted, bindings, view);
         else
@@ -356,7 +357,7 @@ class TransferScreen final : public Screen
         const Widget *deal_cancel = admitted.One("QTY_CANCEL_BUTTON");
         bindings.On("header-back", "", [this, &bindings, way_out, crew_open, crew_exit, deal, deal_cancel, exit](const Event &) {
             if (!way_out && (crew_open ? crew_.Drop() : cargo_.Drop()))
-                bindings.Rebuild(); // back drops the number set first, as «Отмена»
+                bindings.Rebuild(); // back drops the number set first
             else if (way_out)
                 bindings.Send(*way_out, "press");
             else if (crew_open && crew_exit)
@@ -464,10 +465,38 @@ class TransferScreen final : public Screen
         return Json{{"id", id}, {"label", label}, {"variant", variant}, {"hold", hold}, {"disabled", !widget.Offers("press")}, {"reason", widget.unavailable_reason}};
     }
 
-    // The cargo: a tap selects a row (the game's arrows act on the selected row), the
-    // selected row opens its amount; the game moves one pack per arrow press (B_LEFT takes,
-    // B_RIGHT gives), sent when the player confirms the amount. The game's own amount window
-    // here is «throw overboard», not a transfer, and is not offered.
+    // How far the game's arrows can move one good, press by press as transfer_main.c TakeGoods / GiveGoods and
+    // AddCharacterGoodsSimple do it: a press moves one pack (or what is left), cut to the whole packs the
+    // receiving hold has room for (GetGoodQuantityByWeight of its free space); a hold whose load reaches its
+    // capacity stops it. `free` < 0: the free space is not known, the stock alone limits. Returns how many pieces
+    // the presses move in all.
+    static int Reach(int receiving, int stock, int free, int pack, double pack_weight)
+    {
+        const auto weight = [pack, pack_weight](int amount) { // goods.h GetGoodWeightByType
+            return static_cast<int>(((amount + pack - 1) / pack) * pack_weight + 0.05);
+        };
+        int moved = 0;
+        while (stock > 0)
+        {
+            int amount = std::min(pack, stock);
+            if (free >= 0 && pack_weight > 0.0)
+                amount = std::min(amount, pack * static_cast<int>(free / pack_weight));
+            if (amount <= 0)
+                break;
+            if (free >= 0)
+                free -= weight(receiving + amount) - weight(receiving);
+            receiving += amount, stock -= amount, moved += amount;
+        }
+        return moved;
+    }
+
+    // The cargo: a tap selects a row (the game's arrows act on the selected row), the selected row opens its
+    // amount; the game moves one pack per arrow press (B_LEFT takes, B_RIGHT gives), sent when the player
+    // confirms the amount, so the amount steps by packs. The game shows each arrow only while its way is
+    // possible (transfer_main.c SetGoodsArrows: the giving side has some, the other hold has room for a pack)
+    // and exports only the arrows it shows: each direction stands alone (a good the other ship no longer has
+    // is still given back to it). The game's own amount window here is «throw overboard», not a transfer, and
+    // is not offered.
     void Cargo(const Admission &admitted, Bindings &bindings, Json &view, const std::string &ours)
     {
         const std::vector<const Widget *> goods = admitted.Rows("TABLE_LIST");
@@ -480,26 +509,35 @@ class TransferScreen final : public Screen
             return;
         Json &rows = view["list"]["rows"];
         const int own = selected ? Number(selected->CellText(0)) : 0, other = selected ? Number(selected->CellText(3)) : 0;
-        const int pack = selected ? std::max(1, Number(selected->CellText(5))) : 1;
+        // "20 / 2": the pack and what it weighs
+        const std::string pack_cell = selected ? selected->CellText(5) : std::string();
+        const int pack = std::max(1, Number(pack_cell));
+        const size_t slash = pack_cell.find('/');
+        const double pack_weight = slash == std::string::npos ? 0.0 : std::atof(pack_cell.c_str() + slash + 1);
         if (selected)
             cargo_.Follow(std::to_string(selected->index), own, other, bindings); // the rows carry no identity here
         else
             cargo_.Close();
-        const bool movable = take && give && take->Offers("press") && give->Offers("press");
+        const bool can_take = take && take->Offers("press"), can_give = give && give->Offers("press");
+        const int low = own - (can_give ? Reach(other, own, FreeSpace(admitted, "TABLE_OTHER2"), pack, pack_weight) : 0);
+        const int high = own + (can_take ? Reach(own, other, FreeSpace(admitted, "TABLE_OTHER"), pack, pack_weight) : 0);
         // The game moves whole packs: |delta| rounded up to packs, by its arrows.
         const auto move = [&bindings, take, give, pack](int delta) {
+            const Widget *arrow = delta > 0 ? take : give;
+            if (!arrow)
+                return;
             const int presses = (std::abs(delta) + pack - 1) / pack;
             for (int i = 0; i < presses; ++i)
-                bindings.Send(delta > 0 ? *take : *give, "press");
+                bindings.Send(*arrow, "press");
         };
         // The hand at a row's end: once the game has selected that row, all of the other hold is taken.
         if (selected && selected->index == quick_row_)
         {
             quick_row_ = -1;
-            if (movable && other > 0)
+            if (can_take && high > own)
             {
-                cargo_.Sent(own + other, bindings.Now());
-                move(other);
+                cargo_.Sent(high, bindings.Now());
+                move(high - own);
             }
         }
         view["list"]["quick"] = "hand"; // the game shows its arrows for the selected row only: a row is offered by what the other hold has
@@ -510,20 +548,32 @@ class TransferScreen final : public Screen
             const size_t index = static_cast<size_t>(std::atoi(row["id"].get<std::string>().c_str()));
             const bool open = index < goods.size() && goods[index] == selected;
             row["selected"] = open;
-            row["quick"] = index < goods.size() && Number(goods[index]->CellText(3)) > 0 && (open ? movable : goods[index]->Offers("select"));
+            row["quick"] = index < goods.size() && Number(goods[index]->CellText(3)) > 0 && (open ? can_take : goods[index]->Offers("select"));
             row.erase("q");
-            if (open)
-                row["q"] = Json{{"value", cargo_.Value(0, own + other)},
-                                {"min", 0},
-                                {"max", own + other},
-                                {"zones", true},
-                                {"origin", own},
-                                {"lessLabel", bindings.Text("trade.give")},
-                                {"moreLabel", bindings.Text("trade.take")},
-                                {"label", ours},
-                                {"summary", "-"},
-                                {"steps", Json::array({pack, pack * 10, pack * 100})},
-                                {"disabled", !movable}};
+            if (!open)
+                continue;
+            row["q"] = Json{{"value", cargo_.Value(low, high)},
+                            {"min", low},
+                            {"max", high},
+                            {"zones", true},
+                            {"origin", own},
+                            {"lessLabel", bindings.Text("trade.give")},
+                            {"moreLabel", bindings.Text("trade.take")},
+                            {"label", ours},
+                            {"summary", "-"},
+                            {"steps", Json::array({pack, pack * 10, pack * 100})},
+                            {"disabled", low == high}};
+            // The dock's facts: what a pack weighs (the icon, no word) and how many pieces it is.
+            Json facts = Json::array();
+            if (pack_weight > 0.0)
+            {
+                char weight[32];
+                std::snprintf(weight, sizeof(weight), "%g", pack_weight);
+                facts.push_back(Json{{"icon", "weight"}, {"v", std::string(weight) + " " + bindings.Text("transfer.cwt")}});
+                if (pack > 1)
+                    facts.push_back(Json{{"v", Fill(bindings.Text("trade.per_units"), {std::to_string(pack)})}, {"tone", "dim"}});
+            }
+            row["facts"] = facts;
         }
         bindings.On("goods", "row", [this, &bindings, goods, selected](const Event &event) {
             const size_t index = static_cast<size_t>(std::atoi(event.value.c_str()));
@@ -543,38 +593,58 @@ class TransferScreen final : public Screen
             else
                 quick_row_ = -1;
         });
-        cargo_.Bind(bindings, "goods", 0, own + other, std::string());
-        if (selected && movable)
+        cargo_.Bind(bindings, "goods", low, high, std::string(), pack);
+        if (selected && low < high)
         {
-            Json actions = Json::array();
-            Json primary = cargo_.Buttons(bindings, actions, 0, own + other, {StringKey("trade.take"), StringKey("trade.give")}, std::string(), false,
-                                          std::string(), move, nullptr);
+            // The button's second line: what our hold's load changes by (every started pack weighs whole).
+            const auto load = [pack, pack_weight](int amount) { return static_cast<int>(((amount + pack - 1) / pack) * pack_weight + 0.05); };
+            const int value = cargo_.Value(low, high);
+            const int change = std::abs(load(value) - load(own));
+            Json primary = cargo_.Buttons(bindings, low, high, {StringKey("trade.take"), StringKey("trade.give")},
+                                          change > 0 ? std::to_string(change) + " " + bindings.Text("transfer.cwt") : std::string(), false, std::string(), move);
             if (!primary.is_null())
             {
                 view["primary"] = std::move(primary);
-                view["actions"] = std::move(actions);
+                view["actions"] = Json::array();
             }
         }
     }
 
-    // The crew of both ships: our number moves by the game's arrows, one man per press, sent when the
-    // player confirms the number.
+    // The crew of both ships: our number moves by the game's arrows, one man per press, sent when the player
+    // confirms the number. Its ends are where the game's TakeCrew / GiveCrew stop (the giving side's men, the
+    // receiving ship's MaxCrew, the receiving hold's free space); the marks on the slider are each ship's MinCrew,
+    // the least crew it sails with (characterUtilite.c GetMinCrewQuantity, through ANDROID_TRANSFER).
     Json CrewView(const Admission &admitted, Bindings &bindings, const std::string &ours, const std::string &theirs)
     {
         const Widget *take = admitted.One("CREW_LEFT"), *give = admitted.One("CREW_RIGHT");
         const int our = Number(admitted.Label("CREW_QTY")), their = Number(admitted.Label("CREW_QTY2"));
+        crew_limits_ = CrewLimits(admitted, bindings, our, their);
+        const Limits &limits = crew_limits_;
         crew_.Follow("crew", our, their, bindings);
-        crew_.Bind(bindings, "crew", 0, our + their, std::string());
+        crew_.Bind(bindings, "crew", limits.low, limits.high, std::string());
         bindings.Ignore("crew", "row");
-        Json q{{"value", crew_.Value(0, our + their)},
-               {"min", 0},
-               {"max", our + their},
+        Json q{{"value", crew_.Value(limits.low, limits.high)},
+               {"min", limits.low},
+               {"max", limits.high},
+               {"zones", true},
+               {"origin", our},
+               {"lessLabel", bindings.Text("trade.give")},
+               {"moreLabel", bindings.Text("trade.take")},
                {"label", ours},
                {"unit", bindings.Text("transfer.men")},
+               {"summary", "-"},
                {"steps", Json::array({1, 10})},
-               {"disabled", !take || !give}};
+               {"marks", limits.marks},
+               {"disabled", !take || !give || limits.low == limits.high}};
+        // Each ship's crew with its MinCrew under it, named like the slider's mark.
+        const auto cell = [&bindings](int crew, int minimum) {
+            Json cell{{"text", std::to_string(crew)}};
+            if (minimum > 0)
+                cell["sub"] = Fill(bindings.Text("transfer.min_mark"), {std::to_string(minimum)});
+            return cell;
+        };
         Json row{{"id", "0"}, {"name", bindings.Text("transfer.sailors")}, {"image", Json{{"kind", "icon"}, {"icon", "crew"}}},
-                 {"cells", Json::array({std::to_string(our), std::to_string(their)})}, {"selected", true}, {"q", q}};
+                 {"cells", Json::array({cell(our, limits.min_ours), cell(their, limits.min_theirs)})}, {"selected", true}, {"q", q}};
         const auto side = [&](const std::string &name, const char *table, const char *morale) {
             Json facts = Json::array();
             for (const Widget *r : admitted.All(table))
@@ -588,25 +658,66 @@ class TransferScreen final : public Screen
                     {"sides", Json::array({side(ours, "TABLE_CREW", "CREW_MORALE_TEXT"), side(theirs, "TABLE_CREW2", "CREW_MORALE_TEXT2")})}};
     }
 
-    // The crew's «Отмена» and «Взять / Отдать N» in the crew window's bar while its number is changed.
+    struct Limits
+    {
+        int low = 0, high = 0;          // our crew: the least and the most the game's arrows reach
+        int min_ours = 0, min_theirs = 0; // MinCrew of each ship
+        Json marks = Json::array();     // [{at, label}] on our crew's scale
+    };
+    Limits CrewLimits(const Admission &admitted, Bindings &bindings, int our, int their)
+    {
+        Limits limits;
+        const Widget *marker = admitted.One("ANDROID_TRANSFER");
+        const std::string min_ours = Context(marker, "crewMin"), max_ours = Context(marker, "crewMax");
+        const std::string min_theirs = Context(marker, "crewMin2"), max_theirs = Context(marker, "crewMax2");
+        int take = their, give = our;
+        if (min_ours.empty() || max_ours.empty() || min_theirs.empty() || max_theirs.empty())
+        {
+            // An engine without the limits: the slider spans both crews, the game cuts what it cannot take.
+            if (limits_reported_ != admitted.model->opening)
+                bindings.Error("transfer_main: ANDROID_TRANSFER carries no crew limits (crewMin, crewMax, crewMin2, crewMax2): the crew slider has no marks");
+            limits_reported_ = admitted.model->opening;
+        }
+        else
+        {
+            limits.min_ours = std::atoi(min_ours.c_str());
+            limits.min_theirs = std::atoi(min_theirs.c_str());
+            take = std::min(take, std::max(0, std::atoi(max_ours.c_str()) - our));
+            give = std::min(give, std::max(0, std::atoi(max_theirs.c_str()) - their));
+        }
+        // TakeCrew / GiveCrew also stop at the receiving hold's free space (GetCargoFreeSpace)
+        if (const int free = FreeSpace(admitted, "TABLE_OTHER"); free >= 0)
+            take = std::min(take, free);
+        if (const int free = FreeSpace(admitted, "TABLE_OTHER2"); free >= 0)
+            give = std::min(give, free);
+        limits.low = our - give;
+        limits.high = our + take;
+        // Our MinCrew where our crew is that many; theirs where what we leave them is their MinCrew.
+        const auto mark = [&](int at, int minimum) {
+            if (minimum > 0 && at >= limits.low && at <= limits.high)
+                limits.marks.push_back(Json{{"at", at}, {"label", Fill(bindings.Text("transfer.min_mark"), {std::to_string(minimum)})}});
+        };
+        mark(limits.min_ours, limits.min_ours);
+        mark(our + their - limits.min_theirs, limits.min_theirs);
+        return limits;
+    }
+
+    // The crew's «Взять / Отдать N» in the crew window's bar while its number is changed.
     void CrewDeal(const Admission &admitted, Bindings &bindings, Json &view)
     {
         const Widget *take = admitted.One("CREW_LEFT"), *give = admitted.One("CREW_RIGHT");
         if (!take || !give)
             return;
-        const int all = Number(admitted.Label("CREW_QTY")) + Number(admitted.Label("CREW_QTY2"));
-        Json actions = Json::array();
-        Json primary = crew_.Buttons(bindings, actions, 0, all, {StringKey("trade.take"), StringKey("trade.give")}, std::string(),
-                                     !take->Offers("press") || !give->Offers("press"), std::string(),
-                                     [&bindings, take, give](int delta) {
+        const Limits &limits = crew_limits_; // CrewView's, of this build
+        Json primary = crew_.Buttons(bindings, limits.low, limits.high, {StringKey("trade.take"), StringKey("trade.give")}, std::string(),
+                                     !take->Offers("press") || !give->Offers("press"), std::string(), [&bindings, take, give](int delta) {
                                          for (int i = 0; i < std::abs(delta); ++i)
                                              bindings.Send(delta > 0 ? *take : *give, "press");
-                                     },
-                                     nullptr);
+                                     });
         if (!primary.is_null())
         {
             view["primary"] = std::move(primary);
-            view["actions"] = std::move(actions);
+            view["actions"] = Json::array();
         }
     }
 
@@ -717,6 +828,8 @@ class TransferScreen final : public Screen
     };
     std::unique_ptr<Screen> goods_;
     AmountDraft crew_, cargo_; // the numbers the player sets for the crew and the cargo row, until confirmed
+    Limits crew_limits_;       // the crew slider's ends and marks, of the last build
+    uint64_t limits_reported_ = 0; // the opening whose missing crew limits were reported
     Amount hire_;              // the defectors' number: the game's own window holds it until its OK
     bool ships_open_ = false; // the «Корабли» tab of ours
     int quick_row_ = -1;    // the cargo row (the game's index: its rows carry no identity) whose whole stock is taken once the game selects it

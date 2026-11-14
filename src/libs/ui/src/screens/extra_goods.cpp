@@ -113,12 +113,13 @@ class GoodsOrderScreen final : public Screen
         if (open_row)
         {
             draft_.Bind(bindings, "goods", 0, kMost, std::string());
-            primary = draft_.Buttons(bindings, actions, 0, kMost, {StringKey("goods.save"), StringKey("goods.save"), true}, std::string(),
+            primary = draft_.Buttons(bindings, 0, kMost, {StringKey("goods.save"), StringKey("goods.save"), true}, std::string(),
                                      !open_row->Offers("order"), open_row->unavailable_reason,
                                      [&bindings, open_row, origin = draft_.Origin()](int delta) {
                                          bindings.Send(*open_row, "order", open_row->row_id + "=" + std::to_string(origin + delta));
-                                     },
-                                     nullptr);
+                                     });
+            // A standing order is a setting, not a transfer: it keeps its «Отмена» (owner, 2026-11-14).
+            draft_.CancelAction(bindings, actions);
         }
 
         Json view = Json::object();

@@ -306,12 +306,14 @@ static void Generic(const std::string &models)
 }
 
 // The shared quantity flow (AmountDraft, controls.h) on one open quantity control: changing the amount (steps,
-// a drag, its end) sends nothing to the game, however long it settles; «Отмена» moves nothing; the confirm
-// button sends exactly one move (`one_move` checks its commands); a second press before the game answers sends
-// nothing more. `moves` tells a command that moves something; `reopen` brings the control back after «Отмена».
+// a drag, its end) sends nothing to the game, however long it settles; the confirm button sends exactly one move
+// (`one_move` checks its commands); a second press before the game answers sends nothing more. `moves` tells a
+// command that moves something. A transfer (`origin` >= 0, what our side holds) has no «Отмена»
+// (owner, 2026-11-14): the amount set back to the origin drops the draft. A setting kept as a draft (`origin` < 0:
+// the treasurer's order) keeps «Отмена», which drops it; `reopen` then answers what it did.
 static void DraftFlow(const std::string &name, Router &router, FakeSurface &surface, const std::string &control, int value, const std::string &label,
                       const std::function<bool(const std::string &)> &moves, const std::function<bool(const std::vector<std::string> &)> &one_move,
-                      const std::function<void()> &reopen)
+                      const std::function<void()> &reopen, int origin = -1)
 {
     const auto dump = [&surface]() { return Json(surface.commands).dump(); };
     surface.commands.clear();
@@ -322,14 +324,26 @@ static void DraftFlow(const std::string &name, Router &router, FakeSurface &surf
     router.Tick();
     Expect(surface.commands.empty(), name + ": a quantity change sends nothing to the game: " + dump());
     const Json &actions = surface.props["actions"];
-    Expect(surface.props["primary"]["label"] == label && surface.props["primary"]["disabled"] == false && actions.is_array() && !actions.empty() &&
-               actions.back()["id"] == "deal-cancel" && actions.back()["label"] == "<common.cancel>",
-           name + ": the changed amount offers its confirm and «Отмена»: " + surface.props["primary"].dump() + actions.dump());
-    router.OnEvent({"deal-cancel", "click", ""});
-    router.Tick();
-    Expect(std::none_of(surface.commands.begin(), surface.commands.end(), moves), name + ": «Отмена» moves nothing: " + dump());
-    Expect(surface.props["primary"]["label"] != label, name + ": «Отмена» drops the amount set");
-    reopen();
+    const bool cancel = actions.is_array() && std::any_of(actions.begin(), actions.end(), [](const Json &a) { return a.value("id", "") == "deal-cancel"; });
+    Expect(surface.props["primary"]["label"] == label && surface.props["primary"]["disabled"] == false,
+           name + ": the changed amount offers its confirm: " + surface.props["primary"].dump());
+    if (origin >= 0)
+    {
+        Expect(!cancel, name + ": a transfer has no «Отмена»: " + actions.dump());
+        router.OnEvent({control, "commit", std::to_string(origin)});
+        router.Tick();
+        Expect(std::none_of(surface.commands.begin(), surface.commands.end(), moves) && surface.props["primary"]["label"] != label,
+               name + ": the amount set back drops the draft, moving nothing: " + dump());
+    }
+    else
+    {
+        Expect(cancel && actions.back()["label"] == "<common.cancel>", name + ": a setting offers «Отмена»: " + actions.dump());
+        router.OnEvent({"deal-cancel", "click", ""});
+        router.Tick();
+        Expect(std::none_of(surface.commands.begin(), surface.commands.end(), moves), name + ": «Отмена» moves nothing: " + dump());
+        Expect(surface.props["primary"]["label"] != label, name + ": «Отмена» drops the amount set");
+        reopen();
+    }
     router.OnEvent({control, "commit", std::to_string(value)});
     surface.commands.clear();
     router.OnEvent({"primary", "click", ""});
@@ -357,7 +371,7 @@ static void Store(const std::string &models)
         if (widget.node == "CAPACITY")
             widget.label = "Дедвейт: 189 / 700"; // as the game writes it
     router.SetInterface(one_line);
-    Expect(surface.props["stats"][0]["label"] == "Дедвейт" && surface.props["stats"][0]["value"] == "189 / 700", "a one-line figure is split at its colon");
+    Expect(surface.props["stats"][0]["icon"] == "capacity" && surface.props["stats"][0]["value"] == "189 / 700", "a one-line figure is split at its colon; the hold is its icon");
     Expect(surface.logs.size() == 1 && surface.errors.empty(), "the same node set is not logged again");
 
     router.OnEvent({"goods", "row", "1"});
@@ -540,12 +554,7 @@ static void Store(const std::string &models)
                   [&](const std::vector<std::string> &commands) {
                       return commands == std::vector<std::string>{edit + "0", edit + "-50", "widget:store\tQTY_OK_BUTTON\t-1\tguard@7:goods:0:ship:0|press"};
                   },
-                  [&]() {
-                      ExpectEqual(draft_surface.Last(), "widget:store\tQTY_CANCEL_BUTTON\t-1\tguard@7:goods:0:ship:0|press", "store: «Отмена» closes the game's window");
-                      InterfaceModel again = open_deal;
-                      again.revision += 5;
-                      draft_router.SetInterface(again);
-                  });
+                  [] {}, 200);
     }
     surface.commands.clear();
     router.OnEvent({"goods", "row", "2"});
@@ -626,19 +635,12 @@ static void Commerce(const std::string &models)
     {
         const std::string edit = "widget:storage\tQTY_EDIT\t-1\tguard@7:row:0|";
         const std::string ok = "widget:storage\tQTY_OK_BUTTON\t-1\tguard@7:row:0|press";
-        const std::string cancel = "widget:storage\tQTY_CANCEL_BUTTON\t-1\tguard@7:row:0|press";
         const auto moves = [](const std::string &command) { return command.find("\tQTY_EDIT\t") != std::string::npos || command.find("\tQTY_OK_BUTTON\t") != std::string::npos; };
-        const auto reopen = [&]() {
-            ExpectEqual(surface.Last(), cancel, "storage: «Отмена» closes the game's window");
-            InterfaceModel again = Load(models, "storage-deal.json");
-            again.revision += 5;
-            router.SetInterface(again);
-        };
         DraftFlow("storage: take", router, surface, "goods", 90, "<trade.take> 30", moves,
                   [&](const std::vector<std::string> &commands) {
                       return commands == std::vector<std::string>{edit + "0", edit + "30", ok};
                   },
-                  reopen);
+                  [] {}, 60);
         router.SetInterface(Load(models, "storage.json")); // the game closed its window after the transfer
         Expect(surface.commands.empty() && surface.props["primary"]["label"] != "<trade.take> 30", "the moved row is not opened again by itself");
         router.SetInterface(Load(models, "storage-deal.json"));
@@ -646,7 +648,7 @@ static void Commerce(const std::string &models)
                   [&](const std::vector<std::string> &commands) {
                       return commands == std::vector<std::string>{edit + "0", edit + "-50", ok};
                   },
-                  reopen);
+                  [] {}, 60);
     }
 
     // Chest / body: the game's category tabs, take all, remove body.
@@ -774,19 +776,40 @@ static void Commerce(const std::string &models)
                       return commands.size() == 3 && commands[1].find("\tQTY_EDIT\t") != std::string::npos && commands[1].substr(commands[1].size() - 2) == "|2" &&
                              commands[2].find("\tQTY_OK_BUTTON\t") != std::string::npos;
                   },
-                  [&]() {
-                      ExpectEqual(surface.Last().substr(0, surface.Last().find("\tguard")), "widget:itemsbox\tQTY_CANCEL_BUTTON\t-1", "itemsbox: «Отмена» closes the game's window");
-                      InterfaceModel again = Load(models, "itemsbox-deal.json");
-                      again.revision += 5;
-                      router.SetInterface(again);
-                  });
+                  [] {}, 23);
     }
 
-    // The row's own facts: the trade type by the name's colour, the pack in the dock's second line.
+    // The row's own facts: the trade type by the name's colour; the open row's prices, weight and pack as the dock's facts.
     router.SetInterface(Load(models, "store.json"));
     router.SetInterface(Load(models, "store-deal.json"));
     ExpectEqual(surface.props["list"]["rows"][5]["meta"], "<trade.export>", "the trade type the colour tells is named from the string table");
-    ExpectEqual(surface.props["list"]["rows"][5]["sub"], "<trade.export> · Пачка 10", "the dock's second line adds the pack");
+    ExpectEqual(surface.props["list"]["rows"][5]["sub"], "<trade.export>", "the dock's second line is the trade type; the pack is a fact");
+    {
+        // Owner 2026-11-14: «в трюме» / «в магазине», icons beside the prices, the weight with its icon and no word,
+        // and the game's «пачка 20 шт.» (it sells by the piece) said as what the figures are for.
+        const Json &open = surface.props["list"]["rows"][0];
+        const Json facts = open["facts"];
+        Expect(facts.size() == 4 && facts[0]["icon"] == "price-buy" && facts[0]["v"] == "5" && facts[1]["icon"] == "price-sell" && facts[1]["v"] == "3" &&
+                   facts[2]["icon"] == "weight" && facts[2]["v"] == "1 <transfer.cwt>" && !facts[2].contains("k") && facts[3]["v"] == "<trade.per_units>",
+               "store: the open row's facts: both prices, the weight by its icon, per pack: " + facts.dump());
+        Expect(open["text"] == "Чугунные ядра для корабельных орудий." && open["sub"] == "",
+               "store: the game's «Вес 1 ц, пачка 20 шт.» line leaves the text: " + open.dump());
+        const Json &cols = surface.props["list"]["cols"];
+        Expect(cols[0]["label"] == "<trade.in_hold>" && cols[0]["icon"] == "capacity" && cols[1]["label"] == "<trade.in_store>" && cols[1]["icon"] == "store" &&
+                   cols[2]["icon"] == "price-buy" && cols[3]["icon"] == "price-sell",
+               "store: «В трюме», «В магазине» and the price columns with their icons: " + cols.dump());
+        Expect(surface.props["list"]["filters"][1]["label"] == "<trade.in_hold>", "the hold chip is «В трюме»");
+        Expect(surface.props["stats"][0]["icon"] == "capacity" && !surface.props["stats"][0].contains("label"), "the hold figure is its icon: " + surface.props["stats"].dump());
+        // «Выгодно»: export (cheap here), import and high demand (dear here) — the game's own trade types.
+        router.OnEvent({"goods", "filter", "2"});
+        std::vector<std::string> kinds;
+        for (const Json &row : surface.props["list"]["rows"])
+            kinds.push_back(row["meta"]);
+        Expect(!kinds.empty() && std::all_of(kinds.begin(), kinds.end(), [](const std::string &k) { return k == "<trade.export>" || k == "<trade.import>" || k == "<trade.demand>"; }) &&
+                   std::find(kinds.begin(), kinds.end(), "<trade.import>") != kinds.end() && std::find(kinds.begin(), kinds.end(), "<trade.export>") != kinds.end(),
+               "«Выгодно» lists export, import and high demand: " + Json(kinds).dump());
+        router.OnEvent({"goods", "filter", "0"});
+    }
     {
         // Buy and sell are columns of their own; a caption's tap orders the rows by it (largest, smallest, the game's order).
         const Json &cols = surface.props["list"]["cols"];
@@ -1059,18 +1082,19 @@ static void Transfer(const std::string &models)
                 return commands.size() == count && std::all_of(commands.begin(), commands.end(), [&](const std::string &c) { return c == prefix + node + "\t-1\tpress"; });
             };
         };
-        DraftFlow("transfer cargo: take", router, surface, "goods", 145, "<trade.take> 45", arrows, presses("B_LEFT", 3), [] {});
-        Expect(surface.props["list"]["rows"][0]["q"]["value"] == 145, "the control shows what was sent until the game answers");
+        // The game moves whole packs of 20: 145 is 140, two presses (the old flow sent three and moved 60).
+        DraftFlow("transfer cargo: take", router, surface, "goods", 145, "<trade.take> 40", arrows, presses("B_LEFT", 2), [] {}, 100);
+        Expect(surface.props["list"]["rows"][0]["q"]["value"] == 140, "the control shows what was sent until the game answers");
         InterfaceModel answered = Load(models, "transfer-loot-row.json");
         answered.revision += 5;
         router.SetInterface(answered); // a revision with the same figures: not the answer yet
-        Expect(surface.props["list"]["rows"][0]["q"]["value"] == 145 && surface.props["primary"]["busy"] == true,
+        Expect(surface.props["list"]["rows"][0]["q"]["value"] == 140 && surface.props["primary"]["busy"] == true,
                "a revision that does not change the figures is not the answer: the sent amount waits");
         surface.now += 2.0;
         router.Tick(); // (the game refused: no change within the answer time)
         Expect(surface.props["list"]["rows"][0]["q"]["value"] == 100 && surface.props["primary"]["label"] == "<transfer.take_all>",
                "a refused move opens the amount again at the game's figure; the bar is the place's again");
-        DraftFlow("transfer cargo: give", router, surface, "goods", 0, "<trade.give> 100", arrows, presses("B_RIGHT", 5), [] {});
+        DraftFlow("transfer cargo: give", router, surface, "goods", 0, "<trade.give> 100", arrows, presses("B_RIGHT", 5), [] {}, 100);
         surface.now += 2.0;
         answered.revision += 5;
         router.SetInterface(answered);
@@ -1078,6 +1102,26 @@ static void Transfer(const std::string &models)
         router.OnEvent({"goods", "change", "300"});
         router.OnEvent({"header-back", "click", ""});
         Expect(surface.commands.empty() && surface.props["primary"]["label"] == "<transfer.take_all>", "back drops the amount set first, moving nothing");
+    }
+    {
+        // The owner's bug (2026-11-14): a good the other ship no longer has could not be given back. The game shows
+        // (and exports) only the arrows whose way is possible: without B_LEFT the whole control was disabled.
+        InterfaceModel back = Load(models, "transfer-loot-row.json");
+        back.widgets.erase(std::remove_if(back.widgets.begin(), back.widgets.end(), [](const Widget &w) { return w.node == "B_LEFT"; }), back.widgets.end());
+        FakeSurface back_surface;
+        Router back_router(back_surface);
+        back_router.SetInterface(back);
+        const Json q = back_surface.props["list"]["rows"][0]["q"];
+        Expect(q["disabled"] == false && q["min"] == 0 && q["max"] == 100 && q["origin"] == 100,
+               "without the take arrow the row still gives: ours down to none, nothing to take: " + q.dump());
+        back_router.OnEvent({"goods", "commit", "45"});
+        Expect(back_surface.props["primary"]["label"] == "<trade.give> 60" && back_surface.props["primary"]["sub"] == "6 <transfer.cwt>",
+               "the amount steps by packs of 20 (45 is 40 left, 60 given), the hold's change below: " + back_surface.props["primary"].dump());
+        back_surface.commands.clear();
+        back_router.OnEvent({"primary", "click", ""});
+        Expect(back_surface.commands == std::vector<std::string>(3, prefix + "B_RIGHT\t-1\tpress"), "three packs given: " + Json(back_surface.commands).dump());
+        Expect(back_surface.props["list"]["rows"][0]["facts"][0]["icon"] == "weight" && back_surface.props["list"]["rows"][0]["facts"][1]["v"] == "<trade.per_units>",
+               "the dock says what a pack weighs and how many pieces it is");
     }
     {
         // The hand at a row's end: the row is selected, then all of the other hold is asked for by the game's arrow.
@@ -1150,6 +1194,25 @@ static void Transfer(const std::string &models)
     ExpectEqual(surface.Last(), prefix + "REMOVE_CANCEL_OFFICER\t-1\tpress", "keep = back to appoint a captain");
 
     router.SetInterface(Load(models, "transfer-crew.json"));
+    {
+        // Owner 2026-11-14: the slider marks the least crew each ship sails with (MinCrew): ours where our crew is
+        // 9, theirs where what we leave them is their 21 (96 + 58 - 21 = 133).
+        const Json &marks = surface.props["crew"]["rows"][0]["q"]["marks"];
+        Expect(marks.size() == 2 && marks[0]["at"] == 9 && marks[1]["at"] == 133 && marks[0]["label"] == "<transfer.min_mark>",
+               "crew: the two MinCrew marks on our crew's scale: " + marks.dump());
+        const Json &cells = surface.props["crew"]["rows"][0]["cells"];
+        Expect(cells[0]["text"] == "96" && cells[0]["sub"] == "<transfer.min_mark>" && cells[1]["text"] == "58" && cells[1]["sub"] == "<transfer.min_mark>",
+               "crew: each ship's minimum under its crew: " + cells.dump());
+        Expect(surface.errors.empty(), "crew limits read from ANDROID_TRANSFER");
+        InterfaceModel narrow = Load(models, "transfer-crew.json");
+        for (Widget &widget : narrow.widgets)
+            if (widget.node == "ANDROID_TRANSFER")
+                widget.context["crewMax"] = "100";
+        FakeSurface narrow_surface;
+        Router narrow_router(narrow_surface);
+        narrow_router.SetInterface(narrow);
+        Expect(narrow_surface.props["crew"]["rows"][0]["q"]["max"] == 100, "crew: our MaxCrew ends what we can take (TakeCrew)");
+    }
     Expect(surface.props["crew"]["rows"][0]["q"]["value"] == 96 && surface.props["crew"]["rows"][0]["q"]["max"] == 154 &&
                surface.props["tabs"][1]["selected"] == true && surface.props["primary"].is_null(),
            "crew window: our 96 of both crews, crew tab open");
@@ -1158,7 +1221,7 @@ static void Transfer(const std::string &models)
               [&prefix](const std::vector<std::string> &commands) {
                   return commands == std::vector<std::string>(4, prefix + "CREW_LEFT\t-1\tpress");
               },
-              [] {});
+              [] {}, 96);
     router.OnEvent({"header", "tab", "0"});
     ExpectEqual(surface.Last(), prefix + "CREW_EXIT_BTN\t-1\tpress", "cargo tab closes the crew window");
 }

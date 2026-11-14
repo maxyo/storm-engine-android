@@ -49,11 +49,12 @@ std::string NationOf(const ImageRef *image);
 Json ButtonView(Bindings &bindings, const Widget &button, const std::string &id, const char *variant);
 // The amount a quantity control sets is the player's draft until he confirms it (owner rule: picking an
 // amount moves nothing). A change or a drag of the control moves only the draft; the deal's button
-// («Взять / Отдать N» for a free transfer, «Купить / Продать N» for a money deal) sends it to the game,
-// «Отмена» drops it. Every screen whose quantity moves something keeps one per open control: chests,
+// («Взять / Отдать N» for a free transfer, «Купить / Продать N» for a money deal) sends it to the game.
+// A transfer has no «Отмена» (owner, 2026-11-14): tapping another row, or the control back at its
+// origin, drops the draft. Every screen whose quantity moves something keeps one per open control: chests,
 // bodies and the exchange with an officer (itemsbox), storage, town loot, the store and its kin
 // (trade_commerce.cpp), the cargo and crew of the loot / exchange of ships (extra_transfer.cpp), the
-// treasurer's standing order (extra_goods.cpp).
+// treasurer's standing order (extra_goods.cpp: a setting, not a transfer, so it keeps «Отмена», CancelAction).
 class AmountDraft
 {
   public:
@@ -81,15 +82,18 @@ class AmountDraft
     // The amount the control shows, within [low, high].
     int Value(int low, int high) const;
     // Binds `<id> change` and `<id> commit` of the control: both move the draft and build again, nothing goes
-    // to the game. Past `high` a `more_reason` (the purse, the room) is said once per push.
-    void Bind(Bindings &bindings, const std::string &id, int low, int high, const std::string &more_reason);
-    // The deal's buttons while the draft differs from its origin: returns the primary {label "<operation> N",
-    // sub, disabled, reason, busy}, whose press calls `commit(delta)` (delta > 0 raises our side), and appends
-    // «Отмена» (id "deal-cancel") to `actions`, which drops the draft and calls `cancel` (closing the game's
-    // window, where it has one). Null while the amount is unchanged; while a sent draft waits for its answer
-    // the button stays, busy, and takes no press.
-    Json Buttons(Bindings &bindings, Json &actions, int low, int high, Labels labels, const std::string &sub, bool disabled,
-                 const std::string &reason, std::function<void(int)> commit, std::function<void()> cancel);
+    // to the game. Past `high` a `more_reason` (the purse, the room) is said once per push. A `grain` above 1
+    // keeps the draft on what the game can make of it: the origin plus or minus whole grains (the packs the
+    // exchange of ships moves by its arrows), or one of the ends.
+    void Bind(Bindings &bindings, const std::string &id, int low, int high, const std::string &more_reason, int grain = 1);
+    // The deal's button while the draft differs from its origin: returns the primary {label "<operation> N",
+    // sub, disabled, reason, busy}, whose press calls `commit(delta)` (delta > 0 raises our side). Null while
+    // the amount is unchanged; while a sent draft waits for its answer the button stays, busy, and takes no press.
+    Json Buttons(Bindings &bindings, int low, int high, Labels labels, const std::string &sub, bool disabled, const std::string &reason,
+                 std::function<void(int)> commit);
+    // «Отмена» (id "deal-cancel") appended to `actions` while a changed draft is not sent: it drops the draft.
+    // Only for a setting kept as a draft (the treasurer's standing order), never for a transfer.
+    void CancelAction(Bindings &bindings, Json &actions);
     // The deal was sent by other means (the quick take of a whole stack): wait for the answer like after Buttons.
     void Sent(int value, double now);
     // Drops a changed draft (the platform back); false when there was nothing to drop.
