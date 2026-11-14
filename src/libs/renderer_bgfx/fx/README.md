@@ -89,6 +89,7 @@ is not wired into the game. `Shadows::CasterProgram`,
 | `include/storm/fx/light_set.hpp` | point / spot lights: selection per draw call, flash lights |
 | `include/storm/fx/relief_model.hpp`, `relief_store.hpp` | PBRify's normal and height models' input, crop, axes and mips (run by src/libs/relief); the relief directory's files and keys |
 | `include/storm/fx/gloss_map.hpp` | gloss from PBRify's roughness network (class from the path rules; GGX-to-Blinn power, grooves, dark texels, metal mask, class caps) that shapes the sun's and the lamps' highlights |
+| `include/storm/fx/parallax_trust.hpp`, `parallax_exclusions.hpp` | where the relief's height can be trusted with the parallax (a per-texel mask made with the relief: windows and glass out), and the shipped and user exclusion lists |
 | `include/storm/fx/height_map.hpp` | the relief's material texture: PBRify's height (normalised per atlas region) for the parallax and the cavity, the gloss beside it |
 | `include/storm/fx/normal_map.hpp` | normal maps of the grey "bump" heights; the path/name rules table that gives each texture its relief class |
 | `include/storm/fx/shadows.hpp` | `Shadows`: sun shadow map |
@@ -175,12 +176,20 @@ at stage 7 (`kMaterialStage`, `s_fxMaterial`, the unit the gloss reads), the rel
 stage 1's grey height texture with its own heights; stage 0's gloss then yields unit 7, counted) and the normal map read
 where the eye's ray meets the relief (`fx_lighting.sh` fxParallax), fading out between 10 and 15 m.
 The height is normalised per atlas region (`height_map.hpp`), each class has its
-own depth (`ReliefDepthTexels`: stone 12 texels of the 512 map, building atlases 8, the grey height maps 6, plaster 5,
-wood 4, props 3, metal 1.5), the shift at grazing views is held to 2.5 times the depth, and clamp-addressed textures have none (the
+own depth (`ReliefDepthTexels`: stone 6 texels of the 512 map, building atlases 4, the grey height maps 3, plaster 2.5,
+wood 2, props 1.5, metal 0.75; a depth in texels is already proportional to the texel's size in the world, so small objects get
+little and walls more, kept between 6 mm and `kParallaxMaxDepth` 3 cm, so small objects are not left with a depth nobody sees), the depth fades out towards grazing views (N.V 0.08..0.35) and
+the rest of the shift is held to twice the depth, and clamp-addressed textures have none (the
 reads would run off their edge). On Высокая the relief also shadows itself towards the sun (fxParallaxShadow, six taps
 of the height; not indoors): the lit draws' sun term, half of the baked colours.
 The same height gives the relief's cavity on Высокая and Средняя (fxReliefCavity: the height against itself two and a
 half levels coarser, one more tap): joints, gaps and recesses take ambient and bounce in full, half of the direct light,
 three quarters of the baked colours; it also draws where the parallax is off or clamped.
+Where the height cannot be trusted (windows, glass: `parallax_trust.hpp`) the relief generation puts it at the top, by a
+per-texel mask, so the parallax shifts nothing there; normals and, where the height is trusted, the cavity stay. A texture
+with fewer trusted texels than `kParallaxMinCoverage` (35 %), or one on the shipped list (`src/parallax_exclusions.inc`,
+data parsed and logged at start) or excluded in the owner's user file (`pom_user_exclusions.txt` in the app's files
+directory, `exclude <name>` / `include <name>` lines, written by the debug view's toggle), draws without the parallax
+(its cavity stays). The mask, a quarter of the map's size, and the coverage are kept in the relief file (layout 4).
 The census logs each texture's parallax or the reason it has none ("effects parallax: texture ...") and a coverage
 table by class and reason ("effects parallax coverage, ..."), the textures drawn in the last 300 frames.

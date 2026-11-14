@@ -42,6 +42,7 @@ made. The build makes that directory (below); its path is in `<build>/relief_mod
   `fx::kReliefRoughnessModelDigest`. Per texture: one decode, then one inference of each
   model on the whole image at the map's size, wrap-padded by `fx::kReliefModelPad` (24 px, beyond the networks'
   receptive field: no seam where the texture tiles); the roughness model at the gloss map's size.
+- Parallax trust (`fx/parallax_trust.hpp`): after the height, a per-texel mask from the colour texture and the height (classical image processing, no model) marks recesses (windows, doors) and flat dark glass; the height goes to the top there (no parallax), the mask and its coverage go into the file. The log line of each map ends its depth with `parallax trust N%`.
 - Height (`fx/height_map.hpp`): the height model's output, each atlas region normalised against its own neighbourhood
   (`fx::kHeightRegionTexels`), then its 2 % / 98 % become 0 and 1; the class's depth (`fx::ReliefDepthTexels`) is stored
   with it. Gloss (`fx/gloss_map.hpp`): the roughness model at 256² (`fx::kGlossMapSize`), corrected by

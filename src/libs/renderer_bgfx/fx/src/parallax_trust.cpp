@@ -110,7 +110,7 @@ std::vector<float> ParallaxTrust(std::span<const uint8_t> rgba, std::span<const 
                     std::sqrt(std::max(mean_square[t] - mean[t] * mean[t], 0.0f)) < kTrustGlassFlat)
                        ? 1.0f
                        : 0.0f;
-    glass = Blobs(Open(glass, w, h, R(4)), w, h, Area(kTrustGlassMinArea), Area(20000.0f), 0.5f);
+    glass = Blobs(Open(glass, w, h, R(4)), w, h, Area(kTrustGlassMinArea), 1e9f, 0.5f);
 
     // Grown and feathered.
     Plane bad(n);

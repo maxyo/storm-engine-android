@@ -31,12 +31,13 @@ bool ReliefHasHeight(ReliefClass relief);
 // cobbles 6, the buildings' atlases (stone, plaster and beams in one) 4, the grey height maps 3, plaster, ground and
 // cloth 2.5, wood 2, props 1.5, metal 0.75. Halved from the first values (12, 8, 6, 5, 4, 3, 1.5): the owner found the
 // parallax too much on walls. A depth in texels is already proportional to the size of the texel in the world: a post's
-// or a plank's texture, small on the object, gets a small depth, a wall's large one; kParallaxMaxDepth caps what a
-// texture stretched over a large surface would otherwise get.
+// or a plank's texture, small on the object, gets a small depth, a wall's large one, between the limits of kParallaxMaxDepth.
 float ReliefDepthTexels(ReliefClass relief);
 
 // The deepest the parallax goes, in metres: where a texture is stretched over a large surface (a house wall's atlas),
-// its depth in texels is a lot of centimetres.
+// its depth in texels is a lot of centimetres. The shallowest is a fifth of it (6 mm): the texture of a plank, a post
+// or a table's leg, its texel a fraction of a millimetre, would get a depth nobody sees (the owner: furniture, posts,
+// fences and tables have too little parallax).
 inline constexpr float kParallaxMaxDepth = 0.03f;
 
 // How much of the sun's light the relief's own shadow takes where it falls (fx_lighting.sh fxParallaxShadow).

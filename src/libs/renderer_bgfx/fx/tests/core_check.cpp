@@ -1006,7 +1006,7 @@ void CheckReliefModel()
     for (const ReliefClass colour : {ReliefClass::Stone, ReliefClass::Wood, ReliefClass::Building, ReliefClass::Plaster})
         CHECK(ReliefMethod(colour) == ReliefMethod(ReliefClass::Stone) &&
               ReliefMethod(colour) != ReliefMethod(ReliefClass::HeightMap));
-    CHECK(kReliefMethodVersion == 7);
+    CHECK(kReliefMethodVersion == 8);
     CHECK(ReliefMethod(ReliefClass::Stone) != 3 && key != ReliefKey("a/b", probe, 4, 4, 3, kReliefMapSize));
     // The model files' sha256 prefixes (checked by CMake too).
     CHECK(kReliefNormalModelDigest == 0xfc91ce30e48deaf5ull && kReliefHeightModelDigest == 0x01f251dc40e79fa7ull &&

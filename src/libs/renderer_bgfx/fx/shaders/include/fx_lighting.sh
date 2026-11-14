@@ -222,7 +222,7 @@ vec3 fxPerturbNormal(vec3 N, vec3 gu, vec3 gv, vec2 rg)
 //         mapping); w: log2 of the map's larger side (the level the steps read).
 // [1] x: the self-shadow towards the sun, 0..1 of the sun's light it may take (0 = none: offset mapping, interiors);
 //     y: 1 = the debug view (ff_fragment.sh, fx_parallax_debug); z: the cavity's strength (fxReliefCavity, 0 = none);
-//     w: the deepest the parallax goes, in metres (0 = no cap).
+//     w: the deepest the parallax goes, in metres (0 = no limits); the shallowest is a fifth of it.
 // With z set and no parallax (x, y and z of [0] zero) the variant draws only the cavity.
 uniform vec4 u_fxParallax[2];
 
@@ -231,7 +231,7 @@ uniform vec4 u_fxParallax[2];
 // metres). The relief's top is the surface: the ray goes down into the texture's pits, never above it. The step count
 // grows towards grazing views (8 looking straight at the surface, up to z), the last two steps are interpolated
 // linearly; the effect fades out between 10 and 15 m, where it is not drawn at all. The depth is capped at
-// u_fxParallax[1].w metres and fades out towards grazing views (smoothstep of N.V, 0.08..0.35); the rest of the shift is
+// u_fxParallax[1].w metres (and not under a fifth of it) and fades out towards grazing views (smoothstep of N.V, 0.08..0.35); the rest of the shift is
 // held to twice the depth: further, it runs off the texture's region at the edge of a polygon (a dark band under a step).
 // One tap (z = 1): offset mapping with offset limiting (no division by the cosine).
 // `found`, for fxParallaxShadow: x the full depth in metres (0: no parallax drawn), y where the eye's ray met the relief
@@ -247,9 +247,11 @@ vec2 fxParallax(vec2 uv, vec2 dux, vec2 duy, vec3 gu, vec3 gv, vec3 Ng, vec3 V, 
     float lu = length(gu);
     float lv = length(gv);
     float depth = 0.5 * (u_fxParallax[0].x / max(lu, 1e-6) + u_fxParallax[0].y / max(lv, 1e-6));
-    // A texture stretched over a large surface would get centimetres of depth: held to u_fxParallax[1].w metres.
+    // The depth in metres, kept between a fifth of u_fxParallax[1].w and all of it: a texture stretched over a large
+    // surface (a house wall) would get centimetres, one tiny on a small object (a plank, a post, a table's leg) a
+    // fraction of a millimetre that nobody sees.
     if (u_fxParallax[1].w > 0.0)
-        depth = min(depth, u_fxParallax[1].w);
+        depth = clamp(depth, 0.2 * u_fxParallax[1].w, u_fxParallax[1].w);
     float nv = clamp(dot(Ng, V), 0.0, 1.0);
     // Towards grazing views the depth goes to nothing (0.08..0.35 of N.V): the ray runs along the surface, the shift
     // grows without bound, the texture swims and stretches at polygon edges.
