@@ -284,7 +284,7 @@ bool NormalMaps::parallax_allowed(const NormalMapEntry &entry)
     case fx::ParallaxExclusions::Verdict::Default:
         break;
     }
-    return entry.trust_coverage >= fx::kParallaxMinCoverage;
+    return fx::ReliefTakesParallax(entry.relief) && entry.trust_coverage >= fx::kParallaxMinCoverage;
 }
 
 ParallaxInfo NormalMaps::parallax_info(const std::string &name)
@@ -311,6 +311,8 @@ ParallaxInfo NormalMaps::parallax_info(const std::string &name)
             info.reason = "no height";
         else if (verdict == fx::ParallaxExclusions::Verdict::Excluded)
             info.reason = "excluded by a list";
+        else if (!fx::ReliefTakesParallax(entry->relief))
+            info.reason = "its class (furniture, wood, props...) takes none";
         else if (!info.parallax)
             info.reason = "too few trusted texels";
         break;

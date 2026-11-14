@@ -221,7 +221,7 @@ class Lighting
         Projected,     // the relief's stage with projected coordinates
         Clamped,       // the relief's stage clamp-addressed
         NoRelief,      // the draw took no relief: a lit material without it (props, hull parts), or fading in at 0
-        NotTrusted,    // the texture's trust coverage is below kParallaxMinCoverage, or a list excludes it
+        NotTrusted,    // the texture's class takes no parallax (not masonry), its trust coverage is below kParallaxMinCoverage, or a list excludes it
         Other,
     };
     static const char *ParallaxMissName(ParallaxMiss miss);

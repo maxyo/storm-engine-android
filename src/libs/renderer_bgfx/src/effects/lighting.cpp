@@ -615,7 +615,7 @@ const char *Lighting::ParallaxMissName(ParallaxMiss miss)
                                         "no vertex normals", "cube map", "character", "switched off",
                                         "stage 1 height texture without a height", "map not ready", "map without height",
                                         "projected coordinates", "clamp-addressed", "no relief on the draw",
-                                        "too few trusted texels or excluded", "other"};
+                                        "its class takes none, too few trusted texels or excluded", "other"};
     static_assert(std::size(names) == kParallaxMisses);
     return names[static_cast<int>(miss)];
 }
