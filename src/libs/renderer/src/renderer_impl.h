@@ -310,9 +310,9 @@ class Renderer : public VRenderer
     HRESULT ImageBlt(int32_t nTextureId, RECT *pDstRect, RECT *pSrcRect) override;
 
     bool LoadTextureSurface(std::fstream &fileS, storm::shim::Surface *suface, uint32_t mipSize, uint32_t width,
-                            uint32_t height, bool isSwizzled);
+                            uint32_t height, bool isSwizzled, const char *name);
     uint32_t LoadCubmapSide(std::fstream &fileS, storm::shim::CubeTexture *tex, D3DCUBEMAP_FACES face, uint32_t numMips,
-                            uint32_t mipSize, uint32_t size, bool isSwizzled);
+                            uint32_t mipSize, uint32_t size, bool isSwizzled, const char *name);
 
     // core interface
     bool Init() override;

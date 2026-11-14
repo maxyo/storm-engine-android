@@ -1838,7 +1838,7 @@ bool Renderer::TextureLoad(int32_t t)
             else
             {
                 // read the mip
-                isError = !LoadTextureSurface(fileS, surface, head.mip_size, head.width, head.height, isSwizzled);
+                isError = !LoadTextureSurface(fileS, surface, head.mip_size, head.width, head.height, isSwizzled, fn);
             }
             // Freeing the surface
             if (surface)
@@ -1925,7 +1925,8 @@ bool Renderer::TextureLoad(int32_t t)
             fio->_SetFilePointer(fileS, seekposition, std::ios::cur);
         }
         uint32_t sz =
-            LoadCubmapSide(fileS, tex, D3DCUBEMAP_FACE_POSITIVE_Z, head.nmips, head.mip_size, head.width, isSwizzled);
+            LoadCubmapSide(fileS, tex, D3DCUBEMAP_FACE_POSITIVE_Z, head.nmips, head.mip_size, head.width, isSwizzled,
+                           fn);
         if (sz)
         {
             Textures[t].dwSize += sz;
@@ -1934,7 +1935,7 @@ bool Renderer::TextureLoad(int32_t t)
                 fio->_SetFilePointer(fileS, seekposition, std::ios::cur);
             }
             sz = LoadCubmapSide(fileS, tex, D3DCUBEMAP_FACE_POSITIVE_X, head.nmips, head.mip_size, head.width,
-                                isSwizzled);
+                                isSwizzled, fn);
             if (sz)
             {
                 Textures[t].dwSize += sz;
@@ -1943,7 +1944,7 @@ bool Renderer::TextureLoad(int32_t t)
                     fio->_SetFilePointer(fileS, seekposition, std::ios::cur);
                 }
                 sz = LoadCubmapSide(fileS, tex, D3DCUBEMAP_FACE_NEGATIVE_Z, head.nmips, head.mip_size, head.width,
-                                    isSwizzled);
+                                    isSwizzled, fn);
                 if (sz)
                 {
                     Textures[t].dwSize += sz;
@@ -1952,7 +1953,7 @@ bool Renderer::TextureLoad(int32_t t)
                         fio->_SetFilePointer(fileS, seekposition, std::ios::cur);
                     }
                     sz = LoadCubmapSide(fileS, tex, D3DCUBEMAP_FACE_NEGATIVE_X, head.nmips, head.mip_size, head.width,
-                                        isSwizzled);
+                                        isSwizzled, fn);
                     if (sz)
                     {
                         Textures[t].dwSize += sz;
@@ -1961,7 +1962,7 @@ bool Renderer::TextureLoad(int32_t t)
                             fio->_SetFilePointer(fileS, seekposition, std::ios::cur);
                         }
                         sz = LoadCubmapSide(fileS, tex, D3DCUBEMAP_FACE_POSITIVE_Y, head.nmips, head.mip_size,
-                                            head.width, isSwizzled);
+                                            head.width, isSwizzled, fn);
                         if (sz)
                         {
                             Textures[t].dwSize += sz;
@@ -1970,7 +1971,7 @@ bool Renderer::TextureLoad(int32_t t)
                                 fio->_SetFilePointer(fileS, seekposition, std::ios::cur);
                             }
                             sz = LoadCubmapSide(fileS, tex, D3DCUBEMAP_FACE_NEGATIVE_Y, head.nmips, head.mip_size,
-                                                head.width, isSwizzled);
+                                                head.width, isSwizzled, fn);
                             if (!sz)
                             {
                                 isError = true;
@@ -2047,7 +2048,8 @@ bool Renderer::TextureLoad(int32_t t)
 }
 
 uint32_t Renderer::LoadCubmapSide(std::fstream &fileS, storm::shim::CubeTexture *tex, D3DCUBEMAP_FACES face,
-                                   uint32_t numMips, uint32_t mipSize, uint32_t size, bool isSwizzled)
+                                   uint32_t numMips, uint32_t mipSize, uint32_t size, bool isSwizzled,
+                                   const char *name)
 {
     uint32_t texsize = 0;
     // Filling the levels
@@ -2065,7 +2067,7 @@ uint32_t Renderer::LoadCubmapSide(std::fstream &fileS, storm::shim::CubeTexture 
         else
         {
             // read the mip
-            isError = !LoadTextureSurface(fileS, surface, mipSize, size, size, isSwizzled);
+            isError = !LoadTextureSurface(fileS, surface, mipSize, size, size, isSwizzled, name);
         }
         // Freeing the surface
         if (surface)
@@ -2089,33 +2091,34 @@ uint32_t Renderer::LoadCubmapSide(std::fstream &fileS, storm::shim::CubeTexture 
 }
 
 bool Renderer::LoadTextureSurface(std::fstream &fileS, storm::shim::Surface *suface, uint32_t mipSize, uint32_t width,
-                                   uint32_t height, bool isSwizzled)
+                                   uint32_t height, bool isSwizzled, const char *name)
 {
-    //------------------------------------------------------------------------------------------
-    // PC version
-    // ------------------------------------------------------------------------------------------
-    // Surface pointer
+    // The file holds mipSize bytes for this level (the header's level-0 size over 4 per level); the surface holds the
+    // level's real size, which differs for sides that do not halve evenly (800x600 level 4: 50x37, 7400 bytes, the
+    // file 7500) or a damaged header. Read what fits, step over the rest of the level, report the mismatch.
     D3DLOCKED_RECT lock;
     if (CHECKD3DERR(suface->LockRect(&lock, NULL, 0L)) == true)
     {
         return false;
     }
-    // Reading out
-    if (!fio->_ReadFile(fileS, lock.pBits, mipSize))
+    const uint32_t rows = isSwizzled ? std::max(1u, (height + 3) / 4) : std::max(1u, height); // DXT: block rows
+    const uint32_t capacity = static_cast<uint32_t>(lock.Pitch) * rows;
+    const uint32_t read = std::min(mipSize, capacity);
+    bool ok = fio->_ReadFile(fileS, lock.pBits, read);
+    if (ok && read < mipSize)
     {
-        if (CHECKD3DERR(suface->UnlockRect()) == true)
-        {
-            return false;
-        }
-        return false;
+        fio->_SetFilePointer(fileS, mipSize - read, std::ios::cur);
+        ok = fileS.good();
     }
+    if (mipSize != capacity)
+        spdlog::error("texture {}: a {}x{} level holds {} bytes in the file and {} in the texture: {} read{}", name,
+                      width, height, mipSize, capacity, read, read < capacity ? ", the rest left black" : "");
     // Surface release
     if (CHECKD3DERR(suface->UnlockRect()) == true)
     {
         return false;
     }
-    return true;
-    //------------------------------------------------------------------------------------------
+    return ok;
 }
 
 //################################################################################
