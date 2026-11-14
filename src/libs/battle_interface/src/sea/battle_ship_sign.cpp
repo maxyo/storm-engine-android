@@ -201,7 +201,7 @@ void BIShipIcon::Init(ATTRIBUTES *pRoot, ATTRIBUTES *pA)
         // ugeen 150920
         pcTmp = pA->GetAttribute("sailorfontoffset");
         if (pcTmp)
-            sscanf(pcTmp, "%ld,%ld", &m_SailorFontOffset.x, &m_SailorFontOffset.y);
+            sscanf(pcTmp, "%d,%d", &m_SailorFontOffset.x, &m_SailorFontOffset.y);
 
         pcTmp = pA->GetAttribute("shipnamefontid");
         if (pcTmp)
@@ -211,7 +211,7 @@ void BIShipIcon::Init(ATTRIBUTES *pRoot, ATTRIBUTES *pA)
 
         pcTmp = pA->GetAttribute("shipnamefontoffset");
         if (pcTmp)
-            sscanf(pcTmp, "%ld,%ld", &m_ShipNameFontOffset.x, &m_ShipNameFontOffset.y);
+            sscanf(pcTmp, "%d,%d", &m_ShipNameFontOffset.x, &m_ShipNameFontOffset.y);
 
         pcTmp = pA->GetAttribute("backtexturename");
         if (pcTmp)
