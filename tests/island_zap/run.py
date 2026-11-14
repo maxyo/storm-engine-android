@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Island zipped maps made when the game does not ship them: storm::island::ZapCachePath (src/libs/island/include/island_zap.hpp)
+"""Island zipped maps made when the game does not ship them: storm::island::IslandCachePath (src/libs/island/include/island_zap.hpp)
 puts them under the cache root, never into the game folder. ASan/UBSan."""
 import os
 from pathlib import Path

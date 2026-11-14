@@ -2,6 +2,11 @@
 #include <cctype>
 
 #include "astronomy.h"
+#include "fs.h"
+
+#include <filesystem>
+#include <fstream>
+#include <spdlog/spdlog.h>
 #include "core.h"
 #include "math_inlines.h"
 #include "weather_base.h"
@@ -156,21 +161,22 @@ void Astronomy::STARS::Init(ATTRIBUTES *pAP)
         auto *pVColors = static_cast<uint32_t *>(pRS->LockVertexBuffer(iVertexBufferColors));
 
         auto bRecalculateData = true;
-        auto outfileS = fio->_CreateFile("resource\\star.dat", std::ios::binary | std::ios::in);
-        if (outfileS.is_open())
+        // The computed buffers are kept in the cache (never in the game folder), so the next start does not recompute.
+        const std::filesystem::path starCache = fs::GetCachePath() / "star.dat";
+        const uint32_t stride = (sizeof(Star) + sizeof(glm::vec3) + sizeof(uint32_t));
         {
-            uint32_t dwFileLen = fio->_GetFileSize("resource\\star.dat");
-            const uint32_t stride = (sizeof(Star) + sizeof(glm::vec3) + sizeof(uint32_t));
-            if (dwFileLen == dwSize * stride)
+            std::ifstream in(starCache, std::ios::binary | std::ios::ate);
+            if (in && static_cast<uint64_t>(in.tellg()) == static_cast<uint64_t>(dwSize) * stride)
             {
                 aStars.resize(aStars.size() + dwSize);
-                fio->_SetFilePointer(outfileS, 0, std::ios::beg);
-                fio->_ReadFile(outfileS, aStars.data(), sizeof(Star) * dwSize);
-                fio->_ReadFile(outfileS, pVPos, sizeof(glm::vec3) * dwSize);
-                fio->_ReadFile(outfileS, pVColors, sizeof(uint32_t) * dwSize);
-                bRecalculateData = false;
+                in.seekg(0);
+                in.read(reinterpret_cast<char *>(aStars.data()), sizeof(Star) * dwSize);
+                in.read(reinterpret_cast<char *>(pVPos), sizeof(glm::vec3) * dwSize);
+                in.read(reinterpret_cast<char *>(pVColors), sizeof(uint32_t) * dwSize);
+                bRecalculateData = !in;
+                if (bRecalculateData)
+                    aStars.resize(aStars.size() - dwSize);
             }
-            fio->_CloseFile(outfileS);
         }
 
         if (bRecalculateData)
@@ -202,15 +208,15 @@ void Astronomy::STARS::Init(ATTRIBUTES *pAP)
             }
             // core.Trace("Stars: min = %.3f, max = %.3f", fMinMag, fMaxMag);
 
-            // write all the buffers to a file in order not to recalculate the next time
-            outfileS = fio->_CreateFile("resource\\star.dat", std::ios::binary | std::ios::out);
-            if (!outfileS.is_open())
-            {
-                fio->_WriteFile(outfileS, aStars.data(), sizeof(Star) * dwSize);
-                fio->_WriteFile(outfileS, pVPos, sizeof(glm::vec3) * dwSize);
-                fio->_WriteFile(outfileS, pVColors, sizeof(uint32_t) * dwSize);
-                fio->_CloseFile(outfileS);
-            }
+            // write all the buffers to the cache in order not to recalculate the next time
+            std::error_code error;
+            std::filesystem::create_directories(starCache.parent_path(), error);
+            std::ofstream out(starCache, std::ios::binary | std::ios::trunc);
+            out.write(reinterpret_cast<const char *>(aStars.data()), sizeof(Star) * dwSize);
+            out.write(reinterpret_cast<const char *>(pVPos), sizeof(glm::vec3) * dwSize);
+            out.write(reinterpret_cast<const char *>(pVColors), sizeof(uint32_t) * dwSize);
+            if (!out)
+                spdlog::error("Stars: cannot write {} (the stars are computed again at the next start)", starCache.string());
         }
 
         pRS->UnLockVertexBuffer(iVertexBuffer);

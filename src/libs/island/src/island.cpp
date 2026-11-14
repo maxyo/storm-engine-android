@@ -13,6 +13,7 @@
 
 #include <spdlog/spdlog.h>
 #include <cstdio>
+#include <fstream>
 
 CREATE_CLASS(ISLAND)
 
@@ -462,7 +463,25 @@ void ISLAND::CalcBoxParameters(glm::vec3 &_vBoxCenter, glm::vec3 &_vBoxSize)
 
 std::filesystem::path ISLAND::ZapCache(const std::string &gameFile)
 {
-    return storm::island::ZapCachePath(fs::GetCachePath(), gameFile);
+    return storm::island::IslandCachePath(fs::GetCachePath(), gameFile, ".zap");
+}
+
+// The box a depth map was made for, beside it in the cache (what the shipped .ini holds for a shipped map).
+static void SaveBox(const std::string &gameFile, const glm::vec3 &center, const glm::vec3 &size)
+{
+    const auto file = storm::island::IslandCachePath(fs::GetCachePath(), gameFile, ".box");
+    std::error_code error;
+    std::filesystem::create_directories(file.parent_path(), error);
+    std::ofstream out(file, std::ios::trunc);
+    out << center.x << ' ' << center.y << ' ' << center.z << ' ' << size.x << ' ' << size.y << ' ' << size.z << '\n';
+    if (!out)
+        spdlog::error("island: cannot write {} (the map is made again at the next load)", file.string());
+}
+
+static bool LoadBox(const std::string &gameFile, glm::vec3 &center, glm::vec3 &size)
+{
+    std::ifstream in(storm::island::IslandCachePath(fs::GetCachePath(), gameFile, ".box"));
+    return static_cast<bool>(in >> center.x >> center.y >> center.z >> size.x >> size.y >> size.z);
 }
 
 bool ISLAND::LoadZap(MapZipper &zipper, const std::string &gameFile)
@@ -558,7 +577,6 @@ bool ISLAND::CreateShadowMap(char *pDir, char *pName)
             }
         }
 
-    SaveTga8((char *)fileName.c_str(), pShadowMap, DMAP_SIZE, DMAP_SIZE);
 
     Blur8(&pShadowMap, DMAP_SIZE);
     Blur8(&pShadowMap, DMAP_SIZE);
@@ -619,7 +637,14 @@ bool ISLAND::CreateHeightMap(const std::string_view &pDir, const std::string_vie
     rIsland.x2 = vBoxCenter.x + vBoxSize.x / 2.0f;
     rIsland.y2 = vBoxCenter.z + vBoxSize.z / 2.0f;
 
+    auto pI = fio->OpenIniFile(iniName.c_str()); // shipped with the map
+    glm::vec3 vTmpBoxCenter, vTmpBoxSize;
     bool bLoad = LoadZap(mzDepth, fileName);
+    if (bLoad && !pI && !LoadBox(fileName, vTmpBoxCenter, vTmpBoxSize))
+    {
+        spdlog::warn("island: the cached map of {} has no box beside it, making it again", fileName);
+        bLoad = false;
+    }
 
     if (!bLoad)
     {
@@ -655,27 +680,32 @@ bool ISLAND::CreateHeightMap(const std::string_view &pDir, const std::string_vie
         vBoxSize /= 2.0f;
         vRealBoxSize /= 2.0f;
 
-        auto pI = fio->OpenIniFile(iniName.c_str());
-        Assert(pI.get());
-
-        glm::vec3 vTmpBoxCenter, vTmpBoxSize;
-        pI->ReadString("Main", "vBoxCenter", str_tmp, sizeof(str_tmp) - 1, "1.0,1.0,1.0");
-        sscanf(str_tmp, "%f,%f,%f", &vTmpBoxCenter.x, &vTmpBoxCenter.y, &vTmpBoxCenter.z);
-        pI->ReadString("Main", "vBoxSize", str_tmp, sizeof(str_tmp) - 1, "1.0,1.0,1.0");
-        sscanf(str_tmp, "%f,%f,%f", &vTmpBoxSize.x, &vTmpBoxSize.y, &vTmpBoxSize.z);
+        const std::string boxSource = pI ? iniName : fileName + ".box";
+        if (pI)
+        {
+            pI->ReadString("Main", "vBoxCenter", str_tmp, sizeof(str_tmp) - 1, "1.0,1.0,1.0");
+            sscanf(str_tmp, "%f,%f,%f", &vTmpBoxCenter.x, &vTmpBoxCenter.y, &vTmpBoxCenter.z);
+            pI->ReadString("Main", "vBoxSize", str_tmp, sizeof(str_tmp) - 1, "1.0,1.0,1.0");
+            sscanf(str_tmp, "%f,%f,%f", &vTmpBoxSize.x, &vTmpBoxSize.y, &vTmpBoxSize.z);
+        }
+        else if (!LoadBox(fileName, vTmpBoxCenter, vTmpBoxSize))
+        {
+            throw std::runtime_error("Island: no shipped " + iniName + " and no box of the cached map for " + fileName);
+        }
         if (storm::math::lengthSquared(vTmpBoxCenter - vBoxCenter) > 0.1f)
         {
-            core.Trace("Island: vBoxCenter not equal, foam error: %s, distance = %.3f", iniName.c_str(),
+            core.Trace("Island: vBoxCenter not equal, foam error: %s, distance = %.3f", boxSource.c_str(),
                        sqrtf(storm::math::lengthSquared(vTmpBoxCenter - vBoxCenter)));
             core.Trace("vBoxCenter = %f,%f,%f", vBoxCenter.x, vBoxCenter.y, vBoxCenter.z);
         }
         if (storm::math::lengthSquared(vTmpBoxSize - vBoxSize) > 0.1f)
         {
-            core.Trace("Island: vBoxSize not equal, foam error: %s", iniName.c_str());
+            core.Trace("Island: vBoxSize not equal, foam error: %s", boxSource.c_str());
             core.Trace("vBoxSize = %f,%f,%f", vBoxSize.x, vBoxSize.y, vBoxSize.z);
         }
 
-        AIPath.Load(*pI);
+        if (pI)
+            AIPath.Load(*pI);
         AIPath.BuildTable();
 
         return true;
@@ -749,48 +779,12 @@ bool ISLAND::CreateHeightMap(const std::string_view &pDir, const std::string_vie
     vBoxSize /= 2.0f;
     vRealBoxSize /= 2.0f;
 
-    SaveTga8((char *)fileName.c_str(), pDepthMap, iDMapSize, iDMapSize);
-
     mzDepth.DoZip(pDepthMap, iDMapSize);
     SaveZap(mzDepth, fileName);
     delete[] pDepthMap;
     pDepthMap = nullptr;
 
-    auto pI = fio->OpenIniFile(iniName.c_str());
-    if (!pI)
-    {
-        pI = fio->CreateIniFile(iniName.c_str(), false);
-        Assert(pI.get());
-    }
-    char str[512];
-    pI->WriteString("Main", "DepthFile", (char *)fileName.c_str());
-    sprintf_s(str, "%f,%f,%f", vBoxCenter.x, vBoxCenter.y, vBoxCenter.z);
-    pI->WriteString("Main", "vBoxCenter", str);
-    sprintf_s(str, "%f,%f,%f", vBoxSize.x, vBoxSize.y, vBoxSize.z);
-    pI->WriteString("Main", "vBoxSize", str);
-
-    return true;
-}
-
-bool ISLAND::SaveTga8(char *fname, uint8_t *pBuffer, uint32_t dwSizeX, uint32_t dwSizeY)
-{
-    TGA_H tga_head{};
-
-    tga_head.type = 3;
-    tga_head.width = static_cast<uint16_t>(dwSizeX);
-    tga_head.height = static_cast<uint16_t>(dwSizeY);
-    tga_head.bpp = 8;
-    tga_head.attr8 = 8;
-
-    auto fileS = fio->_CreateFile(fname, std::ios::binary | std::ios::out);
-    if (!fileS.is_open())
-    {
-        core.Trace("Island: Can't create island file! %s", fname);
-        return false;
-    }
-    fio->_WriteFile(fileS, &tga_head, sizeof(tga_head));
-    fio->_WriteFile(fileS, pBuffer, dwSizeX * dwSizeY);
-    fio->_CloseFile(fileS);
+    SaveBox(fileName, vBoxCenter, vBoxSize);
 
     return true;
 }

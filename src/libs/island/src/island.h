@@ -92,7 +92,6 @@ class ISLAND : public ISLAND_BASE
     float fCurrentImmersion;
 
     void Blur8(uint8_t **pBuffer, uint32_t dwSize);
-    bool SaveTga8(char *fname, uint8_t *pBuffer, uint32_t dwSizeX, uint32_t dwSizeY);
 
     // shadow map section
     bool CreateShadowMap(char *pDir, char *pName);
