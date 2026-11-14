@@ -49,14 +49,8 @@ class NODER : public NODE
     const char *GetName() override;
     bool Clip();
 
-    // unlink node
-    NODE *Unlink() override;
     // unlink node to model
     entid_t Unlink2Model() override;
-    // link node to node
-    void Link(NODE *node) override;
-    // link model to node
-    void Link(entid_t model, bool transform = true) override;
 
     void SetTechnique(const char *name) override;
     const char *GetTechnique() override;

@@ -1,5 +1,8 @@
 #pragma once
 
+#include <memory>
+#include <vector>
+
 #include "storm_glm.h"
 #include "geos.h"
 #include "object.h"
@@ -27,23 +30,17 @@ class NODE
 
     GEOS *geo;
     GEOS::MATERIAL_FUNC geoMaterialFunc;
-    // children
-    std::vector<NODE *> next;
-    // 0 for root
+    // children, owned: a node frees its subtree. Unlink2Model hands a child to a model of its own.
+    std::vector<std::unique_ptr<NODE>> next;
+    // the node this one hangs from; nullptr for a model's root
     NODE *parent;
 
     virtual ~NODE(){};
     // name of this node - locator's name
     virtual const char *GetName() = 0;
 
-    // unlink node
-    virtual NODE *Unlink() = 0;
-    // unlink node to model
+    // unlink node to model: the node and its subtree become the root of a new model entity
     virtual entid_t Unlink2Model() = 0;
-    // link node to node
-    virtual void Link(NODE *node) = 0;
-    // link model to node
-    virtual void Link(entid_t model, bool transform = true) = 0;
 
     virtual void SetTechnique(const char *name) = 0;
     virtual const char *GetTechnique() = 0;

@@ -100,6 +100,8 @@ void SHIP::InitSailState()
 
 SHIP::~SHIP()
 {
+    if (const auto pShipsLights = static_cast<IShipLights *>(core.GetEntityPointer(shipLights)))
+        pShipsLights->Release(this);
     core.EraseEntity(GetModelEID());
     core.Send_Message(sail_id, "li", MSG_SAIL_DEL_GROUP, GetId());
     core.Send_Message(rope_id, "li", MSG_ROPE_DEL_GROUP, GetModelEID());

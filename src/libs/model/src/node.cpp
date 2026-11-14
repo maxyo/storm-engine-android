@@ -5,6 +5,8 @@
 #include "modelr.h"
 #include "string_compare.hpp"
 
+#include <algorithm>
+
 VGEOMETRY *NODER::gs = nullptr;
 VRenderer *NODER::rs = nullptr;
 int32_t NODER::depth = -1;
@@ -86,8 +88,8 @@ bool NODER::Clip()
     }
 
     if (flags & CLIP_ENABLE_TREE)
-        for (int32_t l = 0; l < next.size(); l++)
-            if (next[l] != nullptr && static_cast<NODER *>(next[l])->Clip() == true)
+        for (const auto &child : next)
+            if (static_cast<NODER *>(child.get())->Clip())
                 retval = true;
     return retval;
 }
@@ -102,15 +104,14 @@ float NODER::Update(glm::mat4 &mtx, glm::vec3 &cnt)
     center = geo_center;
     radius = geo_radius;
 
-    for (int32_t l = 0; l < next.size(); l++)
-        if (next[l] != nullptr)
-        {
-            glm::vec3 cnt; // TODO: huh? ~!~
-            const auto r = static_cast<NODER *>(next[l])->Update(glob_mtx, cnt);
-            const auto rad = sqrtf(storm::math::lengthSquared(cnt - center)) + r;
-            if (rad > radius)
-                radius = rad;
-        }
+    for (const auto &child : next)
+    {
+        glm::vec3 cnt; // TODO: huh? ~!~
+        const auto r = static_cast<NODER *>(child.get())->Update(glob_mtx, cnt);
+        const auto rad = sqrtf(storm::math::lengthSquared(cnt - center)) + r;
+        if (rad > radius)
+            radius = rad;
+    }
 
     cnt = storm::math::transformPoint(loc_mtx, center);
     return radius;
@@ -134,15 +135,13 @@ float NODER::Trace(const glm::vec3 &src, const glm::vec3 &dst)
     auto best_dist = 2.0f;
 
     if (flags & TRACE_ENABLE_TREE)
-        for (int32_t n = 0; n < next.size(); n++)
+        for (const auto &child : next)
         {
-            if (next[n] == nullptr)
-                continue;
-            const auto d = static_cast<NODER *>(next[n])->Trace(src, dst);
+            const auto d = static_cast<NODER *>(child.get())->Trace(src, dst);
             if (d < best_dist)
             {
                 best_dist = d;
-                bestTraceNode = next[n];
+                bestTraceNode = child.get();
             }
         }
 
@@ -230,7 +229,7 @@ bool NODER::Init(const char *lightPath, const char *pname, const char *oname, co
 
     if (node_count > 0)
     {
-        next = std::vector<NODE *>(node_count, nullptr);
+        next = std::vector<std::unique_ptr<NODE>>(node_count);
         int32_t sti = -1;
         int32_t l = 0;
         while ((sti = geo->FindLabelG(sti + 1, idGeo)) > -1)
@@ -244,12 +243,13 @@ bool NODER::Init(const char *lightPath, const char *pname, const char *oname, co
             storm::math::vz(mt) = glm::vec3(lb.m[2][0], lb.m[2][1], lb.m[2][2]);
             storm::math::pos(mt) = glm::vec3(lb.m[3][0], lb.m[3][1], lb.m[3][2]);
 
-            next[l] = new NODER();
+            auto *child = new NODER();
+            next[l].reset(child);
 
-            if (!next[l]->Init(lightPath, pname, lb.name, mt, glob_mtx, this, lmPath))
+            if (!child->Init(lightPath, pname, lb.name, mt, glob_mtx, this, lmPath))
                 return false;
 
-            strcpy_s(static_cast<NODER *>(next[l])->name, lb.name);
+            strcpy_s(child->name, lb.name);
             l++;
         }
     }
@@ -276,7 +276,7 @@ NODER::~NODER()
 #endif
 
     delete geo;
-    std::destroy(next.begin(), next.end());
+    // the children (std::unique_ptr) go with this node
 }
 
 void NODER::ReleaseGeometry()
@@ -286,12 +286,8 @@ void NODER::ReleaseGeometry()
     delete geo;
     geo = nullptr;
     isReleased = true;
-    for (int32_t i = 0; i < next.size(); i++)
-    {
-        if (!next[i])
-            continue;
-        static_cast<NODER *>(next[i])->ReleaseGeometry();
-    }
+    for (const auto &child : next)
+        static_cast<NODER *>(child.get())->ReleaseGeometry();
 }
 
 void NODER::RestoreGeometry()
@@ -311,12 +307,8 @@ void NODER::RestoreGeometry()
         throw std::runtime_error(fmt::format("Cannot restore geometry {}", sys_modelName_full));
 
     isReleased = false;
-    for (int32_t i = 0; i < next.size(); i++)
-    {
-        if (!next[i])
-            continue;
-        static_cast<NODER *>(next[i])->RestoreGeometry();
-    }
+    for (const auto &child : next)
+        static_cast<NODER *>(child.get())->RestoreGeometry();
 }
 
 //----------------------------------------------------------
@@ -430,9 +422,8 @@ void NODER::Draw()
 
     // draw all children
     if (flags & VISIBLE_TREE)
-        for (int32_t l = 0; l < next.size(); l++)
-            if (next[l] != nullptr)
-                static_cast<NODER *>(next[l])->Draw();
+        for (const auto &child : next)
+            static_cast<NODER *>(child.get())->Draw();
 }
 
 //----------------------------------------------------------
@@ -442,14 +433,9 @@ NODER *NODER::FindNode(const char *cNodeName)
 {
     if (storm::iEquals(cNodeName, name))
         return this;
-    for (int32_t i = 0; i < next.size(); i++)
-    {
-        if (!next[i])
-            continue;
-        NODER *nd = static_cast<NODER *>(next[i])->FindNode(cNodeName);
-        if (nd)
+    for (const auto &child : next)
+        if (NODER *nd = static_cast<NODER *>(child.get())->FindNode(cNodeName))
             return nd;
-    }
     return nullptr;
 }
 
@@ -467,11 +453,9 @@ NODER *NODER::GetNode(int32_t n)
         return this;
     }
     node++;
-    for (int32_t l = 0; l < next.size(); l++)
+    for (const auto &child : next)
     {
-        if (next[l] == nullptr)
-            continue;
-        NODER *g = static_cast<NODER *>(next[l])->GetNode(n);
+        NODER *g = static_cast<NODER *>(child.get())->GetNode(n);
         if (g != nullptr)
         {
             depth--;
@@ -491,21 +475,6 @@ const char *NODER::GetName()
 }
 
 //-------------------------------------------------------------------
-// unlink node
-//-------------------------------------------------------------------
-NODE *NODER::Unlink()
-{
-    return nullptr;
-}
-
-//-------------------------------------------------------------------
-// link node to node
-//-------------------------------------------------------------------
-void NODER::Link(NODE *node)
-{
-}
-
-//-------------------------------------------------------------------
 // unlink node to model
 //-------------------------------------------------------------------
 entid_t NODER::Unlink2Model()
@@ -513,51 +482,27 @@ entid_t NODER::Unlink2Model()
     const entid_t id = core.CreateEntity("modelr");
     auto *mdl = static_cast<MODELR *>(core.GetEntityPointer(id));
 
-    // link node to as root
-    mdl->root = this;
-
-    // for non-root
+    // for non-root: the parent hands its ownership of this node to the new model
     if (parent != nullptr)
     {
         // get parent matrix
         mdl->mtx = parent->glob_mtx;
 
-        for (int32_t l = 0; l < parent->next.size(); l++)
-            if (parent->next[l] == this)
-            {
-                parent->next[l] = nullptr;
-                break;
-            }
+        const auto slot = std::ranges::find_if(parent->next, [this](const auto &child) { return child.get() == this; });
+        if (slot == parent->next.end())
+            throw std::runtime_error(fmt::format("NODER::Unlink2Model: node {} is not a child of its parent {}", name,
+                                                 parent->GetName()));
+        slot->release();
+        parent->next.erase(slot);
+        // the old model may go before this one (a fallen mast outlives its ship)
+        parent = nullptr;
     }
     //!!! else get model's mtx
 
+    // link node to as root
+    mdl->root = this;
+
     return id;
-}
-
-//-------------------------------------------------------------------
-// link model to node
-//-------------------------------------------------------------------
-void NODER::Link(entid_t id, bool transform)
-{
-    auto *mdl = static_cast<MODELR *>(core.GetEntityPointer(id));
-    if (mdl == nullptr)
-        return;
-
-    // increment number of children
-    next.push_back(mdl->root);
-
-    // modify loc_mtx of node
-    if (transform)
-    {
-        glm::mat4 glob_parent = next.back()->glob_mtx;
-        // glob_parent.Transposition();
-        // next[nnext-1]->loc_mtx = mdl->mtx * glob_parent;
-    }
-
-    // prevent self-deleting
-    mdl->root = nullptr;
-    // delete model
-    core.EraseEntity(id);
 }
 
 //-------------------------------------------------------------------
@@ -579,9 +524,8 @@ const char *NODER::GetTechnique()
 void NODER::SetMaxViewDist(float fDist)
 {
     max_view_dist = fDist;
-    for (int32_t n = 0; n < next.size(); n++)
-        if (next[n])
-            static_cast<NODER *>(next[n])->SetMaxViewDist(fDist);
+    for (const auto &child : next)
+        static_cast<NODER *>(child.get())->SetMaxViewDist(fDist);
 }
 
 void NODER::SubstituteGeometry(const std::string &new_model)

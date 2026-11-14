@@ -21,6 +21,7 @@ MODELR::MODELR()
     for (int32_t i = 0; i < ANI_MAX_ACTIONS; i++)
         aniPos[i] = -1.0f;
     root = nullptr;
+    colideNode = nullptr;
     useBlend = false;
     idxBuff = nullptr;
 }
@@ -96,7 +97,7 @@ void SetChildrenTechnique(NODE *_root, const char *_name)
         return;
     _root->SetTechnique(_name);
     for (int i = 0; i < _root->next.size(); i++)
-        SetChildrenTechnique(_root->next[i], _name);
+        SetChildrenTechnique(_root->next[i].get(), _name);
 }
 
 //-----------------------------------------------------------------------------------
@@ -397,7 +398,7 @@ extern NODE *bestTraceNode;
 const char *MODELR::GetCollideMaterialName()
 {
     GEOS::TRACE_INFO ti;
-    if (colideNode->geo->GetCollisionDetails(ti) == false)
+    if (colideNode == nullptr || colideNode->geo->GetCollisionDetails(ti) == false)
         return "";
     GEOS::OBJECT go;
     colideNode->geo->GetObj(ti.obj, go);
@@ -410,7 +411,7 @@ const char *MODELR::GetCollideMaterialName()
 bool MODELR::GetCollideTriangle(TRIANGLE &triangle)
 {
     GEOS::TRACE_INFO ti;
-    if (colideNode->geo->GetCollisionDetails(ti) == false)
+    if (colideNode == nullptr || colideNode->geo->GetCollisionDetails(ti) == false)
         return false;
     triangle.vrt[0] = storm::math::transformPoint(colideNode->glob_mtx, glm::vec3(ti.vrt[0].x, ti.vrt[0].y, ti.vrt[0].z));
     triangle.vrt[1] = storm::math::transformPoint(colideNode->glob_mtx, glm::vec3(ti.vrt[1].x, ti.vrt[1].y, ti.vrt[1].z));
@@ -513,6 +514,8 @@ float MODELR::Trace(const glm::vec3 &src, const glm::vec3 &dst)
 
         return bd;
     }
+    // a miss leaves no collide node: bestTraceNode may still name a node of another (by now freed) model
+    bestTraceNode = nullptr;
     float d = root->Trace(src, dst);
     colideNode = bestTraceNode;
     return d;

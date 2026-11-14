@@ -166,6 +166,10 @@ GEOM::GEOM(const char *fname, const char *lightname, GEOM_SERVICE &_srv, int32_t
     // read triangles
     idx_buff = srv.CreateIndexBuffer(rhead.ntriangles * sizeof(RDF_TRIANGLE));
     auto *trg = static_cast<RDF_TRIANGLE *>(srv.LockIndexBuffer(idx_buff));
+    // The renderer is out of buffers (or has none): reading the file into no buffer would crash.
+    if (rhead.ntriangles > 0 && trg == nullptr)
+        throw std::runtime_error(fmt::format("cannot create the index buffer of {} ({} triangles)", fname,
+                                             rhead.ntriangles));
     srv.ReadFile(file, trg, sizeof(RDF_TRIANGLE) * rhead.ntriangles);
     srv.UnlockIndexBuffer(idx_buff);
 
@@ -214,6 +218,9 @@ GEOM::GEOM(const char *fname, const char *lightname, GEOM_SERVICE &_srv, int32_t
     for (v = 0; v < rhead.nvrtbuffs; v++)
     {
         auto *vrt = static_cast<RDF_VERTEX0 *>(srv.LockVertexBuffer(vbuff[v].dev_buff));
+        if (vbuff[v].size > 0 && vrt == nullptr)
+            throw std::runtime_error(fmt::format("cannot create vertex buffer {} of {} ({} bytes)", v, fname,
+                                                 vbuff[v].size));
         srv.ReadFile(file, vrt, vbuff[v].size);
         for (int32_t vr = 0; vr < vbuff[v].nverts; vr++)
         {

@@ -54,8 +54,11 @@ bool ShipLights::Init()
     return true;
 }
 
+// The object (a ship) goes: its lights hold it and its model's nodes, which go with it.
 void ShipLights::Release(VAI_OBJBASE *pObject)
 {
+    std::erase_if(aLights, [pObject](const ShipLight &light) { return light.pObject == pObject; });
+    aSelectedLights.clear(); // indices into aLights, rebuilt by the next SetLights
 }
 
 float ShipLights::GetAttributeAsFloat(ATTRIBUTES *pA, const char *pName, float fDefault)
@@ -344,7 +347,11 @@ void ShipLights::KillMast(VAI_OBJBASE *pObject, NODE *pNode, bool bNow)
         {
             if (aLights[i].bOff)
                 continue;
-            if (aLights[i].pNode->parent != pNode && aLights[i].pNode != pNode)
+            // a light on the mast or anywhere below it (a yard's lantern) falls with the mast
+            const NODE *up = aLights[i].pNode;
+            while (up && up != pNode)
+                up = up->parent;
+            if (!up)
                 continue;
             if (bNow)
             {
