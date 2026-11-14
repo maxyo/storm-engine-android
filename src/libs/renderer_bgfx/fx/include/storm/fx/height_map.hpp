@@ -27,18 +27,24 @@ inline constexpr uint32_t kHeightMapVersion = 6; // 4: PBRify's height, normalis
 // (the owner: the parallax wherever it can work), the grey height maps too (their own heights).
 bool ReliefHasHeight(ReliefClass relief);
 
+// Whether a class's textures take the parallax by default: masonry only (the owner: stone walls, cobbles and pavement, brick;
+// the house atlases with their roof tiles). Everything else - wood and furniture, props, plaster ground, metal, the game's
+// grey height maps - keeps its normals and its cavity and no parallax; the shipped list (parallax_exclusions.hpp) names the
+// exceptions: the plank floors, decks and piers that take it, signs that do not.
+bool ReliefTakesParallax(ReliefClass relief);
+
 // The depth of a class's height in texels of the 512 map (Settings::parallax_strength scales them all): stone, brick and
-// cobbles 6, the buildings' atlases (stone, plaster and beams in one) 4, the grey height maps 3, plaster, ground and
-// cloth 2.5, wood 2, props 1.5, metal 0.75. Halved from the first values (12, 8, 6, 5, 4, 3, 1.5): the owner found the
-// parallax too much on walls. A depth in texels is already proportional to the size of the texel in the world: a post's
-// or a plank's texture, small on the object, gets a small depth, a wall's large one, between the limits of kParallaxMaxDepth.
+// cobbles 3, the buildings' atlases (stone, plaster and beams in one) 2, the grey height maps 1.5, plaster, ground and
+// cloth 1.25, wood 1, props 0.75, metal 0.375: a quarter of the first values (12, 8, 6, 5, 4, 3, 1.5): the owner found the
+// parallax far too strong, on walls and on everything else. A depth in texels is already proportional to the texel's size
+// in the world: a plank's texture, small on the object, gets a small depth, a wall's large one, between the limits of
+// kParallaxMaxDepth.
 float ReliefDepthTexels(ReliefClass relief);
 
 // The deepest the parallax goes, in metres: where a texture is stretched over a large surface (a house wall's atlas),
-// its depth in texels is a lot of centimetres. The shallowest is a fifth of it (6 mm): the texture of a plank, a post
-// or a table's leg, its texel a fraction of a millimetre, would get a depth nobody sees (the owner: furniture, posts,
-// fences and tables have too little parallax).
-inline constexpr float kParallaxMaxDepth = 0.03f;
+// its depth in texels is a lot of centimetres. The shallowest is a fifth of it (3 mm): the texture of a plank, a post
+// or a plank, its texel a fraction of a millimetre, would get a depth nobody sees.
+inline constexpr float kParallaxMaxDepth = 0.015f;
 
 // How much of the sun's light the relief's own shadow takes where it falls (fx_lighting.sh fxParallaxShadow).
 inline constexpr float kParallaxShadow = 0.8f;

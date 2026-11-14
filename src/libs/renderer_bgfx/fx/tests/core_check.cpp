@@ -2273,16 +2273,22 @@ void CheckParallaxTrust()
     // The lists.
     ParallaxExclusions lists;
     std::vector<std::string> problems;
-    lists.LoadShipped("# comment\nsignboardsa  # a sign\n\nbad name\nlocations/wall\n", &problems);
+    lists.LoadShipped("# comment\nexclude signboardsa  # a sign\n\nbad name\ninclude locations/wall\n", &problems);
     CHECK(lists.shipped_count() == 2 && problems.size() == 1);
     const std::filesystem::path file = std::filesystem::temp_directory_path() / "storm_fx_pom_user_check" / "user.txt";
     std::filesystem::remove_all(file.parent_path());
     CHECK(lists.LoadUser(file) && lists.user_count() == 0);
-    CHECK(lists.Of("signboardsa") == ParallaxExclusions::Verdict::Excluded && lists.Of("tavern2") == ParallaxExclusions::Verdict::Default);
+    CHECK(lists.Of("signboardsa") == ParallaxExclusions::Verdict::Excluded && lists.Of("locations/wall") == ParallaxExclusions::Verdict::Included &&
+          lists.Of("tavern2") == ParallaxExclusions::Verdict::Default);
+    // Masonry takes the parallax by default, nothing else does.
+    CHECK(ReliefTakesParallax(ReliefClass::Stone) && ReliefTakesParallax(ReliefClass::Building) && !ReliefTakesParallax(ReliefClass::Wood) &&
+          !ReliefTakesParallax(ReliefClass::Prop) && !ReliefTakesParallax(ReliefClass::Plaster) && !ReliefTakesParallax(ReliefClass::Metal) &&
+          !ReliefTakesParallax(ReliefClass::HeightMap) && !ReliefTakesParallax(ReliefClass::None));
     CHECK(lists.SetUser("signboardsa", true) && lists.SetUser("tavern2", false) &&
           lists.Of("signboardsa") == ParallaxExclusions::Verdict::Included && lists.Of("tavern2") == ParallaxExclusions::Verdict::Excluded);
     ParallaxExclusions again;
     again.LoadShipped(ParallaxExclusions::ShippedText());
+    CHECK(again.shipped_count() > 0 && again.Of("pierwood1") == ParallaxExclusions::Verdict::Included);
     CHECK(again.LoadUser(file) && again.user_count() == 2 && again.shipped_count() > 0 &&
           again.Of("signboardsa") == ParallaxExclusions::Verdict::Included && again.Of("tavern2") == ParallaxExclusions::Verdict::Excluded);
     std::filesystem::remove_all(file.parent_path());

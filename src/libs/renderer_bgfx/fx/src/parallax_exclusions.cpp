@@ -37,6 +37,19 @@ std::string_view ParallaxExclusions::ShippedText()
     return text;
 }
 
+namespace
+{
+// `include <name>` / `exclude <name>` of a line without its comment; false when it is neither.
+bool ParseLine(const std::string &content, std::string &name, bool &include)
+{
+    std::istringstream words(content);
+    std::string verb, extra;
+    words >> verb >> name;
+    include = verb == "include";
+    return !(words >> extra) && (verb == "exclude" || verb == "include") && !name.empty();
+}
+} // namespace
+
 void ParallaxExclusions::LoadShipped(std::string_view text, std::vector<std::string> *problems)
 {
     shipped_.clear();
@@ -46,13 +59,16 @@ void ParallaxExclusions::LoadShipped(std::string_view text, std::vector<std::str
     while (std::getline(in, line))
     {
         ++number;
-        const std::string name = WithoutComment(line);
-        if (name.empty())
+        const std::string content = WithoutComment(line);
+        if (content.empty())
             continue;
-        if (IsName(name))
-            shipped_[name] = false;
+        std::string name;
+        bool include = false;
+        if (ParseLine(content, name, include))
+            shipped_[name] = include;
         else if (problems)
-            problems->push_back("shipped list line " + std::to_string(number) + ": '" + name + "' is not a texture name");
+            problems->push_back("shipped list line " + std::to_string(number) + ": '" + content +
+                                "' is not `include <texture>` or `exclude <texture>`");
     }
 }
 
@@ -69,12 +85,10 @@ bool ParallaxExclusions::LoadUser(const std::filesystem::path &file)
     std::string line;
     while (std::getline(in, line))
     {
-        const std::string content = WithoutComment(line);
-        std::istringstream words(content);
-        std::string verb, name, extra;
-        words >> verb >> name;
-        if (!(words >> extra) && (verb == "exclude" || verb == "include") && !name.empty())
-            user_[name] = verb == "include";
+        std::string name;
+        bool include = false;
+        if (ParseLine(WithoutComment(line), name, include))
+            user_[name] = include;
     }
     return true;
 }
@@ -84,7 +98,9 @@ ParallaxExclusions::Verdict ParallaxExclusions::Of(std::string_view normalized_n
     const std::string name(normalized_name);
     if (const auto it = user_.find(name); it != user_.end())
         return it->second ? Verdict::Included : Verdict::Excluded;
-    return shipped_.count(name) ? Verdict::Excluded : Verdict::Default;
+    if (const auto it = shipped_.find(name); it != shipped_.end())
+        return it->second ? Verdict::Included : Verdict::Excluded;
+    return Verdict::Default;
 }
 
 bool ParallaxExclusions::SetUser(std::string_view normalized_name, bool parallax)

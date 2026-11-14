@@ -72,7 +72,8 @@ Plane Blobs(const Plane &b, int w, int h, float min_area, float max_area, float 
 }
 } // namespace
 
-std::vector<float> ParallaxTrust(std::span<const uint8_t> rgba, std::span<const float> height, int w, int h)
+std::vector<float> ParallaxTrust(std::span<const uint8_t> rgba, std::span<const float> height, int w, int h,
+                                 const TrustParams &params)
 {
     const size_t n = static_cast<size_t>(w) * h;
     if (w < 4 || h < 4 || height.size() != n || rgba.size() < n * 4)
@@ -93,9 +94,9 @@ std::vector<float> ParallaxTrust(std::span<const uint8_t> rgba, std::span<const 
     const Plane closed = image::Extreme(image::Extreme(hv, w, h, closing, true), w, h, closing, false);
     Plane pit(n);
     for (size_t t = 0; t < n; ++t)
-        pit[t] = (closed[t] - hv[t] > kTrustPitDepth && lum_mean[t] / std::max(lum_large[t], 0.05f) < kTrustPitDark) ? 1.0f : 0.0f;
+        pit[t] = (closed[t] - hv[t] > params.pit_depth && lum_mean[t] / std::max(lum_large[t], 0.05f) < params.pit_dark) ? 1.0f : 0.0f;
     pit = Open(Close(pit, w, h, R(2)), w, h, R(2));
-    pit = Blobs(pit, w, h, Area(kTrustPitMinArea), Area(8000.0f), kTrustPitExtent);
+    pit = Blobs(pit, w, h, Area(params.pit_min_area), Area(8000.0f), params.pit_extent);
 
     // Glass.
     const int sd_radius = std::max(1, R(5) / 2);
@@ -106,17 +107,17 @@ std::vector<float> ParallaxTrust(std::span<const uint8_t> rgba, std::span<const 
     const Plane mean_square = image::Box(image::Box(squared, w, h, sd_radius, true), w, h, sd_radius, false);
     Plane glass(n);
     for (size_t t = 0; t < n; ++t)
-        glass[t] = (lum_mean[t] < kTrustGlassLuminance &&
-                    std::sqrt(std::max(mean_square[t] - mean[t] * mean[t], 0.0f)) < kTrustGlassFlat)
+        glass[t] = (lum_mean[t] < params.glass_luminance &&
+                    std::sqrt(std::max(mean_square[t] - mean[t] * mean[t], 0.0f)) < params.glass_flat)
                        ? 1.0f
                        : 0.0f;
-    glass = Blobs(Open(glass, w, h, R(4)), w, h, Area(kTrustGlassMinArea), 1e9f, 0.5f);
+    glass = Blobs(Open(glass, w, h, R(4)), w, h, Area(params.glass_min_area), 1e9f, 0.5f);
 
     // Grown and feathered.
     Plane bad(n);
     for (size_t t = 0; t < n; ++t)
         bad[t] = std::max(pit[t], glass[t]);
-    bad = image::Extreme(bad, w, h, R(kTrustGrowTexels), true);
+    bad = image::Extreme(bad, w, h, R(params.grow_texels), true);
     for (float &v : bad)
         v = 1.0f - v;
     Plane trust = image::Gaussian(bad, w, h, kTrustFeatherSigma * s);

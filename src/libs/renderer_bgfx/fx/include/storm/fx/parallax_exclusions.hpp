@@ -1,11 +1,12 @@
-// Textures that get no parallax whatever their mask says: the shipped list (data, src/parallax_exclusions.inc) and the
-// owner's tuning file (the user list, in the app's files directory: his choices from the in-game debug view, not a
-// cache; folded into the shipped list later).
+// The parallax lists: the shipped one (data, src/parallax_exclusions.inc) and the owner's tuning file (the user list, in
+// the app's files directory: his choices from the in-game debug view, not a cache; folded into the shipped list later).
+// A texture takes the parallax by default when its class does (ReliefTakesParallax: masonry) and its trusted share
+// reaches kParallaxMinCoverage; the lists decide the exceptions either way.
 //
-// Both are text, one texture a line, `name` as NormalizeTexturePath gives it ("locations/bump_city"); '#' starts a
-// comment. The shipped list holds names only (each means: no parallax). The user list holds `exclude <name>` and
-// `include <name>` lines (include: the parallax whatever the shipped list or the trust coverage says); the last line
-// for a name wins, and a toggle appends one. Both lists are logged when loaded, and every toggle when made.
+// Both are text, one texture a line: `include <name>` (the parallax whatever its class and coverage say) or `exclude <name>`
+// (none), the name as NormalizeTexturePath gives it ("locations/bump_city"); '#' starts a comment. The user list wins over the
+// shipped one, and the last line for a name wins; a toggle appends one. Both lists are logged when loaded, and every
+// toggle when made.
 #pragma once
 
 #include <filesystem>
@@ -22,9 +23,9 @@ class ParallaxExclusions
   public:
     enum class Verdict
     {
-        Default,  // the trust coverage decides
-        Excluded, // the shipped list or the user's exclude
-        Included, // the user's include
+        Default,  // the class and the trust coverage decide
+        Excluded, // `exclude` in a list
+        Included, // `include` in a list
     };
 
     // The shipped list parsed from its text (ShippedText()); lines that are not a name are reported in `problems`.
@@ -43,7 +44,7 @@ class ParallaxExclusions
     static std::string_view ShippedText();
 
   private:
-    std::unordered_map<std::string, bool> shipped_;
+    std::unordered_map<std::string, bool> shipped_; // true: include
     std::unordered_map<std::string, bool> user_; // true: include
     std::filesystem::path user_file_;
 };

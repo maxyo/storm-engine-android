@@ -34,23 +34,28 @@ float ReliefDepthTexels(ReliefClass relief)
     switch (relief)
     {
     case ReliefClass::Stone:
-        return 6.0f;
-    case ReliefClass::Building:
-        return 4.0f;
-    case ReliefClass::HeightMap: // the game's own detail heights, tiled small over their surface
         return 3.0f;
-    case ReliefClass::Plaster:
-        return 2.5f;
-    case ReliefClass::Wood:
+    case ReliefClass::Building:
         return 2.0f;
-    case ReliefClass::Prop:
+    case ReliefClass::HeightMap: // the game's own detail heights, tiled small over their surface
         return 1.5f;
-    case ReliefClass::Metal: // cannons, fittings: curved small parts, a shallow relief
+    case ReliefClass::Plaster:
+        return 1.25f;
+    case ReliefClass::Wood:
+        return 1.0f;
+    case ReliefClass::Prop:
         return 0.75f;
+    case ReliefClass::Metal: // cannons, fittings: curved small parts, a shallow relief
+        return 0.375f;
     case ReliefClass::None:
         return 0.0f;
     }
     return 0.0f;
+}
+
+bool ReliefTakesParallax(ReliefClass relief)
+{
+    return relief == ReliefClass::Stone || relief == ReliefClass::Building;
 }
 
 bool AddReliefMaterial(NormalMap &map, ReliefClass relief, std::span<const float> height, std::span<const uint8_t> gloss,
@@ -100,7 +105,8 @@ bool AddReliefMaterial(NormalMap &map, ReliefClass relief, std::span<const float
     // and gets no parallax at all (kParallaxMinCoverage, the draw).
     if (!albedo.empty())
     {
-        const std::vector<float> trust = ParallaxTrust(albedo, rh, w, h);
+        const std::vector<float> trust =
+            ParallaxTrust(albedo, rh, w, h, relief == ReliefClass::Stone ? kTrustMasonry : kTrustStrict);
         map.trust_coverage = TrustCoverage(trust);
         map.trust = TrustThumbnail(trust, w, h);
         if (map.trust_coverage >= kParallaxMinCoverage)
