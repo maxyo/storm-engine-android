@@ -1,8 +1,10 @@
-// The ray bakes' threads (town light, visibility, bounce, AO volume): one bake thread of their own, apart from the
-// texture transcode workers, so a long or paused bake never holds up a transcode or a relief look-up.
+// The ray bakes' threads (town light, visibility, bounce, AO volume): a bake thread of their own, apart from the
+// texture transcode workers, so a long or paused bake never holds up a transcode or a relief look-up; and a load
+// thread for the bakes' cache reads, so a result in the cache never waits behind a running bake.
 //
 // A bake is posted with PostBake and runs on the bake thread, one after the other; its ParallelRanges spread it over
-// BakeThreads() threads. It is cancelled when its owner drops it (the BakeTicket, or the Bake<Job> that holds it, is
+// BakeThreads() threads. A bake posted with a load stage runs that first on the load thread: found in the cache it is
+// done there, otherwise its bake stage is queued on the bake thread. It is cancelled when its owner drops it (the BakeTicket, or the Bake<Job> that holds it, is
 // reset or destroyed: the player left the place, the option was switched off) and by ShutdownBakes: a bake not
 // started yet is not run, a running one stops at its next piece (ParallelRanges throws BakeCancelled, which the bake
 // thread catches) and a bake waiting in the thermal pause is woken at once.
@@ -70,8 +72,17 @@ class BakeTicket
     std::shared_ptr<detail::BakeState> state_;
 };
 
+enum class BakeStage
+{
+    Load, // on the load thread: the cache read; true when it filled the job, false to be baked
+    Bake, // on the bake thread: the bake (returns true)
+};
+using BakeStep = std::function<bool(BakeStage)>;
+
 // Main thread. Queues `work` on the bake thread (started on first use); `what` names it in the log.
 BakeTicket PostBake(std::string what, std::function<void()> work);
+// Main thread. `step(Load)` on the load thread, then, when it returns false, `step(Bake)` on the bake thread.
+BakeTicket PostBake(std::string what, BakeStep step);
 // Cancels every bake (queued or running, the thermal pause woken) and joins the bake thread; the next PostBake
 // starts it again. Also run when the program ends.
 void ShutdownBakes();
@@ -90,6 +101,13 @@ template <class Job> class Bake
         reset();
         job_ = std::move(job);
         ticket_ = PostBake(std::move(what), std::move(work));
+    }
+    // `step` captures `job`: its load stage fills it from the cache, or its bake stage bakes it (PostBake).
+    void start(std::string what, std::shared_ptr<Job> job, BakeStep step)
+    {
+        reset();
+        job_ = std::move(job);
+        ticket_ = PostBake(std::move(what), std::move(step));
     }
     void reset()
     {

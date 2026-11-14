@@ -91,23 +91,27 @@ void Visibility::start()
     texture::Service &service = texture::Service::instance();
     job_.start("visibility of " + name_, job,
                  [job, name = name_, positions = positions_, indices = indices_, params = params_,
-                  directory = service.cache_directory()]() mutable {
+                  directory = service.cache_directory()](fx::BakeStage stage) mutable {
         params.threads = fx::BakeThreads();
         const uint64_t key = fx::VisibilityKey(positions, indices, params);
-        if (!directory.empty())
-            if (std::optional<texture::Blob> cached = texture::read_derived_file(directory, key, kShape, kMaxCacheBytes))
-            {
-                std::string error;
-                if (std::optional<fx::VisibilityVolume> volume = fx::DecodeVisibility({cached->data.get(), cached->size}, key, error))
+        if (stage == fx::BakeStage::Load)
+        {
+            if (!directory.empty())
+                if (std::optional<texture::Blob> cached = texture::read_derived_file(directory, key, kShape, kMaxCacheBytes))
                 {
-                    job->volume = std::move(*volume);
-                    job->how = "from the cache";
-                    job->state = 1;
-                    return;
+                    std::string error;
+                    if (std::optional<fx::VisibilityVolume> volume = fx::DecodeVisibility({cached->data.get(), cached->size}, key, error))
+                    {
+                        job->volume = std::move(*volume);
+                        job->how = "from the cache";
+                        job->state = 1;
+                        return true;
+                    }
+                    shim::logf("ERROR: effects: visibility of %s: cached entry refused (%s): baking it again", name.c_str(),
+                               error.c_str());
                 }
-                shim::logf("ERROR: effects: visibility of %s: cached entry refused (%s): baking it again", name.c_str(),
-                           error.c_str());
-            }
+            return false; // not in the cache: baked on the bake thread
+        }
         const auto started = std::chrono::steady_clock::now();
         const fx::Occluders occluders(positions, indices);
         job->volume = fx::BakeVisibility(occluders, positions, indices, params);
@@ -115,7 +119,7 @@ void Visibility::start()
         if (job->volume.Empty())
         {
             job->state = 2;
-            return;
+            return true;
         }
         char how[120];
         std::snprintf(how, sizeof(how), "not in the cache: baked in %.0f ms on %u threads (all but 2 of %u cores)", ms,
@@ -130,6 +134,7 @@ void Visibility::start()
                 job->how += " (ERROR: cache write failed: baked again next time)";
         }
         job->state = 1;
+        return true;
     });
 }
 

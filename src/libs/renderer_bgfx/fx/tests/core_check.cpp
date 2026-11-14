@@ -1886,6 +1886,62 @@ void CheckBakeCancel()
     ShutdownBakes();
 }
 
+void CheckBakeLoads()
+{
+    // A result in the cache (a bake's load stage) does not wait behind a running bake: the same cache read posted as
+    // a plain bake waits for the bake running before it, posted with a load stage it is done at once.
+    std::atomic<bool> release{false}, running{false};
+    auto long_bake = [&] {
+        running = true;
+        while (!release)
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        running = false;
+    };
+    constexpr auto kHold = std::chrono::milliseconds(300);
+    std::atomic<bool> loaded{false};
+    BakeTicket hold = PostBake("check: long bake", long_bake);
+    CHECK(WaitFor([&] { return running.load(); }));
+    auto t = std::chrono::steady_clock::now();
+    BakeTicket plain = PostBake("check: cache read as a bake", [&] { loaded = true; });
+    std::this_thread::sleep_for(kHold);
+    release = true;
+    CHECK(WaitFor([&] { return loaded.load(); }));
+    const double plain_ms = MsSince(t);
+
+    release = false;
+    loaded = false;
+    std::atomic<int> baked{0};
+    hold = PostBake("check: long bake", long_bake);
+    CHECK(WaitFor([&] { return running.load(); }));
+    t = std::chrono::steady_clock::now();
+    BakeTicket staged = PostBake("check: cache read as a load", [&](BakeStage stage) {
+        if (stage == BakeStage::Bake)
+            ++baked;
+        loaded = true;
+        return true; // found in the cache
+    });
+    CHECK(WaitFor([&] { return loaded.load(); }));
+    const double load_ms = MsSince(t);
+    const bool still_running = running.load();
+    // Not in the cache: the bake stage follows on the bake thread, after the running bake.
+    std::atomic<bool> missed{false};
+    BakeTicket miss = PostBake("check: not in the cache", [&](BakeStage stage) {
+        if (stage == BakeStage::Load)
+            return false;
+        missed = true;
+        return true;
+    });
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    const bool missed_early = missed.load();
+    release = true;
+    CHECK(WaitFor([&] { return missed.load(); }));
+    std::printf("bake loads: a cache read behind a running bake waited %.0f ms as a bake, %.1f ms as a load (the "
+                "bake still running: %d); a miss is baked after it (%d)\n",
+                plain_ms, load_ms, still_running ? 1 : 0, missed_early ? 0 : 1);
+    CHECK(plain_ms >= 300.0 && load_ms < 100.0 && still_running && baked == 0 && !missed_early);
+    ShutdownBakes();
+}
+
 void CheckOccluderCap()
 {
     // Two triangles 20 km apart (and 500 m up): 2 m cells would be 2.5e10; the grid is capped at kMaxOccluderCells
@@ -2111,6 +2167,7 @@ int main()
     CheckVisibility();
     CheckBakeThermal();
     CheckBakeCancel();
+    CheckBakeLoads();
     CheckOccluderCap();
     CheckBounce();
     CheckSeaWaves();

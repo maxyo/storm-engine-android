@@ -45,7 +45,7 @@ void AoVolumes::start()
     texture::Service &service = texture::Service::instance();
     job_.start("AO volume of " + name_, job,
                  [job, positions = positions_, indices = indices_, lo = bounds_lo_, hi = bounds_hi_, walk = walk_,
-                  directory = service.cache_directory()] {
+                  directory = service.cache_directory()](fx::BakeStage stage) {
         fx::AoBakeParams params;
         params.bounds_lo = lo;
         params.bounds_hi = hi;
@@ -53,27 +53,31 @@ void AoVolumes::start()
         params.threads = std::max(1u, std::thread::hardware_concurrency() / 2);
         const fx::AoGeometry geometry{positions, indices};
         const uint64_t key = fx::AoBakeKey(geometry, params);
-        if (!directory.empty())
-            if (std::optional<texture::Blob> cached = texture::read_derived_file(directory, key, kShape, kMaxCacheBytes))
-            {
-                std::string error;
-                if (std::optional<fx::AoVolume> volume = fx::DecodeAoVolume({cached->data.get(), cached->size}, key, error))
+        if (stage == fx::BakeStage::Load)
+        {
+            if (!directory.empty())
+                if (std::optional<texture::Blob> cached = texture::read_derived_file(directory, key, kShape, kMaxCacheBytes))
                 {
-                    job->volume = std::move(*volume);
-                    job->how = "from the cache";
-                    job->state = Job::Ready;
-                    return;
+                    std::string error;
+                    if (std::optional<fx::AoVolume> volume = fx::DecodeAoVolume({cached->data.get(), cached->size}, key, error))
+                    {
+                        job->volume = std::move(*volume);
+                        job->how = "from the cache";
+                        job->state = Job::Ready;
+                        return true;
+                    }
+                    shim::logf("ERROR: effects: AO volume of %s: cached entry refused (%s): baking it again", job->name.c_str(),
+                               error.c_str());
                 }
-                shim::logf("ERROR: effects: AO volume of %s: cached entry refused (%s): baking it again", job->name.c_str(),
-                           error.c_str());
-            }
+            return false; // not in the cache: baked on the bake thread
+        }
         const auto started = std::chrono::steady_clock::now();
         job->volume = fx::BakeAoVolume(geometry, params);
         const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
         if (job->volume.Empty())
         {
             job->state = Job::Failed;
-            return;
+            return true;
         }
         char how[96];
         std::snprintf(how, sizeof(how), "baked in %.0f ms on %u threads", ms, params.threads);
@@ -87,6 +91,7 @@ void AoVolumes::start()
                 job->how += " (ERROR: cache write failed: baked again next time)";
         }
         job->state = Job::Ready;
+        return true;
     });
 }
 

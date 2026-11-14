@@ -83,6 +83,8 @@ void ThermalGate(const detail::BakeState *bake)
     }
 }
 
+// Two lanes, a thread each (started on first use, nice 10): the loads (a bake's cache read, BakeStage::Load) and
+// the bakes. A load never waits behind a running bake; a load that finds nothing goes on to the bake lane.
 class BakeQueue
 {
   public:
@@ -93,73 +95,87 @@ class BakeQueue
     }
     ~BakeQueue() { shutdown(false); }
 
-    BakeTicket post(std::string what, std::function<void()> work)
+    BakeTicket post(std::string what, BakeStep step, bool load)
     {
         auto state = std::make_shared<detail::BakeState>();
         {
             std::lock_guard lock(mutex_);
-            queue_.push_back({std::move(what), std::move(work), state});
-            if (!thread_.joinable())
-            {
-                stopping_ = false;
-                thread_ = std::thread(&BakeQueue::run, this);
-            }
+            Lane &lane = load ? loads_ : bakes_;
+            lane.queue.push_back({std::move(what), std::make_shared<BakeStep>(std::move(step)), state});
+            stopping_ = false;
+            for (Lane *l : {&loads_, &bakes_})
+                if (!l->thread.joinable())
+                    l->thread = std::thread(&BakeQueue::run, this, std::ref(*l));
         }
-        wake_.notify_one();
+        wake_.notify_all();
         return BakeTicket(std::move(state));
     }
 
     void shutdown(bool log)
     {
         size_t dropped = 0;
-        bool running = false;
+        int running = 0;
         {
             std::lock_guard lock(mutex_);
-            if (!thread_.joinable())
+            if (!loads_.thread.joinable() && !bakes_.thread.joinable())
                 return;
             stopping_ = true;
-            for (Task &task : queue_)
-                dropped += task.state->cancelled.load() ? 0 : 1;
-            queue_.clear();
-            if (running_)
-                running = !running_->cancelled.exchange(true);
+            for (Lane *lane : {&loads_, &bakes_})
+            {
+                for (Task &task : lane->queue)
+                    dropped += task.state->cancelled.load() ? 0 : 1;
+                lane->queue.clear();
+                if (lane->running)
+                    running += lane->running->cancelled.exchange(true) ? 0 : 1;
+            }
         }
         wake_.notify_all();
         WakePausedBakes();
-        thread_.join();
-        thread_ = {};
+        for (Lane *lane : {&loads_, &bakes_})
+            if (lane->thread.joinable())
+            {
+                lane->thread.join();
+                lane->thread = {};
+            }
         if (log && (dropped || running))
-            Log(LogLevel::Info, "ray bakes: shut down, %zu queued not run, %s", dropped,
-                running ? "the running one cancelled" : "none running");
+            Log(LogLevel::Info, "ray bakes: shut down, %zu queued not run, %d running cancelled", dropped, running);
     }
 
   private:
     struct Task
     {
         std::string what;
-        std::function<void()> work;
+        std::shared_ptr<BakeStep> step; // shared by its load and its bake
         std::shared_ptr<detail::BakeState> state;
     };
+    struct Lane
+    {
+        std::deque<Task> queue;
+        std::shared_ptr<detail::BakeState> running;
+        std::thread thread;
+    };
 
-    void run()
+    void run(Lane &lane)
     {
         LowerThreadPriority();
+        const bool load = &lane == &loads_;
         std::unique_lock lock(mutex_);
         for (;;)
         {
-            wake_.wait(lock, [&] { return stopping_ || !queue_.empty(); });
+            wake_.wait(lock, [&] { return stopping_ || !lane.queue.empty(); });
             if (stopping_)
                 return;
-            Task task = std::move(queue_.front());
-            queue_.pop_front();
+            Task task = std::move(lane.queue.front());
+            lane.queue.pop_front();
             if (task.state->cancelled.load())
                 continue; // its owner let go of it before it started: nothing reads it
-            running_ = task.state;
+            lane.running = task.state;
             lock.unlock();
             t_bake = task.state.get();
+            bool done = true;
             try
             {
-                task.work();
+                done = (*task.step)(load ? BakeStage::Load : BakeStage::Bake);
             }
             catch (const BakeCancelled &)
             {
@@ -167,17 +183,28 @@ class BakeQueue
                     task.what.c_str());
             }
             t_bake = nullptr;
-            task = {}; // its captures (the geometry's copies) go here, not with the next bake
             lock.lock();
-            running_.reset();
+            lane.running.reset();
+            if (load && !done && !task.state->cancelled.load())
+            {
+                bakes_.queue.push_back(std::move(task)); // not in the cache: baked
+                wake_.notify_all();
+            }
+            else if (!load && !done)
+                Log(LogLevel::Error, "ray bake %s: its bake stage returned unfinished: a bug in the bake (nothing more runs)",
+                    task.what.c_str());
+            if (task.step)
+            {
+                lock.unlock();
+                task = {}; // its captures (the geometry's copies) go here, not with the next task
+                lock.lock();
+            }
         }
     }
 
     std::mutex mutex_;
     std::condition_variable wake_;
-    std::deque<Task> queue_;
-    std::shared_ptr<detail::BakeState> running_;
-    std::thread thread_;
+    Lane loads_, bakes_;
     bool stopping_ = false;
 };
 } // namespace
@@ -193,7 +220,17 @@ void BakeTicket::reset()
 
 BakeTicket PostBake(std::string what, std::function<void()> work)
 {
-    return BakeQueue::instance().post(std::move(what), std::move(work));
+    return BakeQueue::instance().post(
+        std::move(what), [work = std::move(work)](BakeStage) {
+            work();
+            return true;
+        },
+        false);
+}
+
+BakeTicket PostBake(std::string what, BakeStep step)
+{
+    return BakeQueue::instance().post(std::move(what), std::move(step), true);
 }
 
 void ShutdownBakes()

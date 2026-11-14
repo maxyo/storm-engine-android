@@ -115,37 +115,44 @@ void Bounce::start_scene(const fx::BounceGrid &grid)
     texture::Service &service = texture::Service::instance();
     scene_job_.start("bounce scene of " + name_, job,
                  [job, name = name_, positions = positions_, uvs = uvs_, indices = indices_, triangle_texture = triangle_texture_,
-                  textures = textures_, cut = cut_, grid, directory = service.cache_directory()]() mutable {
+                  textures = textures_, cut = cut_, grid, directory = service.cache_directory()](fx::BakeStage stage) mutable {
         const auto started = std::chrono::steady_clock::now();
         auto scene = std::make_shared<Scene>();
-        scene->occluders = std::make_shared<const fx::Occluders>(positions, indices, uvs, std::move(cut));
+        // Built in the stage that finishes the scene (the load when it is in the cache, else the bake).
+        auto build_occluders = [&] { scene->occluders = std::make_shared<const fx::Occluders>(positions, indices, uvs, cut); };
         std::vector<const fx::BounceTexture *> images;
         for (const auto &t : textures)
             images.push_back(t.get());
         const fx::BounceGeometry geometry{positions, uvs, indices, triangle_texture, images};
         const fx::BounceParams params = ParamsFor(grid);
         const uint64_t key = fx::BounceKey(geometry, grid, params);
-        if (!directory.empty())
-            if (std::optional<texture::Blob> cached = texture::read_derived_file(directory, key, kShape, kMaxCacheBytes))
-            {
-                std::string error;
-                if (std::optional<fx::BounceScene> decoded = fx::DecodeBounceScene({cached->data.get(), cached->size}, key, error))
+        if (stage == fx::BakeStage::Load)
+        {
+            if (!directory.empty())
+                if (std::optional<texture::Blob> cached = texture::read_derived_file(directory, key, kShape, kMaxCacheBytes))
                 {
-                    scene->scene = std::move(*decoded);
-                    char how[96];
-                    std::snprintf(how, sizeof(how), "from the cache in %.0f ms", Since(started));
-                    job->how = how;
-                    job->scene = std::move(scene);
-                    job->state = 1;
-                    return;
+                    std::string error;
+                    if (std::optional<fx::BounceScene> decoded = fx::DecodeBounceScene({cached->data.get(), cached->size}, key, error))
+                    {
+                        scene->scene = std::move(*decoded);
+                        build_occluders();
+                        char how[96];
+                        std::snprintf(how, sizeof(how), "from the cache in %.0f ms", Since(started));
+                        job->how = how;
+                        job->scene = std::move(scene);
+                        job->state = 1;
+                        return true;
+                    }
+                    shim::logf("ERROR: effects: bounce of %s: cached scene refused (%s): baking it again", name.c_str(), error.c_str());
                 }
-                shim::logf("ERROR: effects: bounce of %s: cached scene refused (%s): baking it again", name.c_str(), error.c_str());
-            }
+            return false; // not in the cache: baked on the bake thread
+        }
+        build_occluders();
         scene->scene = fx::BuildBounceScene(*scene->occluders, geometry, grid, params);
         if (scene->scene.Empty())
         {
             job->state = 2;
-            return;
+            return true;
         }
         char how[160];
         std::snprintf(how, sizeof(how), "not in the cache: baked in %.0f ms on %u threads", Since(started), params.threads);
@@ -162,6 +169,7 @@ void Bounce::start_scene(const fx::BounceGrid &grid)
         }
         job->scene = std::move(scene);
         job->state = 1;
+        return true;
     });
 }
 
