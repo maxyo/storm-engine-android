@@ -290,7 +290,7 @@ class CommerceScreen final : public Screen
         if (!deal)
             draft_.Close();
         else
-            draft_.Follow(selected->row_id, ours, theirs, admitted.model->revision, bindings);
+            draft_.Follow(selected->row_id, ours, theirs, bindings);
         const int deal_ours = draft_.Origin(), deal_theirs = draft_.Other();
         const int buy_price = selected && money ? Number(selected->CellText(columns.buy)) : 0;
         const int sell_price = selected && money ? Number(selected->CellText(columns.sell)) : 0;
@@ -732,7 +732,7 @@ class CommerceScreen final : public Screen
             const AmountDraft::Labels labels = money ? AmountDraft::Labels{StringKey("trade.buy"), StringKey("trade.sell")}
                                                      : AmountDraft::Labels{StringKey("trade.take"), StringKey("trade.give")};
             view["primary"] = draft_.Buttons(
-                bindings, actions, low, most, labels, sub, !ok->Offers("press") || !edit->Offers("edit"), ok->unavailable_reason, admitted.model->revision,
+                bindings, actions, low, most, labels, sub, !ok->Offers("press") || !edit->Offers("edit"), ok->unavailable_reason,
                 [&bindings, edit, ok, row = selected->row_id](int delta) {
                     // The game's edit box holds the amount to take, a negative one the amount to give; once it has
                     // turned to giving it reads every later number so, and zero leaves it: zero goes first, same flush.

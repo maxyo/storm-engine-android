@@ -274,19 +274,17 @@ void AmountDraft::Open(const std::string &key, int origin, int other)
     sent_ = false;
 }
 
-void AmountDraft::Follow(const std::string &key, int origin, int other, uint64_t revision, Bindings &bindings)
+void AmountDraft::Follow(const std::string &key, int origin, int other, Bindings &bindings)
 {
-    if (!open_ || key != key_)
-        Open(key, origin, other);
+    if (!open_ || key != key_ || origin != origin_ || other != other_)
+        Open(key, origin, other); // a new control, or the game's figures changed (a move went through)
     else if (sent_)
     {
-        if (revision > sent_revision_ || bindings.Now() - sent_at_ >= kAnswer)
-            Open(key, origin, other); // answered (moved, or refused: the game's figures as they are)
+        if (bindings.Now() - sent_at_ >= kAnswer)
+            Open(key, origin, other); // refused: the game's figures as they are
         else
             bindings.RebuildAfter(sent_at_ + kAnswer - bindings.Now());
     }
-    else if (origin != origin_ || other != other_)
-        Open(key, origin, other);
 }
 
 void AmountDraft::Close()
@@ -320,13 +318,13 @@ void AmountDraft::Bind(Bindings &bindings, const std::string &id, int low, int h
 }
 
 Json AmountDraft::Buttons(Bindings &bindings, Json &actions, int low, int high, Labels labels, const std::string &sub, bool disabled,
-                          const std::string &reason, uint64_t revision, std::function<void(int)> commit, std::function<void()> cancel)
+                          const std::string &reason, std::function<void(int)> commit, std::function<void()> cancel)
 {
     const int value = Value(low, high);
     const int delta = value - origin_;
     if (!open_ || (!sent_ && delta == 0))
         return Json();
-    const std::string label = bindings.Text(delta > 0 ? labels.more : labels.less) + " " + std::to_string(std::abs(delta));
+    const std::string label = bindings.Text(delta > 0 ? labels.more : labels.less) + " " + std::to_string(labels.absolute ? value : std::abs(delta));
     if (sent_)
     {
         // Sent, the game's answer not here yet: the same button waits, and a second press sends nothing (nor
@@ -341,10 +339,10 @@ Json AmountDraft::Buttons(Bindings &bindings, Json &actions, int low, int high, 
             cancel();
         bindings.Rebuild();
     });
-    bindings.On("primary", "", [this, &bindings, value, delta, revision, disabled, commit](const Event &) {
+    bindings.On("primary", "", [this, &bindings, value, delta, disabled, commit](const Event &) {
         if (disabled || sent_)
             return;
-        Sent(value, revision, bindings.Now());
+        Sent(value, bindings.Now());
         commit(delta);
         bindings.Rebuild();
     });
@@ -355,11 +353,10 @@ Json AmountDraft::Buttons(Bindings &bindings, Json &actions, int low, int high, 
                 {"busy", bindings.Pending("primary")}};
 }
 
-void AmountDraft::Sent(int value, uint64_t revision, double now)
+void AmountDraft::Sent(int value, double now)
 {
     target_ = value;
     sent_ = true;
-    sent_revision_ = revision;
     sent_at_ = now;
 }
 

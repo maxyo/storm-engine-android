@@ -49,7 +49,8 @@ Json ButtonView(Bindings &bindings, const Widget &button, const std::string &id,
 // («Взять / Отдать N» for a free transfer, «Купить / Продать N» for a money deal) sends it to the game,
 // «Отмена» drops it. Every screen whose quantity moves something keeps one per open control: chests,
 // bodies and the exchange with an officer (itemsbox), storage, town loot, the store and its kin
-// (trade_commerce.cpp), the cargo and crew of the loot / exchange of ships (extra_transfer.cpp).
+// (trade_commerce.cpp), the cargo and crew of the loot / exchange of ships (extra_transfer.cpp), the
+// treasurer's standing order (extra_goods.cpp).
 class AmountDraft
 {
   public:
@@ -57,12 +58,14 @@ class AmountDraft
     {
         const char *more; // string key of the operation that raises our side («Взять», «Купить»)
         const char *less; // … and of the one that lowers it («Отдать», «Продать»)
+        bool absolute = false; // the button names the amount set, not the change («Сохранить 500» of an order)
     };
     // The control of `key` (a row) shows `origin` (ours) beside `other` (theirs) as the game has them now. A new
     // key, or figures the game changed (a move went through), open the draft again at the origin. A draft that
-    // was sent waits for the game's answer (a model `revision` past the one it was sent from, or kAnswer s):
-    // the control keeps showing it, and no second deal can be sent meanwhile.
-    void Follow(const std::string &key, int origin, int other, uint64_t revision, Bindings &bindings);
+    // was sent waits for the game's answer (its figures changed, or kAnswer s pass: refused): the control keeps
+    // showing it, and no second deal can be sent meanwhile. (Not the model revision: a move that goes through
+    // the game's own window takes several, and the first ones still show the old figures.)
+    void Follow(const std::string &key, int origin, int other, Bindings &bindings);
     void Close(); // the control is gone (the game closed its window)
     int Origin() const
     {
@@ -83,9 +86,9 @@ class AmountDraft
     // window, where it has one). Null while the amount is unchanged; while a sent draft waits for its answer
     // the button stays, busy, and takes no press.
     Json Buttons(Bindings &bindings, Json &actions, int low, int high, Labels labels, const std::string &sub, bool disabled,
-                 const std::string &reason, uint64_t revision, std::function<void(int)> commit, std::function<void()> cancel);
+                 const std::string &reason, std::function<void(int)> commit, std::function<void()> cancel);
     // The deal was sent by other means (the quick take of a whole stack): wait for the answer like after Buttons.
-    void Sent(int value, uint64_t revision, double now);
+    void Sent(int value, double now);
     // Drops a changed draft (the platform back); false when there was nothing to drop.
     bool Drop();
 
@@ -97,7 +100,6 @@ class AmountDraft
     int origin_ = 0, other_ = 0;
     int target_ = 0;
     bool sent_ = false;
-    uint64_t sent_revision_ = 0;
     double sent_at_ = 0.0;
     double reason_at_ = -10.0; // when the "cannot go further" reason was last said
 };

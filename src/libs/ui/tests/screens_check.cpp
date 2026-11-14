@@ -1052,10 +1052,15 @@ static void Transfer(const std::string &models)
         Expect(surface.props["list"]["rows"][0]["q"]["value"] == 145, "the control shows what was sent until the game answers");
         InterfaceModel answered = Load(models, "transfer-loot-row.json");
         answered.revision += 5;
-        router.SetInterface(answered); // (the game refused: the same figures, a new revision)
+        router.SetInterface(answered); // a revision with the same figures: not the answer yet
+        Expect(surface.props["list"]["rows"][0]["q"]["value"] == 145 && surface.props["primary"]["busy"] == true,
+               "a revision that does not change the figures is not the answer: the sent amount waits");
+        surface.now += 2.0;
+        router.Tick(); // (the game refused: no change within the answer time)
         Expect(surface.props["list"]["rows"][0]["q"]["value"] == 100 && surface.props["primary"]["label"] == "<transfer.take_all>",
-               "an answer opens the amount again at the game's figure; the bar is the place's again");
+               "a refused move opens the amount again at the game's figure; the bar is the place's again");
         DraftFlow("transfer cargo: give", router, surface, "goods", 0, "<trade.give> 100", arrows, presses("B_RIGHT", 5), [] {});
+        surface.now += 2.0;
         answered.revision += 5;
         router.SetInterface(answered);
         surface.commands.clear();
@@ -2668,17 +2673,29 @@ static void GoodsOrder(const std::string &models)
     Expect(open["selected"] == true && open["q"]["value"] == 400 && open["q"]["min"] == 0 && open["q"]["max"] == 1000 &&
                open["q"]["label"] == "<goods.order>" && open["q"]["all"] == false,
            "a tap opens the good's order as a quantity");
-    Expect(surface.commands.empty(), "opening a row sends nothing");
+    Expect(surface.commands.empty() && surface.props["primary"].is_null(), "opening a row sends nothing and offers nothing to save");
     router.OnEvent({"goods", "change", "500"});
     Expect(surface.props["list"]["rows"][3]["cells"][1] == "500", "the amount shows at once");
-    Expect(surface.commands.empty(), "a step waits for the amount to settle");
-    surface.now += 0.5;
-    router.Tick();
-    ExpectEqual(surface.Last(), "widget:goodstransfer\tANDROID_GOODS_ORDER\t3\torder@5:Powder=500",
-                "the standing order is saved by itself, through one engine action");
-    router.OnEvent({"goods", "commit", "520"});
-    router.Tick();
-    ExpectEqual(surface.Last(), "widget:goodstransfer\tANDROID_GOODS_ORDER\t3\torder@5:Powder=520", "the end of a drag saves at once");
+    {
+        // The owner: «у казначея тоже нужна кнопка» — the standing order is the same draft flow, saved by «Сохранить N».
+        const std::string order = "widget:goodstransfer\tANDROID_GOODS_ORDER\t3\torder@5:Powder=";
+        DraftFlow("goodstransfer", router, surface, "goods", 520, "<goods.save> 520",
+                  [](const std::string &command) { return command.find("\torder@") != std::string::npos; },
+                  [&](const std::vector<std::string> &commands) { return commands == std::vector<std::string>{order + "520"}; }, [] {});
+        Expect(surface.props["list"]["rows"][3]["cells"][1] == "520", "the saved amount shows until the game's order catches up");
+        InterfaceModel saved = list;
+        for (Widget &widget : saved.widgets)
+            if (widget.node == "ANDROID_GOODS_ORDER" && widget.row_id == "Powder")
+                widget.context["order"] = "520";
+        saved.revision += 5;
+        router.SetInterface(saved);
+        Expect(surface.props["list"]["rows"][3]["q"]["value"] == 520 && surface.props["primary"].is_null(), "the game's new order: nothing left to save");
+        router.OnEvent({"goods", "change", "300"});
+        surface.commands.clear();
+        router.OnEvent({"header-back", "click", ""});
+        Expect(surface.commands.empty() && surface.props["list"]["rows"][3]["q"]["value"] == 520, "← first drops a changed order, saving nothing");
+        router.SetInterface(list);
+    }
     router.OnEvent({"contraband", "change", "1"});
     ExpectEqual(surface.Last(), "widget:goodstransfer\tCHECK_BUYCONTRABAND\t0\t1", "the contraband switch");
     router.OnEvent({"header", "subject-next", ""});

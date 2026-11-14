@@ -481,9 +481,8 @@ class TransferScreen final : public Screen
         Json &rows = view["list"]["rows"];
         const int own = selected ? Number(selected->CellText(0)) : 0, other = selected ? Number(selected->CellText(3)) : 0;
         const int pack = selected ? std::max(1, Number(selected->CellText(5))) : 1;
-        const uint64_t revision = admitted.model->revision;
         if (selected)
-            cargo_.Follow(std::to_string(selected->index), own, other, revision, bindings); // the rows carry no identity here
+            cargo_.Follow(std::to_string(selected->index), own, other, bindings); // the rows carry no identity here
         else
             cargo_.Close();
         const bool movable = take && give && take->Offers("press") && give->Offers("press");
@@ -499,7 +498,7 @@ class TransferScreen final : public Screen
             quick_row_ = -1;
             if (movable && other > 0)
             {
-                cargo_.Sent(own + other, revision, bindings.Now());
+                cargo_.Sent(own + other, bindings.Now());
                 move(other);
             }
         }
@@ -549,7 +548,7 @@ class TransferScreen final : public Screen
         {
             Json actions = Json::array();
             Json primary = cargo_.Buttons(bindings, actions, 0, own + other, {StringKey("trade.take"), StringKey("trade.give")}, std::string(), false,
-                                          std::string(), revision, move, nullptr);
+                                          std::string(), move, nullptr);
             if (!primary.is_null())
             {
                 view["primary"] = std::move(primary);
@@ -564,7 +563,7 @@ class TransferScreen final : public Screen
     {
         const Widget *take = admitted.One("CREW_LEFT"), *give = admitted.One("CREW_RIGHT");
         const int our = Number(admitted.Label("CREW_QTY")), their = Number(admitted.Label("CREW_QTY2"));
-        crew_.Follow("crew", our, their, admitted.model->revision, bindings);
+        crew_.Follow("crew", our, their, bindings);
         crew_.Bind(bindings, "crew", 0, our + their, std::string());
         bindings.Ignore("crew", "row");
         Json q{{"value", crew_.Value(0, our + their)},
@@ -598,7 +597,7 @@ class TransferScreen final : public Screen
         const int all = Number(admitted.Label("CREW_QTY")) + Number(admitted.Label("CREW_QTY2"));
         Json actions = Json::array();
         Json primary = crew_.Buttons(bindings, actions, 0, all, {StringKey("trade.take"), StringKey("trade.give")}, std::string(),
-                                     !take->Offers("press") || !give->Offers("press"), std::string(), admitted.model->revision,
+                                     !take->Offers("press") || !give->Offers("press"), std::string(),
                                      [&bindings, take, give](int delta) {
                                          for (int i = 0; i < std::abs(delta); ++i)
                                              bindings.Send(delta > 0 ? *take : *give, "press");

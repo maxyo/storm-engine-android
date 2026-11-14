@@ -2,9 +2,9 @@
 // the treasurer buys per good for the selected ship. The engine exports one row per good
 // (xinterface mobile_goods_transfer.hpp: ANDROID_GOODS_ORDER with the order and the hold) and the
 // selected ship (ANDROID_GOODS_SHIP). Fills <s-goods-order>, the trade list of the commerce
-// screens: a tap opens a good's quantity, and the order is saved as soon as the amount settles
-// (a standing order, no confirmation): one `order@…:<good>=<amount>` engine action that goes
-// through the game's own amount window.
+// screens: a tap opens a good's quantity; the amount set is a draft (AmountDraft, controls.h) that
+// «Сохранить N» saves as one `order@…:<good>=<amount>` engine action (through the game's own amount
+// window) and «Отмена» returns to the saved order.
 #include "controls.h"
 
 #include <algorithm>
@@ -61,25 +61,33 @@ class GoodsOrderScreen final : public Screen
             if (row->value == "1")
                 open = row->row_id;
 
+        // The open good's draft: the saved order is its origin; the hold has no other side.
+        const Widget *open_row = nullptr;
+        for (const Widget *row : goods)
+            if (row->row_id == open)
+                open_row = row;
+        if (open_row)
+            draft_.Follow(open_row->row_id, Context(*open_row, "order", 0), 0, bindings);
+        else
+            draft_.Close();
+
         Json rows = Json::array();
         for (size_t i = 0; i < goods.size(); ++i)
         {
             const Widget *row = goods[i];
-            const int order = Context(*row, "order", 0);
-            const bool recent = row->row_id == local_good_ && bindings.Now() - local_at_ < 1.5;
-            const int shown = recent ? local_amount_ : order;
+            const int shown = row == open_row ? draft_.Value(0, kMost) : Context(*row, "order", 0);
             const auto hold = row->context.find("hold");
             Json view{{"id", std::to_string(i)},
                       {"name", row->label},
                       {"image", PictureOf(row->FirstImage())},
                       {"cells", Json::array({hold == row->context.end() ? std::string("—") : hold->second, std::to_string(shown)})},
-                      {"selected", row->row_id == open},
+                      {"selected", row == open_row},
                       {"disabled", !row->Offers("order")},
                       {"reason", row->unavailable_reason}};
-            if (row->row_id == open)
+            if (row == open_row)
             {
                 // The script takes up to 10000; the slider spans what is useful around the order.
-                const int top = std::clamp(((std::max(shown, 500) * 2 + 99) / 100) * 100, 1000, 10000);
+                const int top = std::clamp(((std::max(shown, 500) * 2 + 99) / 100) * 100, 1000, kMost);
                 view["q"] = Json{{"value", shown},
                                  {"min", 0},
                                  {"max", top},
@@ -92,8 +100,6 @@ class GoodsOrderScreen final : public Screen
             }
             rows.push_back(std::move(view));
         }
-        if (recent_until_ > bindings.Now())
-            bindings.RebuildAfter(recent_until_ - bindings.Now());
 
         bindings.On("goods", "row", [this, &bindings, goods](const Event &event) {
             const size_t index = static_cast<size_t>(std::atoi(event.value.c_str()));
@@ -102,31 +108,23 @@ class GoodsOrderScreen final : public Screen
             open_ = open_ == goods[index]->row_id ? std::string() : goods[index]->row_id;
             bindings.Rebuild();
         });
-        const Widget *open_row = nullptr;
-        for (const Widget *row : goods)
-            if (row->row_id == open)
-                open_row = row;
+        Json actions = Json::array();
+        Json primary;
         if (open_row)
         {
-            const auto set = [this, &bindings, open_row](const Event &event) {
-                const int amount = std::clamp(std::atoi(event.value.c_str()), 0, 10000);
-                local_good_ = open_row->row_id;
-                local_amount_ = amount;
-                local_at_ = bindings.Now();
-                recent_until_ = local_at_ + 1.5;
-                if (!open_row->Offers("order"))
-                    return;
-                // A standing order applies by itself: when a drag ends, or shortly after the last step.
-                const double wait = event.verb == "commit" ? 0.0 : 0.4;
-                bindings.SendAfter(wait, *open_row, "order", open_row->row_id + "=" + std::to_string(amount));
-                bindings.Rebuild();
-            };
-            bindings.On("goods", "change", set);
-            bindings.On("goods", "commit", set);
+            draft_.Bind(bindings, "goods", 0, kMost, std::string());
+            primary = draft_.Buttons(bindings, actions, 0, kMost, {StringKey("goods.save"), StringKey("goods.save"), true}, std::string(),
+                                     !open_row->Offers("order"), open_row->unavailable_reason,
+                                     [&bindings, open_row, origin = draft_.Origin()](int delta) {
+                                         bindings.Send(*open_row, "order", open_row->row_id + "=" + std::to_string(origin + delta));
+                                     },
+                                     nullptr);
         }
 
         Json view = Json::object();
         view["title"] = bindings.Text("goods.title");
+        view["primary"] = std::move(primary);
+        view["actions"] = std::move(actions);
         view["list"] = Json{{"label", bindings.Text("goods.good")},
                             {"cols", Json::array({Json{{"label", bindings.Text("goods.hold")}}, Json{{"label", bindings.Text("goods.order")}}})},
                             {"rows", rows}};
@@ -167,10 +165,12 @@ class GoodsOrderScreen final : public Screen
 
         const Widget *exit = admitted.One("EXIT_BTN");
         const Widget *cancel = admitted.One("TG_CANCEL_BUTTON");
-        bindings.On("header-back", "", [&bindings, exit, cancel](const Event &) {
-            // A game amount window left open (opened by the game itself) closes first.
+        bindings.On("header-back", "", [this, &bindings, exit, cancel](const Event &) {
+            // A game amount window left open (opened by the game itself) closes first; then a changed order is dropped.
             if (cancel && cancel->Offers("press"))
                 bindings.Send(*cancel, "press");
+            else if (draft_.Drop())
+                bindings.Rebuild();
             else
                 bindings.Back(exit);
         });
@@ -180,10 +180,8 @@ class GoodsOrderScreen final : public Screen
   private:
     std::string open_;     // the good whose quantity the player opened
     std::string reported_; // the missing facts already reported
-    // The amount the player set last: shown until the game's own order catches up.
-    std::string local_good_;
-    int local_amount_ = 0;
-    double local_at_ = 0.0, recent_until_ = 0.0;
+    static constexpr int kMost = 10000; // the most the script takes
+    AmountDraft draft_;    // the open good's order as the player sets it, until saved
 };
 
 } // namespace
