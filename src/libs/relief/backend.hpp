@@ -71,8 +71,13 @@ const char *DeviceName(Device device);
 // thread count. Logged with both numbers either way; no Vulkan compute device: the CPU, logged with the reason.
 // `cpu_onnx`: the probe network for the CPU (opened only for a probe); `gpu_param` / `gpu_bin`: its ncnn graph. A
 // choice kept from before opens neither.
+// `cpu_ms_per_texel`: the CPU's probe time per input texel (measured now or kept with the choice), so the GPU's real
+// textures can be held against it (DemoteGpu).
 Device ChooseDevice(const std::filesystem::path &cache, std::span<const uint8_t> cpu_onnx, std::span<const uint8_t> gpu_param,
-                    std::span<const uint8_t> gpu_bin, int halo, int threads);
+                    std::span<const uint8_t> gpu_bin, int halo, int threads, double &cpu_ms_per_texel);
+// The GPU measured slower than the CPU on the game's real textures (under the game's own rendering, which the probe
+// does not see): the kept choice becomes the CPU, with `why` (logged by the caller). «Очистить кэш» measures again.
+void DemoteGpu(const std::filesystem::path &cache, const std::string &why);
 
 // The crash guard of the GPU work (ChooseDevice): `cache`'s marker holds GpuLabel of the GPU (kGpuOpening while Vulkan
 // opens), written before GPU work starts and cleared after it succeeded. One left behind at the next start means the

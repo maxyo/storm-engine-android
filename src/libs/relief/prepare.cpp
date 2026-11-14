@@ -21,6 +21,7 @@
 #include <cstring>
 #include <fstream>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <thread>
 #include <vector>
@@ -347,6 +348,14 @@ struct Session::Impl
     std::unique_ptr<Network> normal, height, roughness; // PBRify's three networks, on the chosen device
     std::filesystem::path cache;
     bool gpu_unproven = false; // on the GPU, before its first texture: the crash guard's marker is written around it
+    // The GPU held against the CPU on the real textures (DemoteGpu): the models (owned by the caller, alive with the
+    // session), the CPU's probe cost per texel, the textures in a row the GPU was slower than that.
+    Models models;
+    int threads = 1;
+    double cpu_ms_per_texel = 0.0;
+    int gpu_slow = 0;
+    std::mutex networks_mutex; // the networks swapped (OpenCpu) against Cancel from another thread
+    bool OpenCpu(std::string &error);
     Stats stats;
     ~Impl()
     {
@@ -371,8 +380,10 @@ std::unique_ptr<Session> Session::Open(const Models &models, int threads, const 
     // GPU onnxruntime is never opened (its environment and arena were most of the relief's memory).
     const bool gpu_models = !models.normal_param.empty() && !models.height_param.empty() && !models.roughness_param.empty();
     const Device device = gpu_models ? ChooseDevice(cache, models.normal, models.normal_param, models.normal_bin,
-                                                    fx::kReliefModelPad, threads)
+                                                    fx::kReliefModelPad, threads, impl->cpu_ms_per_texel)
                                      : Device::Cpu;
+    impl->models = models;
+    impl->threads = threads;
     if (!gpu_models)
         Log("relief device: CPU (no ncnn graphs given)");
     impl->cache = cache;
@@ -388,16 +399,7 @@ std::unique_ptr<Session> Session::Open(const Models &models, int threads, const 
             impl->roughness = LoadGpuNetwork(models.roughness_param, models.roughness_bin, fx::kReliefModelPad, 1, error);
     }
     else
-    {
-        ReleaseGpu(); // opened to learn the GPU, not used
-        impl->runtime = CpuRuntime::Open(threads, error);
-        if (impl->runtime)
-            impl->normal = impl->runtime->Load(models.normal, fx::kReliefModelPad, 1, error);
-        if (impl->normal)
-            impl->height = impl->runtime->Load(models.height, fx::kReliefModelPad, 1, error);
-        if (impl->height)
-            impl->roughness = impl->runtime->Load(models.roughness, fx::kReliefModelPad, 1, error);
-    }
+        impl->OpenCpu(error);
     if (!impl->normal || !impl->height || !impl->roughness)
     {
         Log("ERROR: %s", error.c_str());
@@ -409,12 +411,32 @@ std::unique_ptr<Session> Session::Open(const Models &models, int threads, const 
     return std::unique_ptr<Session>(new Session(std::move(impl)));
 }
 
+bool Session::Impl::OpenCpu(std::string &error)
+{
+    std::lock_guard lock(networks_mutex);
+    normal.reset();
+    height.reset();
+    roughness.reset();
+    ReleaseGpu(); // opened to learn the GPU, or used until now
+    runtime = CpuRuntime::Open(threads, error);
+    if (runtime)
+        normal = runtime->Load(models.normal, fx::kReliefModelPad, 1, error);
+    if (normal)
+        height = runtime->Load(models.height, fx::kReliefModelPad, 1, error);
+    if (height)
+        roughness = runtime->Load(models.roughness, fx::kReliefModelPad, 1, error);
+    stats.gpu = false;
+    stats.provider = normal ? normal->Describe() : "-";
+    return roughness != nullptr;
+}
+
 void Session::Cancel()
 {
     impl_->cancelled = true;
-    impl_->normal->Cancel();
-    impl_->height->Cancel();
-    impl_->roughness->Cancel();
+    std::lock_guard lock(impl_->networks_mutex);
+    for (Network *network : {impl_->normal.get(), impl_->height.get(), impl_->roughness.get()})
+        if (network)
+            network->Cancel();
 }
 
 const Session::Stats &Session::stats() const
@@ -482,7 +504,7 @@ Outcome Session::PrepareFile(const std::filesystem::path &textures, const std::f
     options.max_size = fx::kGlossMapSize;
     int gw = 0, gh = 0;
     fx::NormalMapSize(width, height, options, gw, gh);
-    double infer_ms = 0.0;
+    double infer_ms = 0.0, infer_texels = 0.0;
     std::string per_model; // each inference: the model, its padded size, its time
     const auto run = [&](Network &model, const std::vector<float> &input, int w, int h) {
         return fx::ReliefModelRun(input, w, h, [&](const float *image, int pw, int ph, float *out) {
@@ -490,6 +512,7 @@ Outcome Session::PrepareFile(const std::filesystem::path &textures, const std::f
             const bool ok = model.Infer(image, pw, ph, out, failure);
             const double ms = std::chrono::duration<double, std::milli>(Clock::now() - infer_start).count();
             infer_ms += ms;
+            infer_texels += static_cast<double>(pw) * ph;
             char part[64];
             std::snprintf(part, sizeof(part), "%s%s %dx%d %.0f ms", per_model.empty() ? "" : ", ",
                           &model == impl_->normal.get() ? "normal" : &model == impl_->height.get() ? "height" : "roughness", pw, ph, ms);
@@ -533,6 +556,25 @@ Outcome Session::PrepareFile(const std::filesystem::path &textures, const std::f
         }
     }
     impl_->stats.infer_seconds += infer_ms / 1000.0;
+    // The GPU on the game's real textures against the CPU's probe cost: twice in a row 1.5 times slower (the game's own
+    // rendering on the same GPU, which the probe did not see) and the rest goes to the CPU, kept and logged.
+    if (impl_->stats.gpu && !failed && !impl_->cancelled && impl_->cpu_ms_per_texel > 0.0)
+    {
+        const double cpu_ms = impl_->cpu_ms_per_texel * infer_texels;
+        impl_->gpu_slow = infer_ms > 1.5 * cpu_ms ? impl_->gpu_slow + 1 : 0;
+        if (impl_->gpu_slow >= 2)
+        {
+            char why[256];
+            std::snprintf(why, sizeof(why),
+                          "the GPU took %.0f ms for the networks of %s against %.0f ms estimated on the CPU, twice in a row",
+                          infer_ms, candidate->name.c_str(), cpu_ms);
+            Log("relief device: CPU from now on (%s)", why);
+            DemoteGpu(impl_->cache, why);
+            std::string error;
+            if (!impl_->OpenCpu(error))
+                Log("ERROR: relief device: the CPU could not take over: %s", error.c_str());
+        }
+    }
     if (impl_->gpu_unproven && !failed)
     {
         ClearGpuRunning(impl_->cache);

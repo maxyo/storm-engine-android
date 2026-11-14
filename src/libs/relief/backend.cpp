@@ -10,6 +10,7 @@
 #include <atomic>
 #include <functional>
 #include <chrono>
+#include <cstdlib>
 #include <cstring>
 #include <fstream>
 #include <mutex>
@@ -448,7 +449,7 @@ std::string CacheLine(const GpuDevice &gpu, std::span<const uint8_t> param, std:
             digest = (digest ^ b) * 0x100000001b3ull;
     char hex[24];
     std::snprintf(hex, sizeof(hex), "%016llx", static_cast<unsigned long long>(digest));
-    return gpu.name + " | " + gpu.driver + " | " + hex + " | " + std::to_string(threads) + " threads";
+    return gpu.name + " | " + gpu.driver + " | " + hex + " | " + std::to_string(threads) + " threads | v2";
 }
 } // namespace
 
@@ -559,9 +560,26 @@ std::string GpuCrash(const std::filesystem::path &cache)
     return line;
 }
 
-Device ChooseDevice(const std::filesystem::path &cache, std::span<const uint8_t> cpu_onnx, std::span<const uint8_t> gpu_param,
-                    std::span<const uint8_t> gpu_bin, int halo, int threads)
+void DemoteGpu(const std::filesystem::path &cache, const std::string &why)
 {
+    const std::filesystem::path file = cache / "relief-device.txt";
+    std::string key, choice, numbers, per_texel;
+    {
+        std::ifstream in(file);
+        std::getline(in, key);
+        std::getline(in, choice);
+        std::getline(in, numbers);
+        std::getline(in, per_texel);
+    }
+    if (key.empty())
+        return;
+    std::ofstream(file, std::ios::trunc) << key << "\nCPU\n" << numbers << "; then " << why << "\n" << per_texel << "\n";
+}
+
+Device ChooseDevice(const std::filesystem::path &cache, std::span<const uint8_t> cpu_onnx, std::span<const uint8_t> gpu_param,
+                    std::span<const uint8_t> gpu_bin, int halo, int threads, double &cpu_ms_per_texel)
+{
+    cpu_ms_per_texel = 0.0;
     // The crash guard: the marker of GPU work (MarkGpuRunning) left from the last run means the process died in it.
     // That GPU and driver take the CPU from then on (relief-gpu-crashed.txt; «Очистить кэш» clears it); a crash before
     // the GPU was known keeps Vulkan closed altogether.
@@ -609,10 +627,11 @@ Device ChooseDevice(const std::filesystem::path &cache, std::span<const uint8_t>
     const std::string key = CacheLine(gpu, gpu_param, gpu_bin, threads);
     {
         std::ifstream in(file);
-        std::string line, choice, numbers;
+        std::string line, choice, numbers, per_texel;
         if (std::getline(in, line) && line == key && std::getline(in, choice) && std::getline(in, numbers) &&
-            (choice == "GPU" || choice == "CPU"))
+            std::getline(in, per_texel) && (choice == "GPU" || choice == "CPU"))
         {
+            cpu_ms_per_texel = std::atof(per_texel.c_str());
             Log("relief device: %s (measured before on %s: %s)", choice.c_str(), gpu.name.c_str(), numbers.c_str());
             return choice == "GPU" ? Device::Gpu : Device::Cpu;
         }
@@ -661,8 +680,12 @@ Device ChooseDevice(const std::filesystem::path &cache, std::span<const uint8_t>
                   size, size, gpu_ms, gpu_first_ms, cpu_ms, threads);
     Log("relief device: %s (measured now on %s, driver %s: %s)", DeviceName(device), gpu.name.c_str(), gpu.driver.c_str(),
         numbers);
+    cpu_ms_per_texel = cpu_ms / (static_cast<double>(size) * size);
     std::filesystem::create_directories(cache, ignored);
-    std::ofstream(file, std::ios::trunc) << key << "\n" << DeviceName(device) << "\n" << numbers << "\n";
+    std::ofstream(file, std::ios::trunc) << key << "\n"
+                                         << DeviceName(device) << "\n"
+                                         << numbers << "\n"
+                                         << cpu_ms_per_texel << "\n";
     return device;
 }
 

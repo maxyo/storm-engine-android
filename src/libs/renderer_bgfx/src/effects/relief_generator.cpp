@@ -291,6 +291,7 @@ void ReliefGenerator::prepare_request(const Request &request)
     const double ms = Ms(start);
     {
         std::lock_guard lock(mutex_);
+        stats_.device = session_->stats().provider; // the GPU may have handed over to the CPU (relief::DemoteGpu)
         if (stopping_)
             return;
         if (outcome == relief::Outcome::Prepared)
@@ -396,6 +397,7 @@ void ReliefGenerator::prepare_rest()
     const double ms = Ms(start);
     std::lock_guard lock(mutex_);
     stats_.rest = static_cast<int>(rest_.size() - rest_at_);
+    stats_.device = session_->stats().provider;
     if (outcome == relief::Outcome::Prepared)
     {
         ++stats_.made;
