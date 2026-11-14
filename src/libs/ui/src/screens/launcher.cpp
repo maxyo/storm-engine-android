@@ -18,7 +18,8 @@
 //               error, magnetDraft, dialog: {kind: candidates|details|error, ...}}
 //               (the app's DownloadLibraryState defines states, verbs and candidates)
 //   about:     {app: {version, code, flavor, appCommit, engineCommit, appSource,
-//               engineSource}, notices: [<file>], open: {file, text, truncated}}
+//               engineSource}, notices: [<file>], open: {file, text, truncated},
+//               saves: [{key, name, date}] (the save picker is open; newest first)}
 // What the player does goes back as Action{node "APP", verb, value} (text fields:
 // node "PASSWORD" / "MAGNET", verb "edit"); the global back without a ← binding is
 // Action{verb "back"}. The Android host is UiScreenActivity and its subclasses.
@@ -882,8 +883,27 @@ class AboutScreen final : public Screen
         const Json &state = Obj(HostState(), "about");
         const Json &app = Obj(state, "app");
         const Json &open = Obj(state, "open");
+        const Json &saves = state.is_object() && state.contains("saves") ? state["saves"] : Json();
         Json view = Json::object();
-        bindings.On("header-back", "", [this, &bindings, open](const Event &) { bindings.Send(command_, open.is_object() ? "license-close" : "back"); });
+        bindings.On("header-back", "", [this, &bindings, open, picking = saves.is_array()](const Event &) {
+            bindings.Send(command_, open.is_object() ? "license-close" : picking ? "save-close" : "back");
+        });
+        if (saves.is_array())
+        {
+            // «Отправить сохранение»: the player's saves, newest first; the host zips the picked
+            // one and offers it to the share sheet (app SaveExport).
+            Json rows = Json::array();
+            for (const Json &save : saves)
+            {
+                const std::string id = "save-" + std::to_string(rows.size()), key = Str(save, "key");
+                rows.push_back(Json{{"id", id}, {"title", Str(save, "name")}, {"meta", Str(save, "date")}});
+                bindings.On(id, "", [this, &bindings, key](const Event &) { bindings.Send(command_, "share-save", key); });
+            }
+            view["title"] = bindings.Text("about.share_save");
+            view["license"] = nullptr;
+            view["saves"] = Json{{"hint", bindings.Text("about.share_save_hint")}, {"empty", bindings.Text("about.saves_empty")}, {"rows", rows}};
+            return view;
+        }
         if (open.is_object())
         {
             // One notice, verbatim, on parchment; paragraphs as the file has them.
@@ -905,6 +925,7 @@ class AboutScreen final : public Screen
             }
             view["title"] = bindings.Text("about.license");
             view["license"] = Json{{"name", name}, {"kind", licence}, {"paragraphs", paragraphs}};
+            view["saves"] = nullptr;
             return view;
         }
         const auto short_commit = [](const std::string &commit) { return commit.substr(0, 7); };
@@ -941,6 +962,9 @@ class AboutScreen final : public Screen
         // facts to one file and offers it to the share sheet (app DiagnosticsExport).
         view["shareLog"] = Json{{"id", "share-log"}, {"title", bindings.Text("about.share_log")}};
         bindings.On("share-log", "", [this, &bindings](const Event &) { bindings.Send(command_, "share-log"); });
+        view["shareSave"] = Json{{"id", "save-list"}, {"title", bindings.Text("about.share_save")}};
+        bindings.On("save-list", "", [this, &bindings](const Event &) { bindings.Send(command_, "save-list"); });
+        view["saves"] = nullptr;
         view["note"] = bindings.Text("about.note");
         view["noticesTitle"] = bindings.Text("about.notices");
         // The engine's own licence first, then the components by name.

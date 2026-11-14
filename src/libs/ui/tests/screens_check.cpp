@@ -2863,6 +2863,25 @@ static void Launcher()
     ExpectEqual(surface.props["shareLog"]["title"].get<std::string>(), "<about.share_log>", "«Поделиться логом» row");
     router.OnEvent({"share-log", "click", ""});
     ExpectEqual(verb(), "APP share-log ", "the log goes to the host's share sheet");
+    ExpectEqual(surface.props["shareSave"]["title"].get<std::string>(), "<about.share_save>", "«Отправить сохранение» row");
+    router.OnEvent({"save-list", "click", ""});
+    ExpectEqual(verb(), "APP save-list ", "the host lists the saves");
+    const auto aboutWithSaves = [](Json saves) {
+        return Json{{"screen", "about"}, {"language", "english"}, {"about", {{"app", Json::object()}, {"notices", Json::array()}, {"saves", saves}}}};
+    };
+    router.SetState("launcher", aboutWithSaves(Json::array({Json{{"key", "Player/Map save"}, {"name", "Map save"}, {"date", "14.11.2026 12:00"}},
+                                                            Json{{"key", "Player/Old"}, {"name", "Old"}, {"date", "01.11.2026 09:30"}}})));
+    ExpectEqual(surface.props["title"].get<std::string>(), "<about.share_save>", "the save picker has its own title");
+    Expect(surface.props["saves"]["rows"].size() == 2 && surface.props["saves"]["rows"][0]["title"].get<std::string>() == "Map save" &&
+               surface.props["saves"]["rows"][0]["meta"].get<std::string>() == "14.11.2026 12:00",
+           "a save row: name and date, in the host's order");
+    router.OnEvent({"save-1", "click", ""});
+    ExpectEqual(verb(), "APP share-save Player/Old", "the picked save goes to the host's share sheet");
+    router.OnEvent({"header-back", "click", ""});
+    ExpectEqual(verb(), "APP save-close ", "← closes the picker, not the screen");
+    router.SetState("launcher", aboutWithSaves(Json::array()));
+    Expect(surface.props["saves"]["rows"].empty() && surface.props["saves"]["empty"].get<std::string>() == "<about.saves_empty>",
+           "no saves: the empty state");
 
     const size_t errors = surface.errors.size();
     router.SetState("launcher", Json{{"screen", "nowhere"}});
