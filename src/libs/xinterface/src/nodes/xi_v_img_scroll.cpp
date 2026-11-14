@@ -867,7 +867,8 @@ void CXI_VIMAGESCROLL::ReleaseAll()
 {
     int i;
 
-    STORM_DELETE(m_sSpecTechniqueName);
+    delete[] m_sSpecTechniqueName;
+    m_sSpecTechniqueName = nullptr;
 
     for (i = 0; i < m_nSlotsQnt; i++)
     {
@@ -879,14 +880,17 @@ void CXI_VIMAGESCROLL::ReleaseAll()
             m_idBadTexture[i] = -1;
         m_idBadPic[i] = -1;
     }
-    STORM_DELETE(m_idBadPic);
-    STORM_DELETE(m_idBadTexture);
+    delete[] m_idBadPic;
+    m_idBadPic = nullptr;
+    delete[] m_idBadTexture;
+    m_idBadTexture = nullptr;
 
     if (m_Image != nullptr)
     {
         for (i = 0; i < m_nListSize; i++)
             m_Image[i].Release(m_nSlotsQnt, m_nStringQuantity);
-        STORM_DELETE(m_Image);
+        delete[] m_Image;
+        m_Image = nullptr;
     }
 
     while (m_pScroll != nullptr)
@@ -899,13 +903,17 @@ void CXI_VIMAGESCROLL::ReleaseAll()
     for (i = 0; i < m_nGroupQuantity; i++)
     {
         PICTURE_TEXTURE_RELEASE(pPictureService, m_sGroupName[i], m_nGroupTex[i]);
-        STORM_DELETE(m_sGroupName[i]);
+        delete[] m_sGroupName[i];
+        m_sGroupName[i] = nullptr;
     }
-    STORM_DELETE(m_sGroupName);
-    STORM_DELETE(m_nGroupTex);
+    delete[] m_sGroupName;
+    m_sGroupName = nullptr;
+    delete[] m_nGroupTex;
+    m_nGroupTex = nullptr;
 
     PICTURE_TEXTURE_RELEASE(pPictureService, m_sBorderGroupName, m_texBorder);
-    STORM_DELETE(m_sBorderGroupName);
+    delete[] m_sBorderGroupName;
+    m_sBorderGroupName = nullptr;
 
     // release all strings parameters
     for (i = 0; i < m_nStringQuantity; i++)
@@ -913,11 +921,16 @@ void CXI_VIMAGESCROLL::ReleaseAll()
         FONT_RELEASE(m_rs, m_pStrParam[i].m_nFont);
     }
 
-    STORM_DELETE(m_dwCurColor);
-    STORM_DELETE(m_dwNormalColor);
-    STORM_DELETE(m_dwSelectColor);
-    STORM_DELETE(m_pPicOffset);
-    STORM_DELETE(m_pStrParam);
+    delete[] m_dwCurColor;
+    m_dwCurColor = nullptr;
+    delete[] m_dwNormalColor;
+    m_dwNormalColor = nullptr;
+    delete[] m_dwSelectColor;
+    m_dwSelectColor = nullptr;
+    delete[] m_pPicOffset;
+    m_pPicOffset = nullptr;
+    delete[] m_pStrParam;
+    m_pStrParam = nullptr;
 
     m_nSlotsQnt = 0;
     m_nStringQuantity = 0;
@@ -1133,7 +1146,8 @@ void CXI_VIMAGESCROLL::DeleteImage(int imgNum)
     m_nListSize--;
     if (m_nListSize <= 0)
     {
-        STORM_DELETE(m_Image);
+        delete[] m_Image;
+        m_Image = nullptr;
         return;
     }
 
@@ -1145,7 +1159,7 @@ void CXI_VIMAGESCROLL::DeleteImage(int imgNum)
         memcpy(m_Image, pOldImgs, imgNum * sizeof(IMAGEDESCRIBE));
     if (imgNum < m_nListSize)
         memcpy(&m_Image[imgNum], &pOldImgs[imgNum + 1], (m_nListSize - imgNum) * sizeof(IMAGEDESCRIBE));
-    delete pOldImgs;
+    delete[] pOldImgs;
 
     if (m_nCurImage >= m_nListSize - m_nNotUsedQuantity)
         m_nCurImage = m_nListSize - m_nNotUsedQuantity - 1;
@@ -1165,7 +1179,8 @@ void CXI_VIMAGESCROLL::RefreshScroll()
     char param[256];
     // UpdateTexturesGroup();
 
-    STORM_DELETE(m_sSpecTechniqueName);
+    delete[] m_sSpecTechniqueName;
+    m_sSpecTechniqueName = nullptr;
 
     for (i = 0; i < m_nSlotsQnt; i++)
     {
@@ -1182,7 +1197,8 @@ void CXI_VIMAGESCROLL::RefreshScroll()
     {
         for (i = 0; i < m_nListSize; i++)
             m_Image[i].Release(m_nSlotsQnt, m_nStringQuantity);
-        STORM_DELETE(m_Image);
+        delete[] m_Image;
+        m_Image = nullptr;
     }
 
     while (m_pScroll != nullptr)
@@ -1196,10 +1212,13 @@ void CXI_VIMAGESCROLL::RefreshScroll()
     for (i = 0; i < m_nGroupQuantity; i++)
     {
         PICTURE_TEXTURE_RELEASE(pPictureService, m_sGroupName[i], m_nGroupTex[i]);
-        STORM_DELETE(m_sGroupName[i]);
+        delete[] m_sGroupName[i];
+        m_sGroupName[i] = nullptr;
     }
-    STORM_DELETE(m_sGroupName);
-    STORM_DELETE(m_nGroupTex);
+    delete[] m_sGroupName;
+    m_sGroupName = nullptr;
+    delete[] m_nGroupTex;
+    m_nGroupTex = nullptr;
 
     m_nListSize = 0;
     m_nNotUsedQuantity = 0;
@@ -1632,10 +1651,13 @@ void CXI_VIMAGESCROLL::UpdateTexturesGroup()
             for (i = 0; i < nPrevQ; i++)
             {
                 PICTURE_TEXTURE_RELEASE(pPictureService, pPrevGroup[i], prevTex[i]);
-                STORM_DELETE(pPrevGroup[i]);
+                delete[] pPrevGroup[i];
+                pPrevGroup[i] = nullptr;
             }
-            STORM_DELETE(pPrevGroup);
-            STORM_DELETE(prevTex);
+            delete[] pPrevGroup;
+            pPrevGroup = nullptr;
+            delete[] prevTex;
+            prevTex = nullptr;
         }
     }
 }
@@ -1656,22 +1678,33 @@ void CXI_VIMAGESCROLL::IMAGEDESCRIBE::Release(int nQnt, int nStr)
 {
     int i;
 
-    STORM_DELETE(bUseSpecTechnique);
-    STORM_DELETE(tex);
-    STORM_DELETE(ptex);
-    STORM_DELETE(img);
+    delete[] bUseSpecTechnique;
+    bUseSpecTechnique = nullptr;
+    delete[] tex;
+    tex = nullptr;
+    delete[] ptex;
+    ptex = nullptr;
+    delete[] img;
+    img = nullptr;
 
     for (i = 0; i < nQnt; i++)
-        STORM_DELETE(saveName[i]);
-    STORM_DELETE(saveName);
+    {
+        delete[] saveName[i];
+        saveName[i] = nullptr;
+    }
+    delete[] saveName;
+    saveName = nullptr;
 
     for (i = 0; i < nStr; i++)
     {
         strNum[i] = -1;
-        STORM_DELETE(strSelf[i]);
+        delete[] strSelf[i];
+        strSelf[i] = nullptr;
     }
-    STORM_DELETE(strNum);
-    STORM_DELETE(strSelf);
+    delete[] strNum;
+    strNum = nullptr;
+    delete[] strSelf;
+    strSelf = nullptr;
 }
 
 void CXI_VIMAGESCROLL::IMAGEDESCRIBE::Clear(int nQnt, int nStr) const
@@ -1684,13 +1717,15 @@ void CXI_VIMAGESCROLL::IMAGEDESCRIBE::Clear(int nQnt, int nStr) const
         tex[i] = -1;
         ptex[i] = -1;
         img[i] = -1;
-        STORM_DELETE(saveName[i]);
+        delete[] saveName[i];
+        saveName[i] = nullptr;
     }
 
     for (i = 0; i < nStr; i++)
     {
         strNum[i] = -1;
-        STORM_DELETE(strSelf[i]);
+        delete[] strSelf[i];
+        strSelf[i] = nullptr;
     }
 }
 

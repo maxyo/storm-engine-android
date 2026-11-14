@@ -320,7 +320,8 @@ void CXI_BUTTON::LoadIni(INIFILE *ini1, const char *name1, INIFILE *ini2, const 
 void CXI_BUTTON::ReleaseAll()
 {
     PICTURE_TEXTURE_RELEASE(pPictureService, m_sGroupName, m_idTex);
-    STORM_DELETE(m_sGroupName);
+    delete[] m_sGroupName;
+    m_sGroupName = nullptr;
     FONT_RELEASE(m_rs, m_nFontNum);
     VIDEOTEXTURE_RELEASE(m_rs, m_pTex);
 }
@@ -409,7 +410,8 @@ uint32_t CXI_BUTTON::MessageProc(int32_t msgcode, MESSAGE &message)
         if (m_sGroupName == nullptr || !storm::iEquals(m_sGroupName, param))
         {
             PICTURE_TEXTURE_RELEASE(pPictureService, m_sGroupName, m_idTex);
-            STORM_DELETE(m_sGroupName);
+            delete[] m_sGroupName;
+            m_sGroupName = nullptr;
 
             m_sGroupName = new char[len];
             if (m_sGroupName == nullptr)

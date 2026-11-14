@@ -193,7 +193,8 @@ void CXI_LRCHANGER::LoadIni(INIFILE *ini1, const char *name1, INIFILE *ini2, con
 void CXI_LRCHANGER::ReleaseAll()
 {
     PICTURE_TEXTURE_RELEASE(pPictureService, m_sGroupName, m_idTex);
-    STORM_DELETE(m_sGroupName);
+    delete[] m_sGroupName;
+    m_sGroupName = nullptr;
 }
 
 int CXI_LRCHANGER::CommandExecute(int wActCode)

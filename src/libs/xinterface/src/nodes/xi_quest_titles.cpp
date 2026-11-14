@@ -167,9 +167,14 @@ void CXI_QUESTTITLE::ReleaseAll()
     if (m_strList != nullptr)
         for (auto i = 0; i < m_stringQuantity; i++)
             for (auto j = 0; j < m_strList[i].lineQuantity; j++)
-                STORM_DELETE(m_strList[i].name[j]);
-    STORM_DELETE(m_strList);
-    STORM_DELETE(m_iconGroupName);
+            {
+                delete[] m_strList[i].name[j];
+                m_strList[i].name[j] = nullptr;
+            }
+    delete[] m_strList;
+    m_strList = nullptr;
+    delete[] m_iconGroupName;
+    m_iconGroupName = nullptr;
     m_stringQuantity = 0;
 }
 
@@ -327,8 +332,12 @@ void CXI_QUESTTITLE::SetNewTopQuest(ATTRIBUTES *pA, int topNum)
     {
         for (i = 0; i < m_stringQuantity; i++)
             for (auto j = 0; j < m_strList[i].lineQuantity; j++)
-                STORM_DELETE(m_strList[i].name[j]);
-        STORM_DELETE(m_strList);
+            {
+                delete[] m_strList[i].name[j];
+                m_strList[i].name[j] = nullptr;
+            }
+        delete[] m_strList;
+        m_strList = nullptr;
         m_stringQuantity = 0;
     } // boal moved up, otherwise it does not delete if there are no quests, but there were already
 

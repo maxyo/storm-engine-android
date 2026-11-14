@@ -73,7 +73,7 @@ void DublicateString(char *&pDstStr, const char *pSrcStr)
     }
     else
     {
-        delete pDstStr;
+        delete[] pDstStr;
         const auto len = strlen(pSrcStr) + 1;
         pDstStr = new char[len];
         Assert(pDstStr);

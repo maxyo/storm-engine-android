@@ -137,12 +137,16 @@ void CXI_STRCOLLECTION::ReleaseAll()
 {
     for (auto i = 0; i < m_nStr; i++)
     {
-        STORM_DELETE(m_pStrDescr[i].strID);
-        STORM_DELETE(m_pStrDescr[i].strStr);
-        STORM_DELETE(m_pStrDescr[i].sFontName);
+        delete[] m_pStrDescr[i].strID;
+        m_pStrDescr[i].strID = nullptr;
+        delete[] m_pStrDescr[i].strStr;
+        m_pStrDescr[i].strStr = nullptr;
+        delete[] m_pStrDescr[i].sFontName;
+        m_pStrDescr[i].sFontName = nullptr;
         FONT_RELEASE(m_rs, m_pStrDescr[i].nFontNum);
     }
-    STORM_DELETE(m_pStrDescr);
+    delete[] m_pStrDescr;
+    m_pStrDescr = nullptr;
     m_nStr = 0;
 }
 
@@ -322,7 +326,8 @@ uint32_t CXI_STRCOLLECTION::MessageProc(int32_t msgcode, MESSAGE &message)
         if (nDst >= 0 && nSrc >= 0 && nDst < m_nStr && nSrc < m_nStr)
         {
             m_pStrDescr[nDst].strNum = -1;
-            STORM_DELETE(m_pStrDescr[nDst].strStr);
+            delete[] m_pStrDescr[nDst].strStr;
+            m_pStrDescr[nDst].strStr = nullptr;
             if (m_pStrDescr[nSrc].strStr)
                 DublicateString(m_pStrDescr[nDst].strStr, m_pStrDescr[nSrc].strStr);
             else
@@ -346,7 +351,8 @@ void CXI_STRCOLLECTION::ChangeString(int32_t num, const char *sValue) const
     if (num >= 0 && num < m_nStr)
     {
         m_pStrDescr[num].strNum = -1;
-        STORM_DELETE(m_pStrDescr[num].strStr);
+        delete[] m_pStrDescr[num].strStr;
+        m_pStrDescr[num].strStr = nullptr;
         if (sValue)
         {
             if (sValue[0] == '#')
@@ -383,8 +389,10 @@ CXI_STRCOLLECTION::STRINGDESCR *CXI_STRCOLLECTION::CreateNewDinamicString(const 
     {
         if (strStr == nullptr || strStr[0] == 0)
         {
-            STORM_DELETE(m_pStrDescr[i].strID);
-            STORM_DELETE(m_pStrDescr[i].strStr);
+            delete[] m_pStrDescr[i].strID;
+            m_pStrDescr[i].strID = nullptr;
+            delete[] m_pStrDescr[i].strStr;
+            m_pStrDescr[i].strStr = nullptr;
             FONT_RELEASE(m_rs, m_pStrDescr[i].nFontNum);
             m_nStr--;
             if (m_nStr > i)
@@ -392,7 +400,8 @@ CXI_STRCOLLECTION::STRINGDESCR *CXI_STRCOLLECTION::CreateNewDinamicString(const 
             return nullptr;
         }
         FONT_RELEASE(m_rs, m_pStrDescr[i].nFontNum);
-        STORM_DELETE(m_pStrDescr[i].strStr);
+        delete[] m_pStrDescr[i].strStr;
+        m_pStrDescr[i].strStr = nullptr;
         const auto len = strlen(strStr) + 1;
         m_pStrDescr[i].strStr = new char[len];
         if (m_pStrDescr[i].strStr == nullptr)
@@ -413,7 +422,7 @@ CXI_STRCOLLECTION::STRINGDESCR *CXI_STRCOLLECTION::CreateNewDinamicString(const 
     }
     if (pOld && i)
         memcpy(m_pStrDescr, pOld, sizeof(STRINGDESCR) * i);
-    delete pOld;
+    delete[] pOld;
     m_pStrDescr[i] = {};
     m_pStrDescr[i].nFontNum = -1;
     const auto len1 = strlen(strID) + 1;

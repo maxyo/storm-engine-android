@@ -68,7 +68,8 @@ void CXI_SCROLLTEXT::ClearText()
     m_pScroller = nullptr;
     m_nMaxStringes = 0;
     m_dwFontColor = ARGB(255, 255, 255, 255);
-    STORM_DELETE(m_pText);
+    delete[] m_pText;
+    m_pText = nullptr;
 
     m_nPiceQuantity = 0;
     STORM_DELETE(m_pStrList);

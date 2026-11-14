@@ -108,21 +108,24 @@ STRSERVICE::~STRSERVICE()
     {
         for (i = 0; i < m_nStringQuantity; i++)
             if (m_psStrName[i] != nullptr)
-                delete m_psStrName[i];
-        delete m_psStrName;
+                delete[] m_psStrName[i];
+        delete[] m_psStrName;
         m_psStrName = nullptr;
     }
     if (m_psString != nullptr)
     {
         for (i = 0; i < m_nStringQuantity; i++)
             if (m_psString[i] != nullptr)
-                delete m_psString[i];
-        delete m_psString;
+                delete[] m_psString[i];
+        delete[] m_psString;
         m_psString = nullptr;
     }
-    STORM_DELETE(m_sIniFileName);
-    STORM_DELETE(m_sLanguage);
-    STORM_DELETE(m_sLanguageDir);
+    delete[] m_sIniFileName;
+    m_sIniFileName = nullptr;
+    delete[] m_sLanguage;
+    m_sLanguage = nullptr;
+    delete[] m_sLanguageDir;
+    m_sLanguageDir = nullptr;
 }
 
 bool STRSERVICE::Init()
@@ -177,7 +180,8 @@ void STRSERVICE::SetLanguage(const char *sLanguage)
     }
 
     // set a new name for the language
-    STORM_DELETE(m_sLanguage);
+    delete[] m_sLanguage;
+    m_sLanguage = nullptr;
     const auto len = strlen(sLanguage) + 1;
     if ((m_sLanguage = new char[len]) == nullptr)
     {
@@ -188,8 +192,10 @@ void STRSERVICE::SetLanguage(const char *sLanguage)
     while (true)
     {
         // delete old data
-        STORM_DELETE(m_sIniFileName);
-        STORM_DELETE(m_sLanguageDir);
+        delete[] m_sIniFileName;
+        m_sIniFileName = nullptr;
+        delete[] m_sLanguageDir;
+        m_sLanguageDir = nullptr;
 
         // get a directory for text files of a given language
         if (langIni->ReadString("DIRECTORY", m_sLanguage, param, sizeof(param) - 1, ""))
@@ -227,7 +233,8 @@ void STRSERVICE::SetLanguage(const char *sLanguage)
                 break;
             core.Trace("WARNING! Language %s not exist some ini parameters. Language set to default %s", m_sLanguage,
                        param);
-            STORM_DELETE(m_sLanguage);
+            delete[] m_sLanguage;
+            m_sLanguage = nullptr;
             const auto len = strlen(param) + 1;
             m_sLanguage = new char[len];
             if (m_sLanguage == nullptr)
@@ -267,15 +274,15 @@ void STRSERVICE::SetLanguage(const char *sLanguage)
     if (m_psString != nullptr)
     {
         for (i = 0; i < m_nStringQuantity; i++)
-            delete m_psString[i];
-        delete m_psString;
+            delete[] m_psString[i];
+        delete[] m_psString;
         m_psString = nullptr;
     }
     if (m_psStrName != nullptr)
     {
         for (i = 0; i < m_nStringQuantity; i++)
-            delete m_psStrName[i];
-        delete m_psStrName;
+            delete[] m_psStrName[i];
+        delete[] m_psStrName;
         m_psStrName = nullptr;
     }
 
@@ -335,7 +342,7 @@ void STRSERVICE::SetLanguage(const char *sLanguage)
             m_psString[i] = new char[len];
             if (m_psString[i] == nullptr)
             {
-                delete m_psStrName[i];
+                delete[] m_psStrName[i];
                 throw std::runtime_error("allocate memory error");
             }
             memcpy(m_psString[i], string, len);

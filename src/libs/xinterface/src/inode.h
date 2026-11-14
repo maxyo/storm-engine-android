@@ -134,7 +134,8 @@ class CINODE
 
         ~COMMAND_REDIRECT()
         {
-            STORM_DELETE(sControlName);
+            delete[] sControlName;
+            sControlName = nullptr;
         }
     };
 
@@ -159,8 +160,10 @@ class CINODE
 
         ~COMMAND_ACTION()
         {
-            STORM_DELETE(sRetControl);
-            STORM_DELETE(sEventName);
+            delete[] sRetControl;
+            sRetControl = nullptr;
+            delete[] sEventName;
+            sEventName = nullptr;
             while (pNextControl)
             {
                 auto *const pOld = pNextControl;

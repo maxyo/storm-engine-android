@@ -545,8 +545,10 @@ void CXI_TEXTBUTTON::ReleaseAll()
 {
     PICTURE_TEXTURE_RELEASE(pPictureService, m_sGroupName, m_idTex);
     TEXTURE_RELEASE(m_rs, m_idShadowTex);
-    STORM_DELETE(m_sGroupName);
-    STORM_DELETE(m_sString);
+    delete[] m_sGroupName;
+    m_sGroupName = nullptr;
+    delete[] m_sString;
+    m_sString = nullptr;
     VERTEX_BUFFER_RELEASE(m_rs, m_idVBuf);
     INDEX_BUFFER_RELEASE(m_rs, m_idIBuf);
     VIDEOTEXTURE_RELEASE(m_rs, m_pTex);
@@ -610,7 +612,8 @@ uint32_t CXI_TEXTBUTTON::MessageProc(int32_t msgcode, MESSAGE &message)
     case 0: // change the text on the button
     {
         const std::string &param = message.String();
-        STORM_DELETE(m_sString);
+        delete[] m_sString;
+        m_sString = nullptr;
         m_idString = -1;
         if (param[0] == '#')
         {

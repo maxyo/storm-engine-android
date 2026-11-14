@@ -832,7 +832,8 @@ void CXI_SCROLLIMAGE::ReleaseAll()
 {
     int i;
 
-    STORM_DELETE(m_sSpecTechniqueName);
+    delete[] m_sSpecTechniqueName;
+    m_sSpecTechniqueName = nullptr;
 
     if (m_idBadPic && m_idBadTexture)
         for (i = 0; i < m_nSlotsQnt; i++)
@@ -846,8 +847,10 @@ void CXI_SCROLLIMAGE::ReleaseAll()
             m_idBadPic[i] = -1;
         }
 
-    STORM_DELETE(m_idBadPic);
-    STORM_DELETE(m_idBadTexture);
+    delete[] m_idBadPic;
+    m_idBadPic = nullptr;
+    delete[] m_idBadTexture;
+    m_idBadTexture = nullptr;
 
     if (!m_Image.empty())
     {
@@ -864,21 +867,29 @@ void CXI_SCROLLIMAGE::ReleaseAll()
     for (i = 0; i < m_nGroupQuantity; i++)
     {
         PICTURE_TEXTURE_RELEASE(pPictureService, m_sGroupName[i], m_nGroupTex[i]);
-        STORM_DELETE(m_sGroupName[i]);
+        delete[] m_sGroupName[i];
+        m_sGroupName[i] = nullptr;
     }
-    STORM_DELETE(m_sGroupName);
-    STORM_DELETE(m_nGroupTex);
+    delete[] m_sGroupName;
+    m_sGroupName = nullptr;
+    delete[] m_nGroupTex;
+    m_nGroupTex = nullptr;
 
     PICTURE_TEXTURE_RELEASE(pPictureService, m_sBorderGroupName, m_texBorder);
-    STORM_DELETE(m_sBorderGroupName);
+    delete[] m_sBorderGroupName;
+    m_sBorderGroupName = nullptr;
 
     FONT_RELEASE(m_rs, m_nOneStrFont);
     FONT_RELEASE(m_rs, m_nTwoStrFont);
 
-    STORM_DELETE(m_dwCurColor);
-    STORM_DELETE(m_dwNormalColor);
-    STORM_DELETE(m_dwSelectColor);
-    STORM_DELETE(m_pPicOffset);
+    delete[] m_dwCurColor;
+    m_dwCurColor = nullptr;
+    delete[] m_dwNormalColor;
+    m_dwNormalColor = nullptr;
+    delete[] m_dwSelectColor;
+    m_dwSelectColor = nullptr;
+    delete[] m_pPicOffset;
+    m_pPicOffset = nullptr;
 
     m_nGroupQuantity = 0;
     m_nSlotsQnt = 0;
@@ -1126,7 +1137,8 @@ void CXI_SCROLLIMAGE::RefreshScroll()
     char param[256];
     // UpdateTexturesGroup();
 
-    STORM_DELETE(m_sSpecTechniqueName);
+    delete[] m_sSpecTechniqueName;
+    m_sSpecTechniqueName = nullptr;
 
     for (i = 0; i < m_nSlotsQnt; i++)
     {
@@ -1155,10 +1167,13 @@ void CXI_SCROLLIMAGE::RefreshScroll()
     for (i = 0; i < m_nGroupQuantity; i++)
     {
         PICTURE_TEXTURE_RELEASE(pPictureService, m_sGroupName[i], m_nGroupTex[i]);
-        STORM_DELETE(m_sGroupName[i]);
+        delete[] m_sGroupName[i];
+        m_sGroupName[i] = nullptr;
     }
-    STORM_DELETE(m_sGroupName);
-    STORM_DELETE(m_nGroupTex);
+    delete[] m_sGroupName;
+    m_sGroupName = nullptr;
+    delete[] m_nGroupTex;
+    m_nGroupTex = nullptr;
 
     m_nNotUsedQuantity = 0;
 
@@ -1553,10 +1568,13 @@ void CXI_SCROLLIMAGE::UpdateTexturesGroup()
             for (i = 0; i < nPrevQ; i++)
             {
                 PICTURE_TEXTURE_RELEASE(pPictureService, pPrevGroup[i], prevTex[i]);
-                STORM_DELETE(pPrevGroup[i]);
+                delete[] pPrevGroup[i];
+                pPrevGroup[i] = nullptr;
             }
-            STORM_DELETE(pPrevGroup);
-            STORM_DELETE(prevTex);
+            delete[] pPrevGroup;
+            pPrevGroup = nullptr;
+            delete[] prevTex;
+            prevTex = nullptr;
         }
     }
 }

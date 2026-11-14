@@ -133,7 +133,8 @@ void CXI_QUESTTEXTS::ReleaseStringes()
     {
         m_listCur = m_listRoot;
         m_listRoot = m_listRoot->next;
-        STORM_DELETE(m_listCur->lineStr);
+        delete[] m_listCur->lineStr;
+        m_listCur->lineStr = nullptr;
         STORM_DELETE(m_listCur);
     }
     m_listCur = nullptr;
@@ -339,7 +340,8 @@ void CXI_QUESTTEXTS::StartQuestShow(ATTRIBUTES *pA, int qn)
     {
         m_listCur = m_listRoot;
         m_listRoot = m_listRoot->next;
-        STORM_DELETE(m_listCur->lineStr);
+        delete[] m_listCur->lineStr;
+        m_listCur->lineStr = nullptr;
         STORM_DELETE(m_listCur);
     }
 

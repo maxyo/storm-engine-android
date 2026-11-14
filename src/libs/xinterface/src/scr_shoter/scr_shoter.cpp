@@ -39,7 +39,7 @@ SCRSHOTER::~SCRSHOTER()
     {
         pst = m_list;
         m_list = pst->next;
-        delete pst->fileName;
+        delete[] pst->fileName;
         if (pst->textureId != -1 && rs != nullptr)
             rs->TextureRelease(pst->textureId);
         delete pst;
@@ -329,8 +329,8 @@ void SCRSHOTER::DelSaveTexture(const char *fileName)
                 oldps->next = ps->next;
             else
                 m_list = ps->next;
-            delete ps->fileName;
-            delete ps->dataString;
+            delete[] ps->fileName;
+            delete[] ps->dataString;
             if (ps->textureId != -1 && rs != nullptr)
                 rs->TextureRelease(ps->textureId);
             delete ps;
@@ -392,14 +392,14 @@ int32_t SCRSHOTER::GetTexFromSave(char *fileName, char **pDatStr) const
             idx++;
           }
       }*/
-    delete pdat;
+    delete[] pdat;
 
     if (ok)
     {
         return textureId;
     }
     if (*pDatStr)
-        delete (*pDatStr);
+        delete[] (*pDatStr);
     *pDatStr = nullptr;
     TEXTURE_RELEASE(rs, textureId);
     return -1;

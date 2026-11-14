@@ -58,13 +58,18 @@ void CXI_CONTEXTHELP::ReleaseAll()
 {
     if (m_pHelpList != nullptr)
         for (auto i = 0; i < m_helpQuantity; i++)
-            STORM_DELETE(m_pHelpList[i].nodeName);
-    STORM_DELETE(m_pHelpList);
+        {
+            delete[] m_pHelpList[i].nodeName;
+            m_pHelpList[i].nodeName = nullptr;
+        }
+    delete[] m_pHelpList;
+    m_pHelpList = nullptr;
     m_helpQuantity = 0;
     m_curHelp = nullptr;
 
     FONT_RELEASE(m_rs, m_idFont);
-    STORM_DELETE(m_sTempString);
+    delete[] m_sTempString;
+    m_sTempString = nullptr;
     m_nCurDelayCounter = 0;
 }
 
@@ -247,7 +252,7 @@ void CXI_CONTEXTHELP::SetTempHelp(const char *pStr)
 
     // remove the old temporary line
 
-    delete m_sTempString;
+    delete[] m_sTempString;
     m_sTempString = nullptr;
 
     int32_t nCurStrWidth = 0;
@@ -303,7 +308,7 @@ uint32_t CXI_CONTEXTHELP::MessageProc(int32_t msgcode, MESSAGE &message)
     {
     case 0: // remove the old temporary line
     {
-        delete m_sTempString;
+        delete[] m_sTempString;
         m_sTempString = nullptr;
         m_idTempString = -1;
     }

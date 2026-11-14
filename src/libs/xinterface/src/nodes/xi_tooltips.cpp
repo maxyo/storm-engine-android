@@ -209,8 +209,10 @@ void CXI_ToolTip::MousePos(float fDeltaTime, int32_t nX, int32_t nY)
 void CXI_ToolTip::ReleaseAll()
 {
     PICTURE_TEXTURE_RELEASE(m_pPicService, m_sGroupName.c_str(), m_nTextureID);
-    STORM_DELETE(m_pV);
-    STORM_DELETE(m_pI);
+    delete[] m_pV;
+    m_pV = nullptr;
+    delete[] m_pI;
+    m_pI = nullptr;
     m_nSquareQ = 0;
     m_bDisableDraw = true;
     FONT_RELEASE(m_rs, m_nFontID);

@@ -463,20 +463,26 @@ void CXI_FOURIMAGE::ReleaseAll()
     for (i = 0; i < m_nTexturesQuantity; i++)
     {
         PICTURE_TEXTURE_RELEASE(pPictureService, m_sGroupName[i], m_nTextureId[i]);
-        STORM_DELETE(m_sGroupName[i]);
+        delete[] m_sGroupName[i];
+        m_sGroupName[i] = nullptr;
     }
-    STORM_DELETE(m_sGroupName);
-    STORM_DELETE(m_nTextureId);
+    delete[] m_sGroupName;
+    m_sGroupName = nullptr;
+    delete[] m_nTextureId;
+    m_nTextureId = nullptr;
     PICTURE_TEXTURE_RELEASE(pPictureService, m_sBorderGroupName, m_texBorder);
 
     for (i = 0; i < 4; i++)
     {
-        STORM_DELETE(m_pOneStr[i]);
-        STORM_DELETE(m_pTwoStr[i]);
+        delete[] m_pOneStr[i];
+        m_pOneStr[i] = nullptr;
+        delete[] m_pTwoStr[i];
+        m_pTwoStr[i] = nullptr;
     }
 
     // release all image list names
-    STORM_DELETE(m_sBorderGroupName);
+    delete[] m_sBorderGroupName;
+    m_sBorderGroupName = nullptr;
 
     FONT_RELEASE(m_rs, m_oneStrFont);
     FONT_RELEASE(m_rs, m_twoStrFont);
@@ -712,12 +718,12 @@ void CXI_FOURIMAGE::ChangeItem(int nItemNum)
         {
             if (m_pOneStr[i] != nullptr)
             {
-                delete m_pOneStr[i];
+                delete[] m_pOneStr[i];
                 m_pOneStr[i] = nullptr;
             }
             if (m_pTwoStr[i] != nullptr)
             {
-                delete m_pTwoStr[i];
+                delete[] m_pTwoStr[i];
                 m_pTwoStr[i] = nullptr;
             }
             sprintf_s(param, "pic%d", i + 1);

@@ -1128,7 +1128,8 @@ uint64_t XINTERFACE::ProcessMessage(MESSAGE &message)
         {
             if (m_stringes[i].sStringName != nullptr && storm::iEquals(m_stringes[i].sStringName, param))
             {
-                STORM_DELETE(m_stringes[i].sStringName);
+                delete[] m_stringes[i].sStringName;
+                m_stringes[i].sStringName = nullptr;
                 FONT_RELEASE(pRenderService, m_stringes[i].fontNum);
                 m_nStringQuantity--;
                 m_stringes[i].sStringName = m_stringes[m_nStringQuantity].sStringName;
@@ -3306,12 +3307,14 @@ void XINTERFACE::ReleaseOld()
         m_pEditor->ReCreate();
 
     ReleaseContextHelpData();
-    STORM_DELETE(m_strDefHelpTextureFile);
+    delete[] m_strDefHelpTextureFile;
+    m_strDefHelpTextureFile = nullptr;
 
     oldKeyState.dwKeyCode = 0;
     for (int i = 0; i < m_nStringQuantity; i++)
     {
-        STORM_DELETE(m_stringes[i].sStringName);
+        delete[] m_stringes[i].sStringName;
+        m_stringes[i].sStringName = nullptr;
         FONT_RELEASE(pRenderService, m_stringes[i].fontNum);
     }
     m_nStringQuantity = 0;
@@ -3337,9 +3340,12 @@ void XINTERFACE::ReleaseOld()
     while (m_imgLists != nullptr)
     {
         PICTURE_TEXTURE_RELEASE(pPictureService, m_imgLists->sImageListName, m_imgLists->idTexture);
-        STORM_DELETE(m_imgLists->sImageListName);
-        STORM_DELETE(m_imgLists->sImageName);
-        STORM_DELETE(m_imgLists->sPicture);
+        delete[] m_imgLists->sImageListName;
+        m_imgLists->sImageListName = nullptr;
+        delete[] m_imgLists->sImageName;
+        m_imgLists->sImageName = nullptr;
+        delete[] m_imgLists->sPicture;
+        m_imgLists->sPicture = nullptr;
         IMAGE_Entity *pCur = m_imgLists;
         m_imgLists = m_imgLists->next;
         delete pCur;
@@ -3405,7 +3411,8 @@ uint32_t XINTERFACE::AttributeChanged(ATTRIBUTES *patr)
         // set picture
         if (storm::iEquals(patr->GetThisName(), "pic"))
         {
-            STORM_DELETE(pImList->sPicture);
+            delete[] pImList->sPicture;
+            pImList->sPicture = nullptr;
             if (patr->HasValue())
             {
                 const auto len = strlen(patr->GetThisAttr()) + 1;
@@ -3424,7 +3431,8 @@ uint32_t XINTERFACE::AttributeChanged(ATTRIBUTES *patr)
         {
             if (pImList->sImageListName != nullptr)
                 pPictureService->ReleaseTextureID(pImList->sImageListName);
-            STORM_DELETE(pImList->sImageListName);
+            delete[] pImList->sImageListName;
+            pImList->sImageListName = nullptr;
             if (patr->HasValue())
             {
                 const auto len = strlen(patr->GetThisAttr()) + 1;
@@ -3541,7 +3549,8 @@ void XINTERFACE::ReleaseSaveFindList()
     {
         SAVE_FIND_DATA *p = m_pSaveFindRoot;
         m_pSaveFindRoot = m_pSaveFindRoot->next;
-        STORM_DELETE(p->save_file_name);
+        delete[] p->save_file_name;
+        p->save_file_name = nullptr;
         STORM_DELETE(p);
     }
 }
@@ -3782,9 +3791,12 @@ void XINTERFACE::ReleaseDinamicPic(const char *sPicName)
         return;
 
     PICTURE_TEXTURE_RELEASE(pPictureService, findImg->sImageListName, findImg->idTexture);
-    STORM_DELETE(findImg->sImageListName);
-    STORM_DELETE(findImg->sImageName);
-    STORM_DELETE(findImg->sPicture);
+    delete[] findImg->sImageListName;
+    findImg->sImageListName = nullptr;
+    delete[] findImg->sImageName;
+    findImg->sImageName = nullptr;
+    delete[] findImg->sPicture;
+    findImg->sPicture = nullptr;
     if (prevImg == nullptr)
         m_imgLists = findImg->next;
     else
@@ -4225,11 +4237,13 @@ CONTROLS_CONTAINER::~CONTROLS_CONTAINER()
         {
             CONTEINER_DESCR::CONTROL_DESCR *pCntrl = pCont->pControls;
             pCont->pControls = pCont->pControls->next;
-            STORM_DELETE(pCntrl->controlName);
+            delete[] pCntrl->controlName;
+            pCntrl->controlName = nullptr;
             STORM_DELETE(pCntrl);
         }
 
-        STORM_DELETE(pCont->resultName);
+        delete[] pCont->resultName;
+        pCont->resultName = nullptr;
 
         STORM_DELETE(pCont);
     }

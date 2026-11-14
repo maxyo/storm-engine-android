@@ -48,7 +48,8 @@ void CXI_IMGCOLLECTION::ReleaseAll()
     PICTURE_TEXTURE_RELEASE(pPictureService, sGroupName, texl);
     VERTEX_BUFFER_RELEASE(m_rs, vBuf);
     INDEX_BUFFER_RELEASE(m_rs, iBuf);
-    STORM_DELETE(sGroupName);
+    delete[] sGroupName;
+    sGroupName = nullptr;
 }
 
 int CXI_IMGCOLLECTION::CommandExecute(int wActCode)
@@ -409,7 +410,8 @@ uint32_t CXI_IMGCOLLECTION::MessageProc(int32_t msgcode, MESSAGE &message)
 
         if (!sGroupName || !storm::iEquals(sGroupName, param))
         {
-            STORM_DELETE(sGroupName);
+            delete[] sGroupName;
+            sGroupName = nullptr;
             PICTURE_TEXTURE_RELEASE(pPictureService, sGroupName, texl);
 
             // group name

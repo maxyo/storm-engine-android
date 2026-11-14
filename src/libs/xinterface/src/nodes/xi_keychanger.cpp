@@ -58,8 +58,10 @@ void CXI_KEYCHANGER::Draw(bool bSelected, uint32_t Delta_Time)
 
 void CXI_KEYCHANGER::ReleaseAll()
 {
-    STORM_DELETE(m_pControlsID);
-    STORM_DELETE(m_pbControlsStick);
+    delete[] m_pControlsID;
+    m_pControlsID = nullptr;
+    delete[] m_pbControlsStick;
+    m_pbControlsStick = nullptr;
 }
 
 void CXI_KEYCHANGER::ChangePosition(XYRECT &rNewPos)
@@ -102,8 +104,10 @@ void CXI_KEYCHANGER::SetChoosingControls(ATTRIBUTES *pA)
     if (pA == nullptr)
         return;
 
-    STORM_DELETE(m_pControlsID);
-    STORM_DELETE(m_pbControlsStick);
+    delete[] m_pControlsID;
+    m_pControlsID = nullptr;
+    delete[] m_pbControlsStick;
+    m_pbControlsStick = nullptr;
     m_keysQuantity = pA->GetAttributesNum();
     if (m_keysQuantity <= 0)
         return;

@@ -81,7 +81,8 @@ void CXI_SLIDEPICTURE::LoadIni(INIFILE *ini1, const char *name1, INIFILE *ini2, 
     char param[255];
     FXYPOINT fPos;
 
-    STORM_DELETE(strTechniqueName);
+    delete[] strTechniqueName;
+    strTechniqueName = nullptr;
     if (ReadIniString(ini1, name1, ini2, name2, "techniqueName", param, sizeof(param), ""))
     {
         const auto len = strlen(param) + 1;
@@ -197,8 +198,10 @@ void CXI_SLIDEPICTURE::LoadIni(INIFILE *ini1, const char *name1, INIFILE *ini2, 
 void CXI_SLIDEPICTURE::ReleaseAll()
 {
     TEXTURE_RELEASE(m_rs, m_idTex);
-    STORM_DELETE(pSlideSpeedList);
-    STORM_DELETE(strTechniqueName);
+    delete[] pSlideSpeedList;
+    pSlideSpeedList = nullptr;
+    delete[] strTechniqueName;
+    strTechniqueName = nullptr;
     nSlideListSize = 0;
 }
 

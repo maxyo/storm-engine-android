@@ -294,7 +294,7 @@ void XSERVICE::LoadAllPicturesInfo()
             if (oldpImage != nullptr)
             {
                 memcpy(m_pImage, oldpImage, m_dwImageQuantity * sizeof(PICTUREDESCR));
-                delete oldpImage;
+                delete[] oldpImage;
             }
             m_dwImageQuantity += m_pList[i].pictureQuantity;
 
@@ -334,22 +334,22 @@ void XSERVICE::ReleaseAll()
             if (m_pList[i].textureQuantity != 0)
                 m_pRS->TextureRelease(m_pList[i].textureID);
 
-            delete m_pList[i].sImageListName;
+            delete[] m_pList[i].sImageListName;
 
-            delete m_pList[i].sTextureName;
+            delete[] m_pList[i].sTextureName;
         }
 
-        delete m_pList;
+        delete[] m_pList;
     }
 
     if (m_pImage != nullptr)
     {
         for (auto i = 0; i < m_dwImageQuantity; i++)
         {
-            delete m_pImage[i].sPictureName;
+            delete[] m_pImage[i].sPictureName;
         }
 
-        delete m_pImage;
+        delete[] m_pImage;
     }
 
     m_dwListQuantity = 0;

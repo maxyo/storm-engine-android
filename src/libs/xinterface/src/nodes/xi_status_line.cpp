@@ -44,7 +44,8 @@ void CXI_STATUSLINE::ReleaseAll()
     PICTURE_TEXTURE_RELEASE(pPictureService, m_sGroupName, m_idTex);
     VERTEX_BUFFER_RELEASE(m_rs, m_vBuf);
     INDEX_BUFFER_RELEASE(m_rs, m_iBuf);
-    STORM_DELETE(m_sGroupName);
+    delete[] m_sGroupName;
+    m_sGroupName = nullptr;
 }
 
 int CXI_STATUSLINE::CommandExecute(int wActCode)
