@@ -7,6 +7,8 @@
 #include <initializer_list>
 #include <optional>
 #include <string_view>
+#include <algorithm>
+#include <vector>
 
 namespace storm::android {
 // Native owns map, projection and gameplay. Android supplies only the measured
@@ -190,6 +192,43 @@ inline std::optional<Point> project(float dx,float dz,float heading,float worldR
     const float x=dx*radius/(worldRadius*scale),y=dz*radius/(worldRadius*scale);
     if(x*x+y*y>radius*radius)return {};
     return Point{x*std::cos(heading)-y*std::sin(heading),-(y*std::cos(heading)+x*std::sin(heading))};
+}
+// The minimap's land: 0/1 land cells (n × n, row z) smoothed by a 5-tap binomial both ways into
+// a field 0…255 whose 127.5 contour is a rounded coast between cell centres.
+inline std::vector<uint8_t> landField(const std::vector<uint8_t> &land,uint32_t n){
+    std::vector<uint8_t> row(size_t(n)*n),field(size_t(n)*n);
+    if(land.size()!=size_t(n)*n||n==0)return {};
+    constexpr int w[5]={1,4,6,4,1};
+    for(uint32_t z=0;z<n;++z)for(uint32_t x=0;x<n;++x){int sum=0;
+        for(int k=-2;k<=2;++k)sum+=w[k+2]*(land[size_t(z)*n+uint32_t(std::clamp(int(x)+k,0,int(n)-1))]?1:0);
+        row[size_t(z)*n+x]=uint8_t(sum);}
+    for(uint32_t z=0;z<n;++z)for(uint32_t x=0;x<n;++x){int sum=0;
+        for(int k=-2;k<=2;++k)sum+=w[k+2]*row[size_t(std::clamp(int(z)+k,0,int(n)-1))*n+x];
+        field[size_t(z)*n+x]=uint8_t(std::min(255,sum*255/256));}
+    return field;
+}
+// The coast of a field over the cells [x0, x1] × [z0, z1]: marching squares on the 127.5 level
+// between cell centres (the contour the bilinear texture cuts), saddles decided by the cell's
+// mean; `segment(ax, az, bx, bz)` in cell-centre units. Outside the field is water.
+template <class Segment>
+inline void coastSegments(const std::vector<uint8_t> &field,int n,int x0,int x1,int z0,int z1,Segment &&segment){
+    const auto value=[&](int x,int z){return x<0||z<0||x>=n||z>=n?0.f:float(field[size_t(z)*n+x]);};
+    constexpr float level=127.5f;
+    for(int z=z0;z<=z1;++z)for(int x=x0;x<=x1;++x){
+        const float v00=value(x,z),v10=value(x+1,z),v01=value(x,z+1),v11=value(x+1,z+1);
+        const int mask=(v00>=level)|(v10>=level)<<1|(v11>=level)<<2|(v01>=level)<<3;
+        if(mask==0||mask==15)continue;
+        const auto cross=[](float a,float b){return (level-a)/(b-a);};
+        const Point e0{x+cross(v00,v10),float(z)},e1{float(x+1),z+cross(v10,v11)},e2{x+cross(v01,v11),float(z+1)},e3{float(x),z+cross(v00,v01)};
+        const auto add=[&](Point a,Point b){segment(a.x,a.y,b.x,b.y);};
+        switch(mask){
+        case 1:case 14:add(e3,e0);break;  case 2:case 13:add(e0,e1);break;
+        case 3:case 12:add(e3,e1);break;  case 4:case 11:add(e1,e2);break;
+        case 6:case 9:add(e0,e2);break;   case 7:case 8:add(e3,e2);break;
+        case 5:case 10:{const bool joined=(v00+v10+v01+v11)*.25f>=level;
+            if((mask==5)==joined){add(e3,e2);add(e0,e1);}else{add(e3,e0);add(e1,e2);}break;}
+        }
+    }
 }
 struct Bort { bool present{};float charge{},damage{},direction{},zone{},range{}; };
 inline bool valid(const Bort &b) {return b.present&&std::isfinite(b.charge)&&std::isfinite(b.damage)&&b.charge>=0&&b.charge<=1&&b.damage>=0&&b.damage<=1&&std::isfinite(b.direction)&&std::isfinite(b.zone)&&b.zone>=0&&b.zone<=2*pi&&std::isfinite(b.range)&&b.range>=0;}

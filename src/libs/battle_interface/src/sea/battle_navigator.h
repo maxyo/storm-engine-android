@@ -4,6 +4,7 @@
 #include "weather_base.h"
 #ifdef __ANDROID__
 #include <platform/android_sea_navigator.hpp>
+#include <vector>
 #endif
 
 #define RADIAL_QUANTITY 36
@@ -121,6 +122,21 @@ class BATTLE_NAVIGATOR
     bool DrawAndroid() const;
     bool AndroidAvailable() const;
     void UpdateAndroidBorts();
+    // The minimap's land (battle_navigator_android.cpp): the island's land cells smoothed into a
+    // field (0…255, the coast at 128), a pyramid of halved levels for wide views; the window of
+    // one level around the ship lives in a texture, alpha-tested at the coast.
+    void BuildAndroidLand();
+    bool AndroidLandWindow(float worldRadius) const;
+    struct AndroidLandLevel
+    {
+        uint32_t size = 0;
+        float stepX = 0.f, stepZ = 0.f;
+        std::vector<uint8_t> field;
+    };
+    std::vector<AndroidLandLevel> m_landLevels;
+    float m_landX0 = 0.f, m_landZ0 = 0.f;
+    mutable int32_t m_landTexture = -1;
+    mutable int m_landLevel = -1, m_landWinX = 0, m_landWinZ = 0;
     mutable bool m_androidDrawn = false;
     mutable uint64_t m_androidLayoutId = 0;
     uint64_t m_navigatorGeneration = 1;

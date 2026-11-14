@@ -187,5 +187,25 @@ int main(){
     ShipTelemetryState telemetry;telemetry.update(1,frame);auto json=telemetry.json();
     assert(json.find("\"navigatorPowderWarning\":false")!=json.npos);assert(json.find("\"navigatorWindState\":61")!=json.npos);assert(json.find("\"navigatorLayoutId\":9")!=json.npos);
     frame.navigatorPowderWarning.reset();telemetry.update(1,frame);assert(telemetry.json().find("navigatorPowderWarning")==json.npos);
-    std::cout<<"PASS production vector ink minima at 96dp across viewport/density/heading transforms, presentation and geometry kept per owner without a lease, presenter pending, native-draw proof and structural invalidation, navigator owner/source/viewport, malformed/oversize requests, zoom cancel/guards, native projection and bort damage composition, absent versus false warning\n";
+    {
+        // The land: a round island of radius 20 cells; its field's coast lies within half a cell of
+        // the circle all round, closed (every end point shared by two segments), and the narrow
+        // spit of one cell is smoothed away rather than drawn as a jagged line.
+        const uint32_t n=64;std::vector<uint8_t> land(n*n);
+        for(uint32_t z=0;z<n;++z)for(uint32_t x=0;x<n;++x)land[z*n+x]=std::hypot(x+.5f-32.f,z+.5f-32.f)<20.f;
+        const auto field=landField(land,n);assert(field.size()==n*n&&field[32*n+32]==255&&field[0]==0);
+        size_t segments=0;float worst=0;std::vector<std::pair<int,int>> ends;
+        coastSegments(field,int(n),-1,int(n),-1,int(n),[&](float ax,float az,float bx,float bz){
+            ++segments;for(auto [x,z]:{std::pair{ax,az},std::pair{bx,bz}}){
+                worst=std::max(worst,std::abs(std::hypot(x+.5f-32.f,z+.5f-32.f)-20.f));
+                ends.emplace_back(int(std::lround(x*1000)),int(std::lround(z*1000)));}});
+        assert(segments>60&&worst<.5f);
+        std::sort(ends.begin(),ends.end());
+        for(size_t i=0;i<ends.size();i+=2)assert(i+1<ends.size()&&ends[i]==ends[i+1]);
+        std::vector<uint8_t> spit(n*n);for(uint32_t x=10;x<50;++x)spit[32*n+x]=1;
+        size_t spitSegments=0;coastSegments(landField(spit,n),int(n),-1,int(n),-1,int(n),[&](float,float,float,float){++spitSegments;});
+        assert(spitSegments==0);
+        assert(landField(land,n+1).empty());
+    }
+    std::cout<<"PASS minimap land field and closed coast, production vector ink minima at 96dp across viewport/density/heading transforms, presentation and geometry kept per owner without a lease, presenter pending, native-draw proof and structural invalidation, navigator owner/source/viewport, malformed/oversize requests, zoom cancel/guards, native projection and bort damage composition, absent versus false warning\n";
 }

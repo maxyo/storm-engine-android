@@ -128,6 +128,14 @@ static void CheckConsumers()
     bad = State("sea-quick-moor");
     bad.erase("activity");
     rejected("seaQuickAction", bad, "seaQuickAction: an offer without its owner");
+    bad = State("sea-quick-moor-map");
+    bad["revision"] = 42;
+    bad.erase("mapLabel");
+    rejected("seaQuickAction", bad, "seaQuickAction: the map beside an action without its caption");
+    bad = State("sea-quick-moor-map");
+    bad["revision"] = 43;
+    bad["action"] = "Map";
+    rejected("seaQuickAction", bad, "seaQuickAction: the map beside itself");
 }
 
 static void CheckSailing()

@@ -820,8 +820,10 @@ class SeaQuickConsumer final : public HudConsumer
         std::string problem;
         if (!state.is_object() || Whole(state, "schemaVersion") != uint64_t{1} || !activity || !revision || !available || !action || !label)
             problem = "expected {schemaVersion: 1, activity, revision, available, action, label}";
-        else if (map.value_or(false) && (!*available || *action == "Map" || !map_label || !Printable(*map_label, 1024, false)))
-            problem = "the world map offered beside no other action or without its caption";
+        else if (map.value_or(false) && (!*available || *action == "Map"))
+            problem = "the world map offered beside no other action ('" + *action + "')";
+        else if (map.value_or(false) && (!map_label || !Printable(*map_label, 1024, false)))
+            problem = "the world map offered without its caption";
         else if (*available && !OneOf(*action, {"Map", "Moor", "Board", "LandTroops", "Reload"}))
             problem = "unknown sea quick action '" + *action + "'";
         else if (*available && !Printable(*label, 1024, false))

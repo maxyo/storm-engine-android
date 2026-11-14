@@ -1141,6 +1141,11 @@ void BATTLE_NAVIGATOR::ReleaseAll()
     TEXTURE_RELEASE(rs, m_idSailTexture);
 
     TEXTURE_RELEASE(rs, m_islandTexture);
+#ifdef __ANDROID__
+    TEXTURE_RELEASE(rs, m_landTexture);
+    m_landLevel = -1;
+    m_landLevels.clear();
+#endif
 
     VERTEX_BUFFER_RELEASE(rs, m_idEmptyVBuf);
     VERTEX_BUFFER_RELEASE(rs, m_idCourseVBuf);
@@ -1448,6 +1453,9 @@ void BATTLE_NAVIGATOR::SetIsland()
         }
     }
 
+#ifdef __ANDROID__
+    BuildAndroidLand();
+#endif
     m_bYesIsland = m_islandTexture >= 0;
     m_fXIsland = posCenter.x;
     m_fYIsland = posCenter.z;
@@ -1601,6 +1609,8 @@ void BATTLE_NAVIGATOR::LostRender()
     ++m_navigatorGeneration;
     m_androidDrawn=false;m_androidLayoutId=0;
     storm::android::seaNavigator.clear();
+    TEXTURE_RELEASE(rs, m_landTexture);
+    m_landLevel = -1;
 #endif
     TEXTURE_RELEASE(rs, m_islandTexture);
 }

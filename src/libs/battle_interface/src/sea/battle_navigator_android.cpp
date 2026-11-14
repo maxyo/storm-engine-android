@@ -7,11 +7,18 @@
 #include "ship_base.h"
 #include "os_window.hpp"
 #include "shared/battle_interface/msg_control.h"
+#include "island_base.h"
 #include <platform/android_ui.hpp>
+#include <spdlog/spdlog.h>
 #include <algorithm>
+#include <chrono>
+#include <cstring>
 #include <vector>
 
 namespace {
+constexpr int kLandWindow = 512;          // cells per side of the land texture around the ship
+constexpr uint32_t kLandColor = 0xffb9a46c; // the land: warm sand (ARGB)
+constexpr uint32_t kShoreColor = 0x90d8ecea, kCoastColor = 0xf0302312; // the beach line and the coast ink
 using storm::android::sea_nav::Point;
 using storm::android::sea_nav::polar;
 namespace nav=storm::android::sea_nav;
@@ -73,6 +80,77 @@ bool BATTLE_NAVIGATOR::AndroidAvailable() const {
     return true;
 }
 
+// The island's land for the minimap: its depth map's land cells (20 m or finer), smoothed by a
+// 5-tap binomial in both directions into a field whose 128 contour is a rounded coast; halved
+// levels for views wider than a window of the finest one. Built once per island (SetIsland).
+void BATTLE_NAVIGATOR::BuildAndroidLand() {
+    TEXTURE_RELEASE(rs,m_landTexture);
+    m_landLevel=-1;m_landLevels.clear();
+    auto *island=static_cast<ISLAND_BASE *>(core.GetEntityPointer(core.GetEntityId("ISLAND")));
+    if(!island)return; // the open sea: no land to draw
+    const auto start=std::chrono::steady_clock::now();
+    IslandLandMap map;
+    if(!island->GetLandMap(map)||map.size<8||!(map.stepX>0)||!(map.stepZ>0)||map.land.size()!=size_t(map.size)*map.size){
+        spdlog::error("navigator: the island has no usable depth map (size {}); the minimap shows no land",map.size);
+        return;
+    }
+    const uint32_t n=map.size;
+    AndroidLandLevel level{n,map.stepX,map.stepZ,storm::android::sea_nav::landField(map.land,n)};
+    m_landX0=map.x0;m_landZ0=map.z0;
+    size_t land=0;for(auto v:map.land)land+=v;
+    m_landLevels.push_back(std::move(level));
+    while(m_landLevels.back().size>kLandWindow/2){
+        const auto &fine=m_landLevels.back();
+        AndroidLandLevel coarse{fine.size/2,fine.stepX*2,fine.stepZ*2,std::vector<uint8_t>(size_t(fine.size/2)*(fine.size/2))};
+        for(uint32_t z=0;z<coarse.size;++z)for(uint32_t x=0;x<coarse.size;++x){
+            const size_t i=size_t(2*z)*fine.size+2*x;
+            coarse.field[size_t(z)*coarse.size+x]=uint8_t((fine.field[i]+fine.field[i+1]+fine.field[i+fine.size]+fine.field[i+fine.size+1]+2)/4);}
+        m_landLevels.push_back(std::move(coarse));
+    }
+    spdlog::info("navigator: land of the island: {} cells of {:.1f} x {:.1f} m, {} of them land, {} levels, {} ms",n,map.stepX,map.stepZ,land,
+        m_landLevels.size(),std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now()-start).count());
+}
+
+// The texture holds kLandWindow cells of one level around the ship: the finest level whose
+// window covers the view with room to sail. Refilled only when the view leaves it or the zoom
+// needs another level.
+bool BATTLE_NAVIGATOR::AndroidLandWindow(float worldRadius) const {
+    if(m_landLevels.empty())return false;
+    int levelIndex=-1;
+    for(size_t i=0;i<m_landLevels.size();++i){const auto &l=m_landLevels[i];
+        if(worldRadius/std::min(l.stepX,l.stepZ)+2<kLandWindow*.375f){levelIndex=int(i);break;}}
+    if(levelIndex<0){
+        static bool told=false;
+        if(!told){told=true;spdlog::error("navigator: the view ({:.0f} m) is wider than every land level; the minimap shows no land",worldRadius);}
+        return false;
+    }
+    const auto &l=m_landLevels[size_t(levelIndex)];
+    const float cx=(m_fXPos-m_landX0)/l.stepX,cz=(m_fYPos-m_landZ0)/l.stepZ;
+    const float r=worldRadius/std::min(l.stepX,l.stepZ)+2;
+    const bool inside=m_landLevel==levelIndex&&cx-r>=m_landWinX&&cx+r<=m_landWinX+kLandWindow&&cz-r>=m_landWinZ&&cz+r<=m_landWinZ+kLandWindow;
+    if(inside&&m_landTexture>=0)return true;
+    if(m_landTexture<0){
+        // R, G, B, A in memory
+        m_landTexture=rs->TextureCreate(kLandWindow,kLandWindow,1,0,D3DFMT_A8B8G8R8,D3DPOOL_MANAGED);
+        if(m_landTexture<0){spdlog::error("navigator: cannot create the {0}x{0} land texture; the minimap shows no land",kLandWindow);return false;}
+    }
+    const int winX=int(std::floor(cx))-kLandWindow/2,winZ=int(std::floor(cz))-kLandWindow/2;
+    D3DLOCKED_RECT locked;
+    if(!rs->TextureLock(m_landTexture,0,locked,0)){spdlog::error("navigator: cannot lock the land texture");return false;}
+    const uint8_t r8=uint8_t(kLandColor>>16),g8=uint8_t(kLandColor>>8),b8=uint8_t(kLandColor);
+    for(int z=0;z<kLandWindow;++z){
+        auto *out=static_cast<uint8_t *>(locked.pBits)+size_t(z)*locked.Pitch;
+        const int fz=winZ+z;
+        for(int x=0;x<kLandWindow;++x,out+=4){
+            const int fx=winX+x;
+            const uint8_t a=fx>=0&&fz>=0&&fx<int(l.size)&&fz<int(l.size)?l.field[size_t(fz)*l.size+fx]:0;
+            out[0]=r8;out[1]=g8;out[2]=b8;out[3]=a;
+        }
+    }
+    rs->TextureUnlock(m_landTexture,0);
+    m_landLevel=levelIndex;m_landWinX=winX;m_landWinZ=winZ;
+    return true;
+}
 
 bool BATTLE_NAVIGATOR::DrawAndroid() const {
     using namespace storm::android;
@@ -105,20 +183,54 @@ bool BATTLE_NAVIGATOR::DrawAndroid() const {
     // triangle in the middle.
     const float inner=radius-ink.dp; // inside the thin rim
     mesh.arc(0,2*pi,60,inner,0xc0183b48);mesh.flush(rs);
-    // Reuse the real island render target and exactly the original texture-space
-    // center, world radius/scale, and heading. No island artwork is bundled.
-    if(m_bYesIsland&&m_islandTexture>=0&&m_islandTextureReady&&m_fIslandRadius>0){
+    // The land: the island's depth map as a sand fill cut at the coast (alpha test on the
+    // smoothed field, sharp at every zoom), then a light beach line and the dark coast ink along
+    // the same contour, traced per frame over the cells in view (marching squares).
+    const float worldRadius=m_fWorldRad*m_fCurScale;
+    const float metresPerPixel=worldRadius/inner;
+    const float headingCos=std::cos(m_fAngle),headingSin=std::sin(m_fAngle);
+    // world offset from the ship -> disc point, heading up (sea_nav::project's equations)
+    const auto toDisc=[&](float dx,float dz){const float x=dx/metresPerPixel,y=dz/metresPerPixel;
+        return Point{cx+x*headingCos-y*headingSin,cy-(y*headingCos+x*headingSin)};};
+    if(AndroidLandWindow(worldRadius)){
+        const auto &level=m_landLevels[size_t(m_landLevel)];
+        const float texel=1.f/kLandWindow;
         std::array<BI_ONETEXTURE_VERTEX,RADIAL_QUANTITY+2> map{};
-        const float tx=.5f+(m_fXPos-m_fXIsland)/m_fIslandWidth,ty=.5f-(m_fYPos-m_fYIsland)/m_fIslandHeight;
-        const float tr=m_fWorldRad*m_fCurScale/m_fIslandRadius;
-        map[0]={glm::vec3(cx,cy,1),.5f,tx,ty};
-        for(int i=0;i<=RADIAL_QUANTITY;++i){float a=2*pi*i/RADIAL_QUANTITY;
-            map[i+1]={glm::vec3(cx+std::sin(a)*inner,cy+std::cos(a)*inner,1),.5f,
-                tx+tr*std::sin(a-m_fAngle),ty+tr*std::cos(a-m_fAngle)};}
+        const auto vertex=[&](float sx,float sy){
+            // disc offset -> world offset (the inverse rotation), -> texture of the window
+            const float dx=(sx*headingCos-sy*headingSin)*metresPerPixel,dz=(-sx*headingSin-sy*headingCos)*metresPerPixel;
+            return BI_ONETEXTURE_VERTEX{glm::vec3(cx+sx,cy+sy,1),.5f,
+                ((m_fXPos+dx-m_landX0)/level.stepX-m_landWinX)*texel,((m_fYPos+dz-m_landZ0)/level.stepZ-m_landWinZ)*texel};
+        };
+        map[0]=vertex(0,0);
+        for(int i=0;i<=RADIAL_QUANTITY;++i){const float a=2*pi*i/RADIAL_QUANTITY;map[i+1]=vertex(std::sin(a)*inner,std::cos(a)*inner);}
         rs->SetSamplerState(0,D3DSAMP_ADDRESSU,D3DTADDRESS_CLAMP);rs->SetSamplerState(0,D3DSAMP_ADDRESSV,D3DTADDRESS_CLAMP);
-        rs->TextureSet(0,m_islandTexture);
-        rs->DrawPrimitiveUP(D3DPT_TRIANGLEFAN,BI_ONETEX_VERTEX_FORMAT,RADIAL_QUANTITY,map.data(),sizeof(BI_ONETEXTURE_VERTEX),"battle_island");
+        rs->TextureSet(0,m_landTexture);
+        rs->DrawPrimitiveUP(D3DPT_TRIANGLEFAN,BI_ONETEX_VERTEX_FORMAT,RADIAL_QUANTITY,map.data(),sizeof(BI_ONETEXTURE_VERTEX),"battle_island_land");
         rs->SetSamplerState(0,D3DSAMP_ADDRESSU,D3DTADDRESS_WRAP);rs->SetSamplerState(0,D3DSAMP_ADDRESSV,D3DTADDRESS_WRAP);
+        // The coast: the 127.5 contour between cell centres, as the bilinear texture has it.
+        std::vector<std::pair<Point,Point>> coast;
+        const int n=int(level.size);
+        const float ox=(m_fXPos-m_landX0)/level.stepX-.5f,oz=(m_fYPos-m_landZ0)/level.stepZ-.5f; // the ship in cell-centre units
+        const int reachX=int(std::ceil(worldRadius/level.stepX))+1,reachZ=int(std::ceil(worldRadius/level.stepZ))+1;
+        const float limit=inner*inner;
+        const auto inside=[&](Point v){const float dx=v.x-cx,dy=v.y-cy;return dx*dx+dy*dy<=limit;};
+        const int sx=int(std::floor(ox)),sz=int(std::floor(oz));
+        sea_nav::coastSegments(level.field,n,sx-reachX,sx+reachX,sz-reachZ,sz+reachZ,[&](float ax,float az,float bx,float bz){
+            Point p=toDisc((ax-ox)*level.stepX,(az-oz)*level.stepZ),q=toDisc((bx-ox)*level.stepX,(bz-oz)*level.stepZ);
+            const bool pin=inside(p),qin=inside(q);
+            if(!pin&&!qin)return;
+            if(!pin||!qin){ // the outside end onto the rim
+                const Point i=pin?p:q,o=pin?q:p;float lo=0,hi=1;
+                for(int k=0;k<12;++k){const float m=(lo+hi)*.5f;(inside({i.x+(o.x-i.x)*m,i.y+(o.y-i.y)*m})?lo:hi)=m;}
+                (pin?q:p)=Point{i.x+(o.x-i.x)*lo,i.y+(o.y-i.y)*lo};
+            }
+            coast.emplace_back(p,q);
+        });
+        for(const auto &[a,b]:coast)mesh.line(a,b,2.6f*ink.dp,kShoreColor);
+        mesh.flush(rs);
+        for(const auto &[a,b]:coast)mesh.line(a,b,1.1f*ink.dp,kCoastColor);
+        mesh.flush(rs);
     }
     const auto at=[&](float angle,float r){const auto p=polar(angle,r);return Point{cx+p.x,cy+p.y};};
     // The gun side the camera looks at (the view's forward against the heading).
@@ -144,23 +256,38 @@ bool BATTLE_NAVIGATOR::DrawAndroid() const {
         mesh.line({cx,cy},at(begin,reach),ink.dp*.75f,edge);mesh.line({cx,cy},at(begin+b.zone,reach),ink.dp*.75f,edge);
     }
     mesh.flush(rs);
-    const auto dot=[&](Point c,float r,uint32_t color){
-        for(int i=0;i<16;++i){const auto p=polar(2*pi*i/16,r),q=polar(2*pi*(i+1)/16,r);
-            mesh.triangle(c,{c.x+p.x,c.y+p.y},{c.x+q.x,c.y+q.y},color);}
+    // Ships as small hulls pointing where they sail (bow, shoulders, square stern), the length
+    // their real one on the map's scale between 7 and 14 dp, ringed in dark ink to stand out on
+    // sea and land alike.
+    const auto hull=[&](Point c,float angle,float length,uint32_t color,uint32_t outline,float rim){
+        const float w=length*.36f;
+        const auto shape=[&](float grow){
+            const float l=length*.5f+grow,h=w*.5f+grow;
+            return std::array<Point,6>{sea_nav::localPoint(c,angle,0,-l),sea_nav::localPoint(c,angle,h,-l*.18f),
+                sea_nav::localPoint(c,angle,h*.86f,l),sea_nav::localPoint(c,angle,-h*.86f,l),
+                sea_nav::localPoint(c,angle,-h,-l*.18f),sea_nav::localPoint(c,angle,0,-l)};};
+        for(const auto &[shape_,ink_]:{std::pair{shape(rim),outline},std::pair{shape(0),color}})
+            for(int i=1;i<5;++i)mesh.triangle(shape_[0],shape_[i],shape_[i+1],ink_);
     };
-    // Every eligible contact as a dot in the colours of the design (enemy, ally, neutral);
-    // a script's explicit colour for a ship still wins, the dead are grey.
+    const auto shipLength=[&](const SHIP_DESCRIBE_LIST::SHIP_DESCR *ship){
+        const float metres=ship&&ship->pShip?ship->pShip->GetBoxsize().z:0.f;
+        return std::clamp(std::isfinite(metres)?metres/metresPerPixel:0.f,7*ink.dp,14*ink.dp);};
+    // Every eligible contact in the colours of the design (enemy, ally, neutral); a script's
+    // explicit colour for a ship still wins, the dead are grey.
     const auto *main=g_ShipList.GetMainCharacterShip();
     for(auto *ship=g_ShipList.GetShipRoot();ship;ship=ship->next){
-        if(ship==main)continue;
-        auto pos=ship->pShip->GetPos();
-        auto p=sea_nav::project(pos.x-m_fXPos,pos.z-m_fYPos,m_fAngle,m_fWorldRad,m_fCurScale,inner-4*ink.dp);
-        if(!p)continue;
+        if(ship==main||!ship->pShip)continue;
+        const auto pos=ship->pShip->GetPos();
+        const auto p=sea_nav::project(pos.x-m_fXPos,pos.z-m_fYPos,m_fAngle,m_fWorldRad,m_fCurScale,inner);
+        const float length=shipLength(ship);
+        if(!p||std::hypot(p->x,p->y)>inner-length*.4f)continue;
         uint32_t color=ship->dwShipColor;
-        if(!color)color=ship->relation==BI_RELATION_ENEMY?0xffc8483a:ship->relation==BI_RELATION_FRIEND?0xff8cc4df:0xffd9bd7c;
+        if(!color)color=ship->relation==BI_RELATION_ENEMY?0xffd2503f:ship->relation==BI_RELATION_FRIEND?0xff8cc4df:0xffe0c487;
         if(ship->isDead)color=0xff7d7d78;
-        dot({cx+p->x,cy+p->y},3*ink.dp,color);
+        const float heading=ship->pShip->GetAng().y-m_fAngle;
+        hull({cx+p->x,cy+p->y},std::isfinite(heading)?heading:0.f,length,color,0xe0101418,ink.dp);
     }
+    mesh.flush(rs);
     // Readiness along the rim: per side a band over its arc, gold where loaded (all gold =
     // ready to fire), teal while it reloads, rust for the share of its guns that is broken.
     for(int i=0;i<4;++i){const auto &b=m_androidBorts[i];if(!b.present)continue;
@@ -171,19 +298,24 @@ bool BATTLE_NAVIGATOR::DrawAndroid() const {
         if(ready>begin)mesh.arc(begin,ready,band,thick,b.charge>=1?0xffefd794:0xff8ab4b7);
         if(b.damage>0)mesh.arc(broken,end,band,thick,0xffbf7659);
     }
-    // The wind blows along the arrow; its length grows with its strength.
+    // The wind as on the world-map compass: a dot on the side it blows from, a dashed streamer
+    // trailing downwind through the centre, longer the stronger it blows.
     if(m_windSpeedAvailable){
-        const float wind=m_fWindAngle-m_fAngle;
+        const float to=m_fWindAngle-m_fAngle;
         const float strength=std::clamp(static_cast<float>(storm::android::shipDisplayedSpeed(m_fWindStrength).value_or(0.0))/20.f,0.f,1.f);
-        const float half=(.25f+.45f*strength)*inner;
-        const Point tail=at(wind+pi,half),head=at(wind,half);
-        for(int k=0;k<6;++k){if(k%2)continue;const float t0=k/6.f,t1=(k+1)/6.f;
-            mesh.line({tail.x+(head.x-tail.x)*t0,tail.y+(head.y-tail.y)*t0},{tail.x+(head.x-tail.x)*t1,tail.y+(head.y-tail.y)*t1},ink.dp*1.25f,0xd0cfe7f2);}
-        const auto tip=sea_nav::arrowHead({cx,cy},wind,half,ink.arrowLength(),ink.arrowWidth());
-        mesh.triangle(tip[0],tip[1],tip[2],0xf0cfe7f2);
+        constexpr uint32_t streamer=0xe69cc3e6; // windStreamer
+        const Point head=at(to+pi,.22f*inner),tail=at(to,(.15f+.8f*strength)*inner);
+        const float length=std::hypot(tail.x-head.x,tail.y-head.y),dash=4*ink.dp,gap=3*ink.dp;
+        for(float t=0;t<length;t+=dash+gap){const float t1=std::min(length,t+dash);
+            mesh.line({head.x+(tail.x-head.x)*t/length,head.y+(tail.y-head.y)*t/length},
+                      {head.x+(tail.x-head.x)*t1/length,head.y+(tail.y-head.y)*t1/length},2*ink.dp,streamer);}
+        const Point dot=at(to+pi,.22f*inner+2.5f*ink.dp);
+        for(int i=0;i<16;++i){const auto p=polar(2*pi*i/16,2.6f*ink.dp),q=polar(2*pi*(i+1)/16,2.6f*ink.dp);
+            mesh.triangle(dot,{dot.x+p.x,dot.y+p.y},{dot.x+q.x,dot.y+q.y},streamer|0xff000000);}
+        mesh.flush(rs);
     }
-    // the own ship, heading up
-    mesh.triangle({cx,cy-7*ink.dp},{cx+5*ink.dp,cy+5*ink.dp},{cx-5*ink.dp,cy+5*ink.dp},0xfff3e3bd);
+    // the own ship, heading up, in the cream of the HUD's text
+    hull({cx,cy},0.f,std::max(shipLength(main),10*ink.dp),0xfff4ead2,0xf0101418,1.2f*ink.dp);
     // the thin brass rim of the design
     mesh.arc(0,2*pi,120.f*(radius-.5f*ink.dp)/radius,std::max(1.f,ink.dp),0xc0a98948);
     mesh.flush(rs);
