@@ -54,6 +54,7 @@ void ReliefGenerator::configure(ReliefSetup setup)
     stopping_ = false;
     stats_ = {};
     model_failed_ = false;
+    next_upscale_ = false;
     rest_.clear();
     rest_at_ = 0;
     rest_listed_ = rest_done_ = false;
@@ -165,6 +166,24 @@ std::optional<ReliefGenerator::Request> ReliefGenerator::next_request()
     return request;
 }
 
+void ReliefGenerator::reconcile_upscales()
+{
+    // A normal-map job can also write this exact display texture. Publishing that completed file is not inference:
+    // do it before the thermal gate, or a warm phone can leave an already prepared texture invisible indefinitely.
+    // The texture worker still validates its header, dimensions and payload before any GPU replacement is bound.
+    std::erase_if(upscales_, [&](const std::weak_ptr<UpscaleEntry> &weak) {
+        const auto entry = weak.lock();
+        if (!entry || entry->state != UpscaleEntry::Waiting)
+            return true;
+        if (display_ && fx::HasUpscaled(display_directory_, entry->key))
+        {
+            entry->state = UpscaleEntry::Stored;
+            return true;
+        }
+        return false;
+    });
+}
+
 void ReliefGenerator::run()
 {
 #if defined(__linux__) || defined(__ANDROID__)
@@ -188,13 +207,18 @@ void ReliefGenerator::run()
                 }
                 const Clock::time_point now = Clock::now();
                 const bool rest = active_ && !rest_done_ && !model_failed_;
-                request = next_request();
-                if (!request)
-                    while (!upscales_.empty() && !upscale)
-                    {
-                        upscale = upscales_.front().lock();
-                        upscales_.pop_front();
-                    }
+                reconcile_upscales();
+                // Small normal-map inputs may produce a display texture as a side effect, but larger inputs do not.
+                // Give standalone upscales a turn after one relief job, rather than after every loaded normal map.
+                if (!next_upscale_ || upscales_.empty())
+                    request = next_request();
+                while (!request && !upscales_.empty() && !upscale)
+                {
+                    upscale = upscales_.front().lock();
+                    upscales_.pop_front();
+                }
+                if (!request && !upscale)
+                    request = next_request();
                 if (request || upscale || (rest && now - last_request_ >= kRestQuiet))
                     break;
                 // Nothing due: a request wakes the worker; the rest waits for a quiet spell; with no work left at
@@ -223,16 +247,18 @@ void ReliefGenerator::run()
                 wake_.wait_for(lock, kWaitPause, [this] { return stopping_; });
                 continue;
             }
+            if (request || upscale)
+                next_upscale_ = request.has_value(); // pauses and cache-only completion consume no turn
             stats_.working = true;
         }
         if (!open_session())
         {
+            std::lock_guard lock(mutex_);
             if (request)
                 if (const std::shared_ptr<NormalMapEntry> entry = request->entry.lock())
                     entry->state = NormalMapEntry::Missing;
             if (upscale)
-                upscale->state = UpscaleEntry::Failed;
-            std::lock_guard lock(mutex_);
+                upscale->state = stopping_ ? UpscaleEntry::Missing : UpscaleEntry::Failed;
             for (const Request &r : requests_)
                 if (const std::shared_ptr<NormalMapEntry> entry = r.entry.lock())
                     entry->state = NormalMapEntry::Missing;
@@ -344,7 +370,10 @@ void ReliefGenerator::prepare_request(const Request &request)
         std::lock_guard lock(mutex_);
         stats_.device = session_->stats().provider; // the GPU may have handed over to the CPU (relief::DemoteGpu)
         if (stopping_)
+        {
+            entry->state = NormalMapEntry::Missing;
             return;
+        }
         if (outcome == relief::Outcome::Prepared)
         {
             ++stats_.made;
@@ -483,7 +512,10 @@ void ReliefGenerator::prepare_upscale(const std::shared_ptr<UpscaleEntry> &entry
     const double ms = Ms(start);
     std::lock_guard lock(mutex_);
     if (stopping_)
+    {
+        entry->state = UpscaleEntry::Missing;
         return;
+    }
     switch (outcome)
     {
     case relief::Outcome::Prepared:

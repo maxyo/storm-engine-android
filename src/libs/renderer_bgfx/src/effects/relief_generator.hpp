@@ -3,9 +3,9 @@
 //
 //   * A loaded colour texture of a relief class without its map, or of a gloss class without its gloss map, is requested
 //     (NormalMaps::on_texture_loaded); one preparation makes both (PBRify's normal, height and roughness networks). The
-//     requests go first, the one drawn most recently first (on screen now), then the rest in load order (the current
-//     location). When its map is written the texture's entry becomes Stored: the draw reads and uploads it and the
-//     relief fades in (NormalMaps::handle).
+//     requests alternate with standalone upscale requests. Within the relief lane, the one drawn most recently goes
+//     first (on screen now), then load order (the current location). When its map is written the texture's entry
+//     becomes Stored: the draw reads and uploads it and the relief fades in (NormalMaps::handle).
 //   * With no request for 30 s (not while a location loads), while relief is on, the rest of the game's relief textures (relief::List, by name) are
 //     made from their files, one at a time, so later locations find them ready.
 //     A complete pass prunes stale maps and leaves a mark (fx::kReliefMethodVersion, map size, candidate count): the
@@ -61,8 +61,9 @@ class ReliefGenerator
     void request(const std::shared_ptr<NormalMapEntry> &entry, std::filesystem::path file);
     // Main thread: relief is on (the rest of the game is made only then).
     void set_active(bool active);
-    // Main thread: the ×2 of a texture the game wants at ×2 (effects/upscale.hpp) whose file is not there. After the
-    // relief requests (whose small textures are upscaled first anyway), before the rest of the game. False when
+    // Main thread: request a missing ×2 texture (effects/upscale.hpp). Alternates with loaded relief requests,
+    // before background preparation. A completed cache file is published even while thermal protection pauses
+    // inference. The caller sets Waiting before enqueueing. False when
     // kUpscaleQueue requests wait already (the entry asks again later). Done: the entry becomes Stored, or Failed.
     bool request_upscale(const std::shared_ptr<UpscaleEntry> &entry);
     // Main thread: the game shows the ×2 textures (Settings::upscale): the requested relief maps made from a ×2 also
@@ -98,6 +99,7 @@ class ReliefGenerator
     };
     void run();
     std::optional<Request> next_request(); // under mutex_
+    void reconcile_upscales(); // under mutex_: publish completed files; prune expired/stale requests
     bool open_session();
     void prepare_request(const Request &request);
     void prepare_rest();
@@ -117,6 +119,7 @@ class ReliefGenerator
     bool display_ = false, display_bc_ = false;
     std::filesystem::path display_directory_;
     uint64_t order_ = 0;
+    bool next_upscale_ = false; // a live lane never waits behind the entire other queue
     std::chrono::steady_clock::time_point last_request_{}, idle_since_{};
     Stats stats_;
     // Worker only.
