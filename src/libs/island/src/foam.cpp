@@ -5,7 +5,6 @@
 
 CoastFoam::CoastFoam()
 {
-    pSea = nullptr;
     iVBuffer = -1;
     iIBuffer = -1;
     iCursorTex = -1;
@@ -129,12 +128,11 @@ void CoastFoam::Realize(uint32_t Delta_Time)
 {
     pFrustumPlanes = rs->GetPlanes();
 
+    // The sea can be removed/replaced while this foam entity survives a scene transition.
+    auto *pSea = static_cast<SEA_BASE *>(core.GetEntityPointerSafe(core.GetEntityId("sea")));
     if (pSea == nullptr)
-    {
-        pSea = static_cast<SEA_BASE *>(core.GetEntityPointer(core.GetEntityId("sea")));
-        if (pSea == nullptr)
-            return;
-    }
+        return;
+    SEA_BASE &Sea = *pSea;
 
     auto fDeltaTime = static_cast<float>(Delta_Time) * 0.001f;
     D3DVIEWPORT9 vp;
@@ -157,9 +155,9 @@ void CoastFoam::Realize(uint32_t Delta_Time)
         auto pF = aFoams[i];
 
         if (pF->Type == FOAM_TYPE_1)
-            ExecuteFoamType1(pF, fDeltaTime);
+            ExecuteFoamType1(pF, fDeltaTime, Sea);
         else
-            ExecuteFoamType2(pF, fDeltaTime);
+            ExecuteFoamType2(pF, fDeltaTime, Sea);
     }
     FlushStrands();
     RDTSC_E(dw1);
@@ -473,7 +471,7 @@ void CoastFoam::InitNewFoam(Foam *pF)
     pF->iTexture = rs->TextureCreate(("weather\\coastfoam\\" + pF->sTexture).c_str());
 }
 
-void CoastFoam::ExecuteFoamType2(Foam *pF, float fDeltaTime)
+void CoastFoam::ExecuteFoamType2(Foam *pF, float fDeltaTime, SEA_BASE &Sea)
 {
     const int32_t iLen = pF->aWorkParts.size();
     if (!iLen)
@@ -568,7 +566,7 @@ void CoastFoam::ExecuteFoamType2(Foam *pF, float fDeltaTime)
                     ARGB(static_cast<uint32_t>(pF->fAlphaColor[k] * fAlpha * fAlpha1 * 255.0f), 255, 255, 255);
 
                 auto vPos = pWP->v[0] + (pF->fMove[k] * static_cast<float>(y) / 7.0f) * (pWP->v[1] - pWP->v[0]);
-                vPos.y = fFoamDeltaY + pSea->WaveXZ(vPos.x, vPos.z);
+                vPos.y = fFoamDeltaY + Sea.WaveXZ(vPos.x, vPos.z);
                 // vPos.y += 3.0f * fAmp * sinf(float(y) / 7.0f * PI);
                 pFV[x + y * iLen].vPos = vPos;
                 pFV[x + y * iLen].dwColor = dwColor;
@@ -638,7 +636,7 @@ bool CoastFoam::IsClipped(Foam *pF)
     return false;
 }
 
-void CoastFoam::ExecuteFoamType1(Foam *pF, float fDeltaTime)
+void CoastFoam::ExecuteFoamType1(Foam *pF, float fDeltaTime, SEA_BASE &Sea)
 {
     const int32_t iLen = pF->aWorkParts.size();
     if (!iLen)
@@ -694,7 +692,7 @@ void CoastFoam::ExecuteFoamType1(Foam *pF, float fDeltaTime)
             }
 
             auto vPos = pWP->v[0] + pWP->p[y].fPos * (pWP->v[1] - pWP->v[0]);
-            vPos.y = fFoamDeltaY + pSea->WaveXZ(vPos.x, vPos.z);
+            vPos.y = fFoamDeltaY + Sea.WaveXZ(vPos.x, vPos.z);
             // vPos.y += 3.0f * fAmp * sinf(float(y) / 7.0f * PI);
             pFV[x + y * iLen].vPos = vPos;
             pFV[x + y * iLen].dwColor = dwColor;
