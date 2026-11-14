@@ -593,6 +593,16 @@ void PipelineSets::frame(Device &device, uint32_t presented_frame, bool scene_fr
     }
 }
 
+void Context::RegisterPipelineProgram(const char *vertex_shader, const char *fragment_shader, uint16_t program)
+{
+    PipelineSets::instance().register_program(vertex_shader, fragment_shader, bgfx::ProgramHandle{program});
+}
+
+void Context::UnregisterPipelineProgram(uint16_t program)
+{
+    PipelineSets::instance().unregister_program(bgfx::ProgramHandle{program});
+}
+
 } // namespace storm::shim
 
 namespace storm::render

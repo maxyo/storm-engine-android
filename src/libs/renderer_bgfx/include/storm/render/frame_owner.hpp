@@ -31,7 +31,7 @@
 namespace storm::render
 {
 
-inline constexpr uint32_t kFrameOwnerApiVersion = 6;
+inline constexpr uint32_t kFrameOwnerApiVersion = 7;
 
 // bgfx::ViewId values. Compile-time constants so clients can size tables.
 inline constexpr uint16_t kPreGameViewBegin = 0; // passes that must run before the scene (e.g. a shadow map)
@@ -197,6 +197,12 @@ class FrameOwner
     virtual GamePicture QueryGamePicture(std::string_view path) = 0;
     virtual void ReleaseGamePicture(std::string_view path) = 0;
 
+    // Game thread: programs owned by a client, registered by their shader names for the owner's pipeline
+    // prewarming. Optional: standalone UI owners need no engine pipeline registry. Unregister before destroy.
+    // `program` is bgfx::ProgramHandle::idx; no bgfx type crosses this interface.
+    virtual void RegisterPipelineProgram(const char *vertex_shader, const char *fragment_shader, uint16_t program) {}
+    virtual void UnregisterPipelineProgram(uint16_t program) {}
+
   protected:
     virtual ~FrameOwner() = default;
 };
@@ -278,6 +284,7 @@ bool GamePictureHeld();
 } // namespace storm::render
 
 // Version history
+//   7  Optional client program registration for pipeline prewarming through FrameOwner.
 //   6  HoldGamePicture() / GamePictureHeld(): the last game picture presented again under a pause menu.
 //   1  initial: view range, hooks, surface metrics, texture helpers, game pictures.
 //   4  GamePictureRect(): the letterboxed game picture on the surface.

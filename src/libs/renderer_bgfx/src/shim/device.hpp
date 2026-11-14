@@ -150,6 +150,8 @@ class Context final : public render::FrameOwner
                          float u0 = 0, float v0 = 0, float u1 = 1, float v1 = 1);
 
     // FrameOwner
+    void RegisterPipelineProgram(const char *vertex_shader, const char *fragment_shader, uint16_t program) override;
+    void UnregisterPipelineProgram(uint16_t program) override;
     uint32_t ApiVersion() const override { return render::kFrameOwnerApiVersion; }
     void AddClient(render::FrameClient *client, int order) override;
     void RemoveClient(render::FrameClient *client) override;

@@ -31,7 +31,6 @@
 #include <RmlUi/Core/DecorationTypes.h>
 #include <bgfx/bgfx.h>
 
-#include "storm/render/pipelines.hpp"
 #include "storm/render/shader_blob.hpp"
 
 // Every shader of shaders/, for OpenGL ES and for Vulkan (renderer_bgfx cmake/storm_shaders.cmake).
@@ -1146,12 +1145,12 @@ bool BgfxBackendImpl::CreateGpu()
 #define STORM_UI_SHADER(name) shader(STORM_SHADER_BLOB(name), #name)
     const bgfx::ShaderHandle vs = STORM_UI_SHADER(vs_ui), vs_quad = STORM_UI_SHADER(vs_ui_quad);
     // The programs are registered with the pipeline sets by their shaders' names: Vulkan pipelines recorded for them
-    // are created ahead from here on (src/libs/renderer_bgfx/include/storm/render/pipelines.hpp).
+    // are created ahead from here on. Standalone UI has no engine owner or pipeline registry.
     const auto link = [&](ProgramId id, bgfx::ShaderHandle vertex, const char *vertex_name, bgfx::ShaderHandle fragment,
                           const char *fragment_name) {
         programs_[size_t(id)] = bgfx::createProgram(vertex, fragment, false);
-        if (bgfx::isValid(programs_[size_t(id)]))
-            storm::render::RegisterPipelineProgram(vertex_name, fragment_name, programs_[size_t(id)]);
+        if (options_.owner && bgfx::isValid(programs_[size_t(id)]))
+            options_.owner->RegisterPipelineProgram(vertex_name, fragment_name, programs_[size_t(id)].idx);
     };
 #define STORM_UI_LINK(id, vertex, vertex_name, fragment) link(id, vertex, #vertex_name, STORM_UI_SHADER(fragment), #fragment)
     STORM_UI_LINK(ProgramId::Color, vs, vs_ui, fs_ui_color);
@@ -1215,7 +1214,8 @@ void BgfxBackendImpl::DestroyGpu()
         set.Destroy();
     for (bgfx::ProgramHandle &program : programs_)
     {
-        storm::render::UnregisterPipelineProgram(program);
+        if (options_.owner && bgfx::isValid(program))
+            options_.owner->UnregisterPipelineProgram(program.idx);
         DestroyIfCurrent(program, g_epoch);
     }
     for (bgfx::UniformHandle *uniform : {&uniforms_.transform, &uniforms_.translate, &uniforms_.clip, &uniforms_.gradient, &uniforms_.gradient_pv,

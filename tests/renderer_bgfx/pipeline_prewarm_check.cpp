@@ -320,12 +320,13 @@ bool vulkan(SDL_Window *window, const fs::path &root)
         const bgfx::ProgramHandle program =
             bgfx::createProgram(shim::create_embedded_shader(shim::shader_id_by_name("vs_blit")),
                                 shim::create_embedded_shader(shim::shader_id_by_name("fs_blit")), true);
-        render::RegisterPipelineProgram("ext_vs", "ext_fs", program);
+        render::FrameOwner &owner = shim::Context::instance();
+        owner.RegisterPipelineProgram("ext_vs", "ext_fs", program.idx);
         for (int i = 0; i < 5; ++i)
             frame(d, -1, 0, 0);
         render::BeginScenePipelines("elsewhere again");
         ok &= expect(waiting_recipe_goes(sets), "registered: it is asked for (refused here: not a bgfx recipe)");
-        render::UnregisterPipelineProgram(program);
+        owner.UnregisterPipelineProgram(program.idx);
         frame(d, -1, 0, 0);
         bgfx::destroy(program);
     }
