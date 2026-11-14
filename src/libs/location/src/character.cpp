@@ -2289,34 +2289,24 @@ void Character::Move(float dltTime)
     // curPos.y, curPos.z, 1.0f);
 
     // Wave height at a given point
-    if (swimChange <= 0.0f && location->IsSwimming())
+    if (!location->IsSwimming())
     {
+        swimChange -= dltTime;
+        return;
+    }
+    auto *sb = static_cast<SEA_BASE *>(core.GetEntityPointer(sea));
+    glm::vec3 n(0.0f);
+    const float surface = sb ? sb->WaveXZ(curPos.x, curPos.z, &n) : 0.0f;
+    if (swimChange <= 0.0f)
+    {
+        // Swimming or wading: decided at most every 0.8 s, so the state does not flicker on a wave
         const bool old = isSwim;
-        auto *sb = static_cast<SEA_BASE *>(core.GetEntityPointer(sea));
         isSwim = false;
         isRunDisable = false;
         if (sb)
         {
-            glm::vec3 n;
-            seaY = sb->WaveXZ(curPos.x, curPos.z, &n);
+            seaY = surface;
             isRunDisable = seaY - curPos.y > CHARACTER_SEA_NOTRUN;
-            if (seaY > curPos.y)
-            {
-                // Waves from objects: a body in the water every frame; swimming strokes, wading only pushes.
-                storm::render::EffectsWaveSource source;
-                source.position = {curPos.x, seaY, curPos.z};
-                source.forward = {sinf(ay), cosf(ay)};
-                source.half_length = source.half_width = isSwim ? 0.5f : 0.35f;
-                source.speed = isMove ? (isSwim ? 1.2f : IsRun() ? 4.0f : 1.6f) : 0.0f;
-                source.stroke = isSwim ? (isMove ? 1.0f : 0.4f) : 0.0f;
-                sb->AddWaveSource(source);
-                stepsRate += dltTime;
-                if (stepsRate > 0.15f)
-                {
-                    stepsRate = 0.0f;
-                    core.Send_Message(waterrings, "ffflll", curPos.x, curPos.z, ay, isMove, IsRun(), isSwim);
-                }
-            }
             if (seaY > curPos.y + CHARACTER_SEA_MOVE * height)
             {
                 // The player is blown away or he floats
@@ -2339,6 +2329,24 @@ void Character::Move(float dltTime)
     }
     else
         swimChange -= dltTime;
+    if (sb && surface > curPos.y)
+    {
+        // Waves from objects: a body in the water every frame, swimming or wading as decided above; swimming strokes,
+        // wading only pushes.
+        storm::render::EffectsWaveSource source;
+        source.position = {curPos.x, surface, curPos.z};
+        source.forward = {sinf(ay), cosf(ay)};
+        source.half_length = source.half_width = isSwim ? 0.5f : 0.35f;
+        source.speed = isMove ? (isSwim ? 1.2f : IsRun() ? 4.0f : 1.6f) : 0.0f;
+        source.stroke = isSwim ? (isMove ? 1.0f : 0.4f) : 0.0f;
+        sb->AddWaveSource(source);
+        stepsRate += dltTime;
+        if (stepsRate > 0.15f)
+        {
+            stepsRate = 0.0f;
+            core.Send_Message(waterrings, "ffflll", curPos.x, curPos.z, ay, isMove, IsRun(), isSwim);
+        }
+    }
 }
 
 // Update character position

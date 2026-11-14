@@ -57,6 +57,7 @@ void RAIN::Release()
         rs->TextureRelease(iSeaDropTex);
     iVertexBuffer = -1;
     iRainbowTex = -1;
+    iRainDropsTexture = -1;
     iSeaDropTex = -1;
 
     if (iIBSeaDrops >= 0)

@@ -94,8 +94,10 @@ void BALLSPLASH::Realize(uint32_t _dTime)
         if (splashes[i].Process(_dTime))
             lastProcessed = i;
     if (lastProcessed != -1)
+    {
         splashes[lastProcessed].PostProcess();
-    splashes[lastProcessed].Realize(_dTime);
+        splashes[lastProcessed].Realize(_dTime);
+    }
 
     // draw top part
     const auto techniqueStarted = renderer->TechniqueExecuteStart("splash2");
@@ -107,8 +109,11 @@ void BALLSPLASH::Realize(uint32_t _dTime)
         if (splashes[i].Process2(_dTime))
             lastProcessed = i;
     }
-    splashes[lastProcessed].PostProcess2();
-    splashes[lastProcessed].Realize2(_dTime);
+    if (lastProcessed != -1)
+    {
+        splashes[lastProcessed].PostProcess2();
+        splashes[lastProcessed].Realize2(_dTime);
+    }
     if (techniqueStarted)
         while (renderer->TechniqueExecuteNext())
             ;
