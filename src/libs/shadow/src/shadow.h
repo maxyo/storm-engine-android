@@ -5,6 +5,7 @@
 #include "model.h"
 #include "vma.hpp"
 
+#include <unordered_map>
 #include <vector>
 
 class Shadow : public Entity
@@ -55,9 +56,9 @@ class Shadow : public Entity
     Rays rays_;
     // The location's triangles around the character, clipped to the projector's volume widened by kFanMargin, and
     // what they were cut for: while the character, the light and the head ray keep the projector's volume inside
-    // that margin, project() clips these few polygons exactly instead of walking the location's trees. The location's
-    // tree takes the polygons whose plane is closer to the sphere's centre than its radius, so project() keeps that rule
-    // for the sphere of the frame.
+    // that margin, project() clips these few polygons exactly instead of clipping the location's faces. Which faces
+    // the location's trees offer for the frame's sphere is asked by a walk that clips nothing (storm::geometry::ClipVisit),
+    // so the polygons are the ones a full clip would have produced.
     struct Fan
     {
         bool valid = false;
@@ -66,9 +67,12 @@ class Shadow : public Entity
         float perspective = 0.0f, sphereRadius = 0.0f;
         std::vector<glm::vec3> verts; // the polygons one after another
         std::vector<uint8_t> counts;  // their vertex counts
-        std::vector<glm::vec4> planes; // the plane of each polygon: normal, offset
+        std::vector<uint64_t> keys;   // the face of the location behind each (storm::geometry::clipFaceKey)
+        std::unordered_map<uint64_t, uint32_t> byKey; // key -> index of its polygon
     };
     Fan fan_;
+    std::vector<uint64_t> visited_; // scratch of project()
+    std::vector<uint8_t> taken_;
     uint32_t lastEpoch_ = UINT32_MAX;
     static std::vector<Shadow *> instances_;
     static uint32_t epoch_, preparedEpoch_;

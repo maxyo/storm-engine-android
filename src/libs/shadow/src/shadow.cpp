@@ -10,6 +10,7 @@ dynamic shadow cpp file
 #include "shadow.h"
 #include "live_list.hpp"
 #include "polygon_clip.hpp"
+#include "clip_visit.hpp"
 #include "storm/render/effects.hpp"
 
 #include "core.h"
@@ -212,7 +213,7 @@ namespace
 // The polygons of a fan being recorded (Shadow::rebuildFan) and the most of them kept.
 std::vector<glm::vec3> *recordVerts = nullptr;
 std::vector<uint8_t> *recordCounts = nullptr;
-std::vector<glm::vec4> *recordPlanes = nullptr;
+std::vector<uint64_t> *recordKeys = nullptr;
 constexpr size_t kFanMaxVerts = 16384;
 
 // Collision clip callback: keeps the polygon instead of drawing it.
@@ -222,9 +223,7 @@ bool recordPoly(const glm::vec3 *vr, int32_t nverts)
         return false;
     recordVerts->insert(recordVerts->end(), vr, vr + nverts);
     recordCounts->push_back(static_cast<uint8_t>(nverts));
-    // as AddPoly and the location's tree see the polygon's plane
-    const auto normal = storm::math::normalizeOrZero(glm::cross(vr[1] - vr[0], vr[2] - vr[0]));
-    recordPlanes->emplace_back(normal, glm::dot(normal, vr[0]));
+    recordKeys->push_back(storm::geometry::clipFaceKey(storm::geometry::clipVisit.owner, storm::geometry::clipVisit.face));
     return true;
 }
 } // namespace
@@ -602,6 +601,18 @@ void Shadow::project()
     else
         rebuildFan();
     // The exact clip of the location's polygons around the character
+    // The faces the location's trees offer for this frame's sphere, and the cached polygons of those faces
+    visited_.clear();
+    storm::geometry::clipVisit.collect = &visited_;
+    col->Clip(core.GetEntityIds(SHADOW), &planes[0], 5, in.cen, in.radius, AddPoly, &entity, 1);
+    storm::geometry::clipVisit.collect = nullptr;
+    taken_.assign(fan_.counts.size(), 0);
+    for (const uint64_t key : visited_)
+    {
+        const auto it = fan_.byKey.find(key);
+        if (it != fan_.byKey.end())
+            taken_[it->second] = 1;
+    }
     size_t first = 0;
     glm::vec3 poly[32];
     for (size_t i = 0; i < fan_.counts.size(); i++)
@@ -609,10 +620,8 @@ void Shadow::project()
         const size_t count = fan_.counts[i];
         const glm::vec3 *from = fan_.verts.data() + first;
         first += count;
-        const glm::vec4 &plane = fan_.planes[i];
-        const float side = glm::dot(glm::vec3(plane), in.cen) - plane.w;
-        if (side * side >= in.radius * in.radius)
-            continue; // the location's tree would not have offered it
+        if (!taken_[i])
+            continue;
         std::copy(from, from + count, poly);
         const int32_t n = storm::shadow::clipPolygon(planes, 5, poly, count);
         if (n >= 3 && !AddPoly(poly, n))
@@ -648,11 +657,14 @@ void Shadow::rebuildFan()
     }
     fan_.verts.clear();
     fan_.counts.clear();
-    fan_.planes.clear();
+    fan_.keys.clear();
+    fan_.byKey.clear();
     recordVerts = &fan_.verts;
     recordCounts = &fan_.counts;
-    recordPlanes = &fan_.planes;
+    recordKeys = &fan_.keys;
     col->Clip(core.GetEntityIds(SHADOW), wide, 5, in.cen, in.radius + kFanMargin, recordPoly, &entity, 1);
+    for (uint32_t i = 0; i < fan_.keys.size(); i++)
+        fan_.byKey.emplace(fan_.keys[i], i);
     fan_.valid = true;
     fan_.age = 0;
     fan_.ObjPos = in.ObjPos;
