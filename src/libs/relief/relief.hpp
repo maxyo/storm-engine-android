@@ -57,6 +57,7 @@ class Session
         int prepared = 0;
         double infer_seconds = 0.0, max_texture_ms = 0.0;
         std::string provider;
+        bool gpu = false;      // the networks run on the GPU (else onnxruntime on the CPU)
         std::string gpu_crash; // the GPU (and driver) whose inference crashed a previous run, so the CPU is used; else empty
     };
     // `threads`: the CPU's inference threads; 0 = every core. `cache`: where the device choice is kept (the cache

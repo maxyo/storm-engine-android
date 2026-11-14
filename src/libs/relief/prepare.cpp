@@ -367,17 +367,10 @@ std::unique_ptr<Session> Session::Open(const Models &models, int threads, const 
 {
     auto impl = std::make_unique<Impl>();
     threads = threads > 0 ? threads : static_cast<int>(std::max(1u, std::thread::hardware_concurrency()));
-    impl->runtime = CpuRuntime::Open(threads, error);
-    if (impl->runtime)
-        impl->normal = impl->runtime->Load(models.normal, error);
-    if (!impl->normal)
-    {
-        Log("ERROR: %s", error.c_str());
-        return nullptr;
-    }
-    // The device: measured once per GPU, driver and models (backend.hpp ChooseDevice), with the normal network.
+    // The device first (backend.hpp ChooseDevice: kept from before, or measured now with the normal network): on the
+    // GPU onnxruntime is never opened (its environment and arena were most of the relief's memory).
     const bool gpu_models = !models.normal_param.empty() && !models.height_param.empty() && !models.roughness_param.empty();
-    const Device device = gpu_models ? ChooseDevice(cache, *impl->normal, models.normal_param, models.normal_bin,
+    const Device device = gpu_models ? ChooseDevice(cache, models.normal, models.normal_param, models.normal_bin,
                                                     fx::kReliefModelPad, threads)
                                      : Device::Cpu;
     if (!gpu_models)
@@ -396,9 +389,14 @@ std::unique_ptr<Session> Session::Open(const Models &models, int threads, const 
     }
     else
     {
-        impl->height = impl->runtime->Load(models.height, error);
+        ReleaseGpu(); // opened to learn the GPU, not used
+        impl->runtime = CpuRuntime::Open(threads, error);
+        if (impl->runtime)
+            impl->normal = impl->runtime->Load(models.normal, fx::kReliefModelPad, 1, error);
+        if (impl->normal)
+            impl->height = impl->runtime->Load(models.height, fx::kReliefModelPad, 1, error);
         if (impl->height)
-            impl->roughness = impl->runtime->Load(models.roughness, error);
+            impl->roughness = impl->runtime->Load(models.roughness, fx::kReliefModelPad, 1, error);
     }
     if (!impl->normal || !impl->height || !impl->roughness)
     {
@@ -406,6 +404,7 @@ std::unique_ptr<Session> Session::Open(const Models &models, int threads, const 
         return nullptr;
     }
     impl->stats.provider = impl->normal->Describe();
+    impl->stats.gpu = device == Device::Gpu;
     impl->stats.gpu_crash = GpuCrash(cache);
     return std::unique_ptr<Session>(new Session(std::move(impl)));
 }

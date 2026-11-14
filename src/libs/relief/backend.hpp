@@ -32,11 +32,13 @@ class Network
 class CpuRuntime
 {
   public:
-    // `threads` cores, waiting threads sleeping. Null and `error` on failure.
-    static std::unique_ptr<CpuRuntime> Open(int threads, std::string &error);
+    // `threads` cores, waiting threads sleeping. `tile`: the inner texels of the networks' tiles, -1 by the RAM (the
+    // checks set one). Null and `error` on failure.
+    static std::unique_ptr<CpuRuntime> Open(int threads, std::string &error, int tile = -1);
     virtual ~CpuRuntime() = default;
-    // An int8 ONNX model of the relief (model/README.md).
-    virtual std::unique_ptr<Network> Load(std::span<const uint8_t> onnx, std::string &error) = 0;
+    // An int8 ONNX model (model/README.md), its padding `halo` texels, its output `scale` times the input. On a device
+    // with little RAM it runs in tiles (the arena capped by the RAM; logged when the runtime opens).
+    virtual std::unique_ptr<Network> Load(std::span<const uint8_t> onnx, int halo, int scale, std::string &error) = 0;
 };
 
 // The Vulkan compute device ncnn would use (its default one): created on first use, kept for the process.
@@ -47,6 +49,9 @@ struct GpuDevice
     std::string why;          // when not available
 };
 const GpuDevice &Gpu();
+// Closes the Vulkan instance when no GPU network is alive (the generator's idle release, the system's low memory);
+// the next Gpu() opens it again. True when it was closed now.
+bool ReleaseGpu();
 
 // An ncnn graph (.ncnn.param text, .ncnn.bin weights; both must outlive the network) on the GPU. The image is run in
 // tiles of the inner area with `halo` texels around each (the network's reach: the tiles join without a seam), each
@@ -64,8 +69,9 @@ const char *DeviceName(Device device);
 // The device for this game's relief networks: measured once (a probe tile of `probe` on both, after a warm-up),
 // the faster taken; kept in `cache` (the cache root: «Очистить кэш» measures again) for this GPU, driver, model and
 // thread count. Logged with both numbers either way; no Vulkan compute device: the CPU, logged with the reason.
-// `cpu`: the probe network on the CPU; `gpu_param` / `gpu_bin`: its ncnn graph.
-Device ChooseDevice(const std::filesystem::path &cache, Network &cpu, std::span<const uint8_t> gpu_param,
+// `cpu_onnx`: the probe network for the CPU (opened only for a probe); `gpu_param` / `gpu_bin`: its ncnn graph. A
+// choice kept from before opens neither.
+Device ChooseDevice(const std::filesystem::path &cache, std::span<const uint8_t> cpu_onnx, std::span<const uint8_t> gpu_param,
                     std::span<const uint8_t> gpu_bin, int halo, int threads);
 
 // The crash guard of the GPU work (ChooseDevice): `cache`'s marker holds GpuLabel of the GPU (kGpuOpening while Vulkan

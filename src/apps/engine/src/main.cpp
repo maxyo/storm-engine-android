@@ -27,6 +27,7 @@
 #include <spdlog/details/os.h>
 #include "os_window.hpp"
 #include "app_events.hpp"
+#include "storm/render/effects.hpp"
 #include "v_sound_service.h"
 #include "fs.h"
 #include "platform/host_hooks.hpp"
@@ -374,7 +375,9 @@ void SubscribeEngineToAppEvents()
                 uint64_t released = 0;
                 if (auto *soundService = static_cast<VSoundService *>(core.GetService("SoundService")))
                     released = soundService->TrimCaches();
-                spdlog::warn("Low memory: released {} KiB of cached audio", released / 1024);
+                spdlog::warn("Low memory: released {} KiB of cached audio; the relief models go after their texture",
+                             released / 1024);
+                storm::render::TrimRelief();
                 core_private->Event("AppLowMemory");
             }
             break;

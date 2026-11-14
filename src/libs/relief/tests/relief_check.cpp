@@ -155,7 +155,7 @@ int main(int argc, char **argv)
                 }
         for (int n = 0; n < 3; ++n)
         {
-            const auto cpu = cpu_runtime ? cpu_runtime->Load(files[n], error) : nullptr;
+            const auto cpu = cpu_runtime ? cpu_runtime->Load(files[n], fx::kReliefModelPad, 1, error) : nullptr;
             const auto gpu = relief::LoadGpuNetwork(files[3 + 2 * n], files[4 + 2 * n], fx::kReliefModelPad, 1, error);
             std::vector<float> a(image.size()), b(image.size());
             CHECK(cpu && gpu && cpu->Infer(image.data(), size, size, a.data(), error) &&
@@ -179,6 +179,31 @@ int main(int argc, char **argv)
     }
     else
         std::printf("no GPU check: %s\n", relief::Gpu().why.c_str());
+    // The CPU in tiles (a device with little RAM): the same output as the whole image, to the bit (the halo covers
+    // what the network sees).
+    {
+        std::string error;
+        const int size = 200 + 2 * fx::kReliefModelPad;
+        std::vector<float> image(static_cast<size_t>(size) * size * 3);
+        for (size_t i = 0; i < image.size(); ++i)
+            image[i] = static_cast<float>((i * 2654435761u) % 1000u) / 1000.0f;
+        const auto whole = relief::CpuRuntime::Open(2, error, 0), tiled = relief::CpuRuntime::Open(2, error, 64);
+        const auto a = whole ? whole->Load(files[0], fx::kReliefModelPad, 1, error) : nullptr;
+        const auto b = tiled ? tiled->Load(files[0], fx::kReliefModelPad, 1, error) : nullptr;
+        std::vector<float> pa(image.size()), pb(image.size());
+        CHECK(a && b && a->Infer(image.data(), size, size, pa.data(), error) && b->Infer(image.data(), size, size, pb.data(), error));
+        bool same = true;
+        for (int c = 0; c < 3; ++c)
+            for (int y = fx::kReliefModelPad; y < size - fx::kReliefModelPad; ++y)
+                for (int x = fx::kReliefModelPad; x < size - fx::kReliefModelPad; ++x)
+                {
+                    const size_t i = (static_cast<size_t>(c) * size + y) * size + x;
+                    same &= pa[i] == pb[i];
+                }
+        std::printf("CPU tiles of 64 against the whole image: %s (%s)\n", same ? "the same" : "DIFFERENT",
+                    b ? b->Describe().c_str() : "-");
+        CHECK(same);
+    }
     // The crash guard (backend.hpp MarkGpuRunning): a marker left behind by a run that died in the GPU's driver.
     {
         const relief::Models all{files[0], files[1], files[2], files[3], files[4], files[5], files[6], files[7], files[8]};

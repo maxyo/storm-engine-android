@@ -8,12 +8,15 @@
 
 #include <algorithm>
 #include <atomic>
+#include <functional>
 #include <chrono>
 #include <cstring>
 #include <fstream>
 #include <mutex>
 #include <thread>
 #include <vector>
+
+#include <unistd.h>
 
 namespace storm::relief
 {
@@ -35,12 +38,109 @@ bool OrtOk(const OrtApi *api, OrtStatus *status, std::string &error)
     return false;
 }
 
+// Runs `image` (planar, width x height, the outer `halo` texels its padding) in tiles of `tile` inner texels (0 or a
+// tile covering the inner area: one run), each with its halo; `infer` gets a tile's planes and their size and writes
+// `scale` times as many. Their inner texels go into `planes` (the outer halo of the output stays unset). `tile` may be
+// lowered by `infer`'s caller between tiles (the GPU's guard); `cancelled` stops between tiles.
+bool RunTiles(const float *image, int width, int height, float *planes, int halo, int scale, int &tile,
+              const std::atomic<bool> &cancelled, std::string &error,
+              const std::function<bool(const float *, int, int, float *, double &)> &infer,
+              const std::function<void(double)> &after = {})
+{
+    const int inner_w = width - 2 * halo, inner_h = height - 2 * halo;
+    if (inner_w <= 0 || inner_h <= 0)
+    {
+        error = "image smaller than its halo";
+        return false;
+    }
+    const size_t in_plane = static_cast<size_t>(width) * height;
+    const int out_w = width * scale;
+    const size_t out_plane = static_cast<size_t>(out_w) * height * scale;
+    std::vector<float> in, out;
+    for (int y0 = 0; y0 < inner_h;)
+    {
+        const int th = std::min(tile > 0 ? tile : inner_h, inner_h - y0);
+        for (int x0 = 0; x0 < inner_w;)
+        {
+            if (cancelled)
+            {
+                error = "cancelled";
+                return false;
+            }
+            const int tw = std::min(tile > 0 ? tile : inner_w, inner_w - x0);
+            // The tile with its halo, from the padded image (the halo always lies inside it).
+            const int iw = tw + 2 * halo, ih = th + 2 * halo;
+            in.resize(static_cast<size_t>(iw) * ih * 3);
+            out.resize(in.size() * scale * scale);
+            for (int c = 0; c < 3; ++c)
+                for (int y = 0; y < ih; ++y)
+                    std::memcpy(in.data() + (static_cast<size_t>(c) * ih + y) * iw,
+                                image + c * in_plane + static_cast<size_t>(y0 + y) * width + x0,
+                                static_cast<size_t>(iw) * sizeof(float));
+            double ms = 0.0;
+            if (!infer(in.data(), iw, ih, out.data(), ms))
+                return false;
+            // The tile's inner texels into the output (its halo's are the neighbours' or the border's).
+            const int sh = halo * scale, ow = iw * scale, oh = ih * scale;
+            for (int c = 0; c < 3; ++c)
+                for (int y = 0; y < th * scale; ++y)
+                    std::memcpy(planes + c * out_plane + static_cast<size_t>((y0 + halo) * scale + y) * out_w +
+                                    static_cast<size_t>((x0 + halo) * scale),
+                                out.data() + (static_cast<size_t>(c) * oh + sh + y) * ow + sh,
+                                static_cast<size_t>(tw * scale) * sizeof(float));
+            x0 += tw;
+            if (after)
+                after(ms);
+        }
+        y0 += th;
+    }
+    return true;
+}
+
+// The CPU path's memory by the device's RAM: the inference in tiles (its activations grow with the texels: a whole
+// 560² image held ~400 MB per network) and onnxruntime's arena capped, its memory returned after every run.
+struct CpuLimits
+{
+    double ram_gb = 0.0;
+    int tile = 0;     // inner texels of a tile; 0: the whole image at once
+    size_t arena = 0; // bytes
+};
+
+const CpuLimits &Limits()
+{
+    static const CpuLimits limits = [] {
+        CpuLimits l;
+        const long pages = sysconf(_SC_PHYS_PAGES), page = sysconf(_SC_PAGE_SIZE);
+        l.ram_gb = pages > 0 && page > 0 ? static_cast<double>(pages) * static_cast<double>(page) / 1073741824.0 : 0.0;
+        if (l.ram_gb <= 4.5)
+        {
+            l.tile = 128;
+            l.arena = size_t{384} << 20;
+        }
+        else if (l.ram_gb <= 8.5)
+        {
+            l.tile = 256;
+            l.arena = size_t{768} << 20;
+        }
+        else
+        {
+            l.tile = 0;
+            l.arena = size_t{1536} << 20;
+        }
+        return l;
+    }();
+    return limits;
+}
+
 // One int8 model in onnxruntime's CPU provider (MLAS kernels, NEON dot products on arm64). Its XNNPACK provider was
 // measured slower on a Galaxy S23 (1600 ms against 861 ms at 560², 4 threads); NNAPI is deprecated.
 class CpuNetwork final : public Network
 {
   public:
-    CpuNetwork(const OrtApi *api, std::string describe) : api_(api), describe_(std::move(describe)) {}
+    CpuNetwork(const OrtApi *api, std::string describe, int halo, int scale, int tile)
+        : api_(api), describe_(std::move(describe)), halo_(halo), scale_(scale), tile_(tile)
+    {
+    }
     ~CpuNetwork() override
     {
         if (session_)
@@ -61,10 +161,21 @@ class CpuNetwork final : public Network
                OrtOk(api_, api_->AddSessionConfigEntry(options_, "session.use_env_allocators", "1"), error) &&
                OrtOk(api_, api_->CreateSessionFromArray(env, model.data(), model.size(), options_, &session_), error) &&
                OrtOk(api_, api_->CreateCpuMemoryInfo(OrtArenaAllocator, OrtMemTypeDefault, &memory_), error) &&
-               OrtOk(api_, api_->CreateRunOptions(&run_), error);
+               OrtOk(api_, api_->CreateRunOptions(&run_), error) &&
+               // The arena's memory back to the system after every run: between textures only the weights stay.
+               OrtOk(api_, api_->AddRunConfigEntry(run_, "memory.enable_memory_arena_shrinkage", "cpu:0"), error);
     }
 
     bool Infer(const float *image, int width, int height, float *planes, std::string &error) override
+    {
+        if (tile_ == 0 || (width - 2 * halo_ <= tile_ && height - 2 * halo_ <= tile_))
+            return Run(image, width, height, planes, error);
+        return RunTiles(image, width, height, planes, halo_, scale_, tile_, cancelled_, error,
+                        [&](const float *in, int w, int h, float *out, double &) { return Run(in, w, h, out, error); });
+    }
+
+    // One whole image (its output `scale_` times the size).
+    bool Run(const float *image, int width, int height, float *planes, std::string &error)
     {
         const int64_t shape[4] = {1, 3, height, width};
         const size_t texels = static_cast<size_t>(width) * height;
@@ -78,7 +189,7 @@ class CpuNetwork final : public Network
         float *data = nullptr;
         ok = ok && OrtOk(api_, api_->GetTensorMutableData(output, reinterpret_cast<void **>(&data)), error);
         if (ok)
-            std::memcpy(planes, data, texels * 3 * sizeof(float));
+            std::memcpy(planes, data, texels * 3 * scale_ * scale_ * sizeof(float));
         if (input)
             api_->ReleaseValue(input);
         if (output)
@@ -88,15 +199,21 @@ class CpuNetwork final : public Network
 
     void Cancel() override
     {
+        cancelled_ = true;
         if (OrtStatus *status = api_->RunOptionsSetTerminate(run_))
             api_->ReleaseStatus(status);
     }
 
-    std::string Describe() const override { return describe_; }
+    std::string Describe() const override
+    {
+        return describe_ + (tile_ ? ", tiles of " + std::to_string(tile_) + " + " + std::to_string(halo_) + " texels" : "");
+    }
 
   private:
     const OrtApi *api_;
     std::string describe_;
+    int halo_, scale_, tile_;
+    std::atomic<bool> cancelled_{false};
     OrtSessionOptions *options_ = nullptr;
     OrtSession *session_ = nullptr;
     OrtMemoryInfo *memory_ = nullptr;
@@ -106,6 +223,7 @@ class CpuNetwork final : public Network
 class OrtRuntime final : public CpuRuntime
 {
   public:
+    explicit OrtRuntime(int tile) : tile_(tile) {}
     ~OrtRuntime() override
     {
         if (memory_)
@@ -134,17 +252,31 @@ class OrtRuntime final : public CpuRuntime
                         error);
         if (threading)
             api_->ReleaseThreadingOptions(threading);
-        // No usage telemetry (onnxruntime's Android build would try its 1DS client); one arena for every network.
-        return ok && OrtOk(api_, api_->DisableTelemetryEvents(env_), error) &&
-               OrtOk(api_, api_->CreateCpuMemoryInfo(OrtArenaAllocator, OrtMemTypeDefault, &memory_), error) &&
-               OrtOk(api_, api_->CreateAndRegisterAllocator(env_, memory_, nullptr), error);
+        // No usage telemetry (onnxruntime's Android build would try its 1DS client); one arena for every network,
+        // capped by the RAM (Limits), growing only by what is asked.
+        const CpuLimits &limits = Limits();
+        const char *keys[] = {"max_mem", "arena_extend_strategy"};
+        const size_t values[] = {limits.arena, 1}; // 1: kSameAsRequested
+        OrtArenaCfg *arena = nullptr;
+        ok = ok && OrtOk(api_, api_->DisableTelemetryEvents(env_), error) &&
+             OrtOk(api_, api_->CreateCpuMemoryInfo(OrtArenaAllocator, OrtMemTypeDefault, &memory_), error) &&
+             OrtOk(api_, api_->CreateArenaCfgV2(keys, values, 2, &arena), error) &&
+             OrtOk(api_, api_->CreateAndRegisterAllocator(env_, memory_, arena), error);
+        if (arena)
+            api_->ReleaseArenaCfg(arena);
+        if (ok)
+            Log("relief CPU memory: %.1f GB of RAM: %s, the arena capped at %zu MB and emptied after every run",
+                limits.ram_gb, tile_ ? ("tiles of " + std::to_string(tile_) + " texels").c_str() : "whole images",
+                limits.arena >> 20);
+        return ok;
     }
 
-    std::unique_ptr<Network> Load(std::span<const uint8_t> onnx, std::string &error) override
+    std::unique_ptr<Network> Load(std::span<const uint8_t> onnx, int halo, int scale, std::string &error) override
     {
         auto network = std::make_unique<CpuNetwork>(
             api_, "CPU, " + std::to_string(threads_) + " threads of " + std::to_string(std::thread::hardware_concurrency()) +
-                      " cores");
+                      " cores",
+            halo, scale, tile_);
         if (!network->Open(env_, onnx, error))
             return nullptr;
         return network;
@@ -155,6 +287,7 @@ class OrtRuntime final : public CpuRuntime
     OrtEnv *env_ = nullptr;
     OrtMemoryInfo *memory_ = nullptr;
     int threads_ = 1;
+    int tile_;
 };
 
 // The GPU: one submission per tile of the inner area, each at most kSubmitMs of GPU work (a frame of the game waits
@@ -171,15 +304,20 @@ struct Calibration
     int tile = kMinTile;
 };
 
+std::atomic<int> gpu_networks{0}; // alive: ReleaseGpu keeps the instance while any is
+
 class GpuNetwork final : public Network
 {
   public:
-    GpuNetwork(int halo, int scale) : halo_(halo), scale_(scale)
+    GpuNetwork(int halo, int scale, std::string gpu) : halo_(halo), scale_(scale), gpu_(std::move(gpu))
     {
+        ++gpu_networks;
         net_.opt.use_vulkan_compute = true;
         net_.opt.num_threads = 1;
         net_.opt.lightmode = true;
     }
+
+    ~GpuNetwork() override { --gpu_networks; }
 
     bool Open(std::span<const uint8_t> param, std::span<const uint8_t> bin, std::string &error)
     {
@@ -253,71 +391,48 @@ class GpuNetwork final : public Network
 
     bool Infer(const float *image, int width, int height, float *planes, std::string &error) override
     {
-        const int inner_w = width - 2 * halo_, inner_h = height - 2 * halo_;
-        if (inner_w <= 0 || inner_h <= 0)
-        {
-            error = "image smaller than its halo";
-            return false;
-        }
-        const size_t in_plane = static_cast<size_t>(width) * height;
-        const int out_w = width * scale_;
-        const size_t out_plane = static_cast<size_t>(out_w) * height * scale_;
-        for (int y0 = 0; y0 < inner_h;)
-        {
-            const int th = std::min(tile_, inner_h - y0);
-            for (int x0 = 0; x0 < inner_w;)
+        const auto infer = [&](const float *in, int iw, int ih, float *out, double &ms) {
+            ncnn::Mat tile(iw, ih, 3);
+            for (int c = 0; c < 3; ++c)
+                for (int y = 0; y < ih; ++y)
+                    std::memcpy(tile.channel(c).row(y), in + (static_cast<size_t>(c) * ih + y) * iw,
+                                static_cast<size_t>(iw) * sizeof(float));
+            const Clock::time_point start = Clock::now();
+            ncnn::Mat result;
+            ncnn::Extractor ex = net_.create_extractor();
+            if (ex.input("in0", tile) != 0 || ex.extract("out0", result) != 0 || result.c != 3 ||
+                result.w != iw * scale_ || result.h != ih * scale_)
             {
-                if (cancelled_)
-                {
-                    error = "cancelled";
-                    return false;
-                }
-                const int tw = std::min(tile_, inner_w - x0);
-                // The tile with its halo, from the padded image (the halo always lies inside it).
-                const int iw = tw + 2 * halo_, ih = std::min(th, inner_h - y0) + 2 * halo_;
-                ncnn::Mat in(iw, ih, 3);
-                for (int c = 0; c < 3; ++c)
-                    for (int y = 0; y < ih; ++y)
-                        std::memcpy(in.channel(c).row(y), image + c * in_plane + static_cast<size_t>(y0 + y) * width + x0,
-                                    static_cast<size_t>(iw) * sizeof(float));
-                const Clock::time_point start = Clock::now();
-                ncnn::Mat out;
-                ncnn::Extractor ex = net_.create_extractor();
-                if (ex.input("in0", in) != 0 || ex.extract("out0", out) != 0 || out.c != 3 || out.w != iw * scale_ ||
-                    out.h != ih * scale_)
-                {
-                    error = "ncnn inference failed";
-                    return false;
-                }
-                const double ms = Ms(start);
-                // The tile's inner texels into the output (its halo's are the neighbours' or the border's).
-                const int sh = halo_ * scale_;
-                for (int c = 0; c < 3; ++c)
-                    for (int y = 0; y < (ih - 2 * halo_) * scale_; ++y)
-                        std::memcpy(planes + c * out_plane + static_cast<size_t>((y0 + halo_) * scale_ + y) * out_w +
-                                        static_cast<size_t>((x0 + halo_) * scale_),
-                                    out.channel(c).row(sh + y) + sh, static_cast<size_t>(tw * scale_) * sizeof(float));
-                x0 += tw;
-                // The GPU slower than calibrated (another app, the GPU's clock down): the next tiles smaller (this
-                // row continues at the new size).
-                if (ms - calibration_.fixed_ms > 1.5 * kSubmitMs && tile_ > kMinTile)
-                    tile_ = std::max(kMinTile, tile_ / 2 / 32 * 32);
+                error = "ncnn inference failed";
+                return false;
             }
-            y0 += th;
-        }
-        return true;
+            ms = Ms(start);
+            const int ow = iw * scale_, oh = ih * scale_;
+            for (int c = 0; c < 3; ++c)
+                for (int y = 0; y < oh; ++y)
+                    std::memcpy(out + (static_cast<size_t>(c) * oh + y) * ow, result.channel(c).row(y),
+                                static_cast<size_t>(ow) * sizeof(float));
+            return true;
+        };
+        // The GPU slower than calibrated (another app, the GPU's clock down): the next tiles smaller.
+        const auto guard = [&](double ms) {
+            if (ms - calibration_.fixed_ms > 1.5 * kSubmitMs && tile_ > kMinTile)
+                tile_ = std::max(kMinTile, tile_ / 2 / 32 * 32);
+        };
+        return RunTiles(image, width, height, planes, halo_, scale_, tile_, cancelled_, error, infer, guard);
     }
 
     void Cancel() override { cancelled_ = true; }
 
     std::string Describe() const override
     {
-        return "GPU " + Gpu().name + " (Vulkan, ncnn), tiles of " + std::to_string(tile_) + " + " +
+        return "GPU " + gpu_ + " (Vulkan, ncnn), tiles of " + std::to_string(tile_) + " + " +
                std::to_string(halo_) + " texels";
     }
 
   private:
     int halo_, scale_;
+    std::string gpu_;
     int tile_ = kMinTile;
     Calibration calibration_;
     std::string param_;
@@ -337,31 +452,52 @@ std::string CacheLine(const GpuDevice &gpu, std::span<const uint8_t> param, std:
 }
 } // namespace
 
-std::unique_ptr<CpuRuntime> CpuRuntime::Open(int threads, std::string &error)
+std::unique_ptr<CpuRuntime> CpuRuntime::Open(int threads, std::string &error, int tile)
 {
-    auto runtime = std::make_unique<OrtRuntime>();
+    auto runtime = std::make_unique<OrtRuntime>(tile < 0 ? Limits().tile : tile);
     if (!runtime->Open(threads, error))
         return nullptr;
     return runtime;
 }
 
+namespace
+{
+std::mutex gpu_mutex;
+GpuDevice gpu_device;
+bool gpu_open = false;
+} // namespace
+
 const GpuDevice &Gpu()
 {
-    static GpuDevice device;
-    static std::once_flag once;
-    std::call_once(once, [] {
+    std::lock_guard lock(gpu_mutex);
+    if (!gpu_open)
+    {
+        gpu_open = true;
+        gpu_device = {};
         if (ncnn::create_gpu_instance() != 0 || ncnn::get_gpu_count() <= 0)
         {
-            device.why = "no Vulkan compute device (ncnn found none: no Vulkan driver, or no queue with compute)";
-            return;
+            gpu_device.why = "no Vulkan compute device (ncnn found none: no Vulkan driver, or no queue with compute)";
+            return gpu_device;
         }
         const ncnn::GpuInfo &info = ncnn::get_gpu_info(ncnn::get_default_gpu_index());
-        device.available = true;
-        device.name = info.device_name();
+        gpu_device.available = true;
+        gpu_device.name = info.device_name();
         const uint32_t v = info.driver_version();
-        device.driver = std::to_string(v >> 22) + "." + std::to_string((v >> 12) & 0x3ff) + "." + std::to_string(v & 0xfff);
-    });
-    return device;
+        gpu_device.driver =
+            std::to_string(v >> 22) + "." + std::to_string((v >> 12) & 0x3ff) + "." + std::to_string(v & 0xfff);
+    }
+    return gpu_device;
+}
+
+bool ReleaseGpu()
+{
+    std::lock_guard lock(gpu_mutex);
+    if (!gpu_open || gpu_networks > 0)
+        return false;
+    if (gpu_device.available)
+        ncnn::destroy_gpu_instance();
+    gpu_open = false;
+    return true;
 }
 
 std::unique_ptr<Network> LoadGpuNetwork(std::span<const uint8_t> param, std::span<const uint8_t> bin, int halo, int scale,
@@ -372,7 +508,7 @@ std::unique_ptr<Network> LoadGpuNetwork(std::span<const uint8_t> param, std::spa
         error = Gpu().why;
         return nullptr;
     }
-    auto network = std::make_unique<GpuNetwork>(halo, scale);
+    auto network = std::make_unique<GpuNetwork>(halo, scale, Gpu().name);
     if (!network->Open(param, bin, error))
         return nullptr;
     return network;
@@ -423,7 +559,7 @@ std::string GpuCrash(const std::filesystem::path &cache)
     return line;
 }
 
-Device ChooseDevice(const std::filesystem::path &cache, Network &cpu, std::span<const uint8_t> gpu_param,
+Device ChooseDevice(const std::filesystem::path &cache, std::span<const uint8_t> cpu_onnx, std::span<const uint8_t> gpu_param,
                     std::span<const uint8_t> gpu_bin, int halo, int threads)
 {
     // The crash guard: the marker of GPU work (MarkGpuRunning) left from the last run means the process died in it.
@@ -510,7 +646,11 @@ Device ChooseDevice(const std::filesystem::path &cache, Network &cpu, std::span<
         Log("relief device: CPU (the GPU %s failed the probe: %s)", gpu.name.c_str(), error.c_str());
         return Device::Cpu;
     }
-    if (!time(cpu, cpu_ms))
+    // The CPU's probe network on a runtime of its own, gone after the probe (onnxruntime is opened again only when
+    // the CPU is chosen).
+    const std::unique_ptr<CpuRuntime> runtime = CpuRuntime::Open(threads, error);
+    const std::unique_ptr<Network> cpu = runtime ? runtime->Load(cpu_onnx, halo, 1, error) : nullptr;
+    if (!cpu || !time(*cpu, cpu_ms))
     {
         Log("relief device: GPU %s (the CPU failed the probe: %s)", gpu.name.c_str(), error.c_str());
         return Device::Gpu;

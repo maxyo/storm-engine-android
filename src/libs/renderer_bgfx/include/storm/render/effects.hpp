@@ -284,6 +284,9 @@ struct ReliefConfig
 void ConfigureRelief(const ReliefConfig &config);
 // Before the renderer goes: stops the generator (the texture in progress is abandoned, its map made next time).
 void ShutdownRelief();
+// Any thread, the system low on memory (Android onTrimMemory / onLowMemory): the relief's models are released after
+// the texture in progress and the GPU's Vulkan instance closed (logged); they load again when work comes.
+void TrimRelief();
 // Main thread, at start: removes the stores of normal maps earlier builds kept elsewhere (the files directory's
 // "relief" before the relief maps moved to the cache, the "NormalMaps" cache before the relief directory), each if it
 // is still there (logged with what it held). Never `live` (the relief directory in use), anything inside it or anything

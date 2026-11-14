@@ -62,6 +62,9 @@ class ReliefGenerator
     void set_active(bool active);
     // Stops the worker (the texture in progress is abandoned: onnxruntime stops its inference).
     void shutdown();
+    // Any thread (the system is low on memory: render::TrimRelief): the models are released after the texture in
+    // progress, and the GPU instance closed; they load again when work comes. Logged.
+    void trim();
 
     struct Stats
     {
@@ -87,12 +90,14 @@ class ReliefGenerator
     bool open_session();
     void prepare_request(const Request &request);
     void prepare_rest();
+    void release_models(const char *why); // worker, under mutex_
     bool thermal_hot();
 
     std::mutex mutex_;
     std::condition_variable wake_;
     std::thread worker_;
     bool stopping_ = false;
+    bool trim_ = false;
     bool active_ = false;
     ReliefSetup setup_;
     std::deque<Request> requests_;

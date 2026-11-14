@@ -2,6 +2,7 @@
 
 #include "effects/normal_maps.hpp"
 #include "effects/thermal.hpp"
+#include "backend.hpp"
 #include "relief.hpp"
 #include "shim/shim.hpp"
 #include "storm/fx/relief_store.hpp"
@@ -148,6 +149,11 @@ void ReliefGenerator::run()
             {
                 if (stopping_)
                     return;
+                if (trim_)
+                {
+                    trim_ = false;
+                    release_models("the system is low on memory");
+                }
                 const Clock::time_point now = Clock::now();
                 const bool rest = active_ && !rest_done_ && !model_failed_;
                 request = next_request();
@@ -160,11 +166,7 @@ void ReliefGenerator::run()
                 {
                     if (now - idle_since_ >= kIdleRelease)
                     {
-                        running_ = nullptr;
-                        session_.reset();
-                        for (std::vector<uint8_t> &bytes : models_)
-                            bytes = {};
-                        shim::logf("effects: relief generation idle: the relief models are released");
+                        release_models("idle");
                         continue;
                     }
                     until = std::min(until, idle_since_ + kIdleRelease);
@@ -197,7 +199,18 @@ void ReliefGenerator::run()
         if (request)
             prepare_request(*request);
         else
+        {
             prepare_rest();
+            // On the CPU the rest of the game goes one texture per session while the game plays: onnxruntime's memory
+            // (its environment, the three sessions) is not held between them. (On the GPU the networks stay: making
+            // their pipelines again would cost more than the texture.)
+            std::lock_guard lock(mutex_);
+            if (session_ && !session_->stats().gpu)
+            {
+                running_ = nullptr;
+                session_.reset();
+            }
+        }
         std::lock_guard lock(mutex_);
         idle_since_ = Clock::now();
     }
@@ -301,6 +314,28 @@ void ReliefGenerator::prepare_request(const Request &request)
                    request.file.string().c_str(),
                    outcome == relief::Outcome::Skipped ? "gets no prepared map" : "has a map under another key");
     entry->state = NormalMapEntry::Failed;
+}
+
+void ReliefGenerator::trim()
+{
+    {
+        std::lock_guard lock(mutex_);
+        trim_ = true;
+    }
+    wake_.notify_all();
+}
+
+void ReliefGenerator::release_models(const char *why)
+{
+    const bool had = session_ != nullptr;
+    running_ = nullptr;
+    session_.reset();
+    for (std::vector<uint8_t> &bytes : models_)
+        bytes = {};
+    const bool gpu = relief::ReleaseGpu();
+    if (had || gpu)
+        shim::logf("effects: relief generation (%s): the relief models are released%s", why,
+                   gpu ? ", the GPU's Vulkan instance closed" : "");
 }
 
 void ReliefGenerator::prepare_rest()

@@ -918,6 +918,11 @@ void ConfigureRelief(const ReliefConfig &config)
     effects::ConfigureRelief({config.directory, config.textures, config.model});
 }
 
+void TrimRelief()
+{
+    effects::ReliefGenerator::instance().trim();
+}
+
 void ShutdownRelief()
 {
     effects::ReliefGenerator::instance().shutdown();
