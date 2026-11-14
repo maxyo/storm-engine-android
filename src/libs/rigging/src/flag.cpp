@@ -29,7 +29,8 @@ FLAG::FLAG()
 FLAG::~FLAG()
 {
     TEXTURE_RELEASE(RenderService, texl);
-    STORM_DELETE(gdata);
+    delete[] gdata;
+    gdata = nullptr;
     VERTEX_BUFFER_RELEASE(RenderService, vBuf);
     INDEX_BUFFER_RELEASE(RenderService, iBuf);
 
@@ -38,7 +39,8 @@ FLAG::~FLAG()
         flagQuantity--;
         STORM_DELETE(flist[flagQuantity]);
     }
-    STORM_DELETE(flist);
+    delete[] flist;
+    flist = nullptr;
 }
 
 bool FLAG::Init()
@@ -164,7 +166,7 @@ uint64_t FLAG::ProcessMessage(MESSAGE &message)
             auto *const oldgdata = gdata;
             gdata = new GROUPDATA[groupQuantity + 1];
             memcpy(gdata, oldgdata, sizeof(GROUPDATA) * groupQuantity);
-            delete oldgdata;
+            delete[] oldgdata;
             groupQuantity++;
         }
         gdata[groupQuantity - 1].model_id = eidModel;
@@ -239,7 +241,7 @@ uint64_t FLAG::ProcessMessage(MESSAGE &message)
             if (gdata == 0)
                 throw std::runtime_error("Not memory allocation");
             memcpy(gdata, oldgdata, sizeof(GROUPDATA) * groupQuantity);
-            delete oldgdata;
+            delete[] oldgdata;
             groupQuantity++;
         }
         gdata[groupQuantity - 1].model_id = eidModel;
@@ -495,7 +497,7 @@ void FLAG::AddLabel(GEOS::LABEL &gl, NODE *nod, bool isSpecialFlag, bool isShip,
             if (flist == nullptr)
                 throw std::runtime_error("Not memory allocation");
             memcpy(flist, oldflist, sizeof(FLAGDATA *) * flagQuantity);
-            delete oldflist;
+            delete[] oldflist;
             flagQuantity++;
         }
         flist[flagQuantity - 1] = fd;
@@ -742,7 +744,7 @@ void FLAG::DoSTORM_DELETE()
         flagQuantity = groupQuantity = 0;
         delete[] flist;
         flist = nullptr;
-        delete gdata;
+        delete[] gdata;
         gdata = nullptr;
     }
     else if (nfn != flagQuantity || ngn != groupQuantity)
@@ -760,7 +762,7 @@ void FLAG::DoSTORM_DELETE()
         if (flist)
         {
             memcpy(flist, oldflist, sizeof(FLAGDATA *) * flagQuantity);
-            delete oldflist;
+            delete[] oldflist;
         }
         else
             flist = oldflist;
@@ -770,7 +772,7 @@ void FLAG::DoSTORM_DELETE()
         if (gdata)
         {
             memcpy(gdata, oldgdata, sizeof(GROUPDATA) * groupQuantity);
-            delete oldgdata;
+            delete[] oldgdata;
         }
         else
             gdata = oldgdata;
@@ -814,7 +816,7 @@ void FLAG::SetAdd(int flagNum)
             delete flist[fn];
             if (flagQuantity == 1)
             {
-                delete flist;
+                delete[] flist;
                 flist = nullptr;
                 flagQuantity = 0;
             }
@@ -830,7 +832,7 @@ void FLAG::SetAdd(int flagNum)
                 if (fn < flagQuantity)
                     memcpy(&flist[fn], &oldflist[fn + 1], sizeof(FLAGDATA *) * (flagQuantity - fn));
                 if (flist != oldflist)
-                    delete oldflist;
+                    delete[] oldflist;
             }
         }
         else
@@ -935,7 +937,7 @@ void FLAG::MoveOtherHost(entid_t newm_id, int32_t flagNum, entid_t oldm_id)
         if (gdata == nullptr)
             throw std::runtime_error("Not memory allocation");
         memcpy(gdata, oldgdata, sizeof(GROUPDATA) * groupQuantity);
-        delete oldgdata;
+        delete[] oldgdata;
         groupQuantity++;
 
         // fill in the parameters of the new group

@@ -181,15 +181,17 @@ SAIL::~SAIL()
     {
         for (auto i = 0; i < sailQuantity; i++)
             STORM_DELETE(slist[i]);
-        STORM_DELETE(slist);
+        delete[] slist;
+        slist = nullptr;
     }
     if (gdata != nullptr)
     {
         for (auto i = 0; i < groupQuantity; i++)
         {
-            STORM_DELETE(gdata[i].sailIdx);
+            delete[] gdata[i].sailIdx;
+            gdata[i].sailIdx = nullptr;
         }
-        delete (char *)gdata;
+        delete[] gdata;
         gdata = nullptr;
     }
 
@@ -197,9 +199,11 @@ SAIL::~SAIL()
     INDEX_BUFFER_RELEASE(RenderService, sg.indxBuf);
     TEXTURE_RELEASE(RenderService, texl);
     TEXTURE_RELEASE(RenderService, m_nEmptyGerbTex);
-    STORM_DELETE(WindVect);
+    delete[] WindVect;
+    WindVect = nullptr;
     m_nMastCreatedCharacter = -1;
-    STORM_DELETE(m_sMastName);
+    delete[] m_sMastName;
+    m_sMastName = nullptr;
 }
 
 bool SAIL::Init()
@@ -628,7 +632,7 @@ uint64_t SAIL::ProcessMessage(MESSAGE &message)
             GROUPDATA *oldgdata = gdata;
             gdata = new GROUPDATA[groupQuantity + 1];
             memcpy(gdata, oldgdata, sizeof(GROUPDATA) * groupQuantity);
-            delete oldgdata;
+            delete[] oldgdata;
             oldgdata = nullptr;
             groupQuantity++;
         }
@@ -952,7 +956,8 @@ uint64_t SAIL::ProcessMessage(MESSAGE &message)
 
         // start / end attaching sails to the drop mast
     case MSG_SAIL_MAST_PROCESSING:
-        STORM_DELETE(m_sMastName);
+        delete[] m_sMastName;
+        m_sMastName = nullptr;
         m_nMastCreatedCharacter = message.Long();
         if (m_nMastCreatedCharacter != -1)
         {
@@ -1000,7 +1005,7 @@ void SAIL::AddSailLabel(GEOS::LABEL &lbl, NODE *nod, bool bSailUp)
             SAILONE **oldslist = slist;
             slist = new SAILONE *[sailQuantity + 1];
             memcpy(slist, oldslist, sizeof(SAILONE *) * sailQuantity);
-            delete oldslist;
+            delete[] oldslist;
         }
         else
             slist = new SAILONE *[1];
@@ -1141,11 +1146,13 @@ void SAIL::SetAllSails(int groupNum)
                         memcpy(slist, oldslist, sizeof(SAILONE *) * i);
                     if (i < sailQuantity)
                         memcpy(&slist[i], &oldslist[i + 1], sizeof(SAILONE *) * (sailQuantity - i));
-                    STORM_DELETE(oldslist);
+                    delete[] oldslist;
+                    oldslist = nullptr;
                 }
                 else
                 {
-                    STORM_DELETE(slist);
+                    delete[] slist;
+                    slist = nullptr;
                 }
                 i--;
             }
@@ -1214,7 +1221,7 @@ void SAIL::SetAllSails(int groupNum)
             if (gdata)
             {
                 memcpy(gdata, oldgdata, sizeof(GROUPDATA) * groupQuantity);
-                delete oldgdata;
+                delete[] oldgdata;
                 oldgdata = nullptr;
             }
             else
@@ -1222,7 +1229,7 @@ void SAIL::SetAllSails(int groupNum)
         }
         else
         {
-            delete gdata;
+            delete[] gdata;
             gdata = nullptr;
         }
     }
@@ -1670,7 +1677,7 @@ void SAIL::DoSailToNewHost(entid_t newModelEI, entid_t newHostEI, int grNum, NOD
         gdata[gn].modelEI = newModelEI;
         gdata[gn].dwSailsColor = 0xFFFFFFFF;
         gdata[gn].maxSP = 100;
-        delete oldgdata;
+        delete[] oldgdata;
         oldgdata = nullptr;
         groupQuantity++;
         bDeleteState = true;
@@ -1704,7 +1711,7 @@ void SAIL::DoSailToNewHost(entid_t newModelEI, entid_t newHostEI, int grNum, NOD
                 throw std::runtime_error("Not memory allocation");
             }
             memcpy(gdata[gn].sailIdx, oldIdx, sizeof(int) * gdata[gn].sailQuantity);
-            delete oldIdx;
+            delete[] oldIdx;
             gdata[gn].sailQuantity++;
         }
         gdata[gn].sailIdx[gdata[gn].sailQuantity - 1] = sn;
@@ -1724,7 +1731,8 @@ void SAIL::DoSailToNewHost(entid_t newModelEI, entid_t newHostEI, int grNum, NOD
             if (pA)
                 pA->SetAttributeUseDword("SP", 0);
         }
-        STORM_DELETE(gdata[oldg].sailIdx);
+        delete[] gdata[oldg].sailIdx;
+        gdata[oldg].sailIdx = nullptr;
         gdata[oldg].sailQuantity = 0;
         gdata[oldg].bDeleted = true;
     }
@@ -1772,7 +1780,8 @@ void SAIL::DeleteSailGroup()
             groupQuantity++;
         else
         {
-            STORM_DELETE(gdata[gn].sailIdx);
+            delete[] gdata[gn].sailIdx;
+            gdata[gn].sailIdx = nullptr;
             gdata[gn].sailQuantity = 0;
         }
 
@@ -1788,7 +1797,8 @@ void SAIL::DeleteSailGroup()
         slist = nullptr;
         for (i = 0; i < old_groupQuantity; i++)
         {
-            STORM_DELETE(oldgdata[i].sailIdx);
+            delete[] oldgdata[i].sailIdx;
+            oldgdata[i].sailIdx = nullptr;
         }
         gdata = nullptr;
         sailQuantity = 0;
@@ -1807,7 +1817,8 @@ void SAIL::DeleteSailGroup()
         sailQuantity = 0;
         for (gn = 0; gn < old_groupQuantity; gn++)
         {
-            STORM_DELETE(oldgdata[gn].sailIdx);
+            delete[] oldgdata[gn].sailIdx;
+            oldgdata[gn].sailIdx = nullptr;
             // counting the number of sails in a group
             int nsn = 0;
             for (sn = 0; sn < old_sailQuantity; sn++)
@@ -1835,9 +1846,10 @@ void SAIL::DeleteSailGroup()
             groupQuantity++;
         }
     }
-    delete oldgdata;
+    delete[] oldgdata;
     oldgdata = nullptr;
-    STORM_DELETE(oldslist);
+    delete[] oldslist;
+    oldslist = nullptr;
 
     // calculation of new parameters for vertex and index buffers
     int32_t vIndx = 0; // index of a vertex buffer

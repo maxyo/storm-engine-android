@@ -29,19 +29,23 @@ VANT_BASE::VANT_BASE()
 VANT_BASE::~VANT_BASE()
 {
     TEXTURE_RELEASE(RenderService, texl);
-    STORM_DELETE(TextureName);
+    delete[] TextureName;
+    TextureName = nullptr;
     while (groupQuantity > 0)
     {
         groupQuantity--;
-        STORM_DELETE(gdata[groupQuantity].vantIdx);
+        delete[] gdata[groupQuantity].vantIdx;
+        gdata[groupQuantity].vantIdx = nullptr;
     }
-    STORM_DELETE(gdata);
+    delete[] gdata;
+    gdata = nullptr;
     while (vantQuantity > 0)
     {
         vantQuantity--;
         STORM_DELETE(vlist[vantQuantity]);
     }
-    STORM_DELETE(vlist);
+    delete[] vlist;
+    vlist = nullptr;
     VERTEX_BUFFER_RELEASE(RenderService, vBuf);
     INDEX_BUFFER_RELEASE(RenderService, iBuf);
     nVert = nIndx = 0;
@@ -153,7 +157,7 @@ uint64_t VANT_BASE::ProcessMessage(MESSAGE &message)
             if ((gdata = new GROUPDATA[groupQuantity + 1]) == nullptr)
                 throw std::runtime_error("Not memory allocation");
             memcpy(gdata, oldgdata, sizeof(GROUPDATA) * groupQuantity);
-            delete oldgdata;
+            delete[] oldgdata;
             groupQuantity++;
         }
         gdata[groupQuantity - 1] = {};
@@ -201,7 +205,7 @@ uint64_t VANT_BASE::ProcessMessage(MESSAGE &message)
         {
             if (groupQuantity == 1)
             {
-                delete gdata;
+                delete[] gdata;
                 gdata = nullptr;
                 groupQuantity = 0;
             }
@@ -215,7 +219,7 @@ uint64_t VANT_BASE::ProcessMessage(MESSAGE &message)
                 else
                 {
                     memcpy(gdata, oldgdata, sizeof(GROUPDATA) * groupQuantity);
-                    delete oldgdata;
+                    delete[] oldgdata;
                 }
             }
             return 0;
@@ -520,7 +524,7 @@ void VANT_BASE::AddLabel(GEOS::LABEL &lbl, NODE *nod)
             if (vlist == nullptr)
                 throw std::runtime_error("Not memory allocate");
             memcpy(vlist, oldvlist, sizeof(VANTDATA *) * vantQuantity);
-            delete oldvlist;
+            delete[] oldvlist;
             vantQuantity++;
         }
 
@@ -576,14 +580,14 @@ void VANT_BASE::SetAll()
                         memcpy(vlist, oldvlist, sizeof(VANTDATA *) * vn);
                     if (vn < vantQuantity)
                         memcpy(&vlist[vn], &oldvlist[vn + 1], sizeof(VANTDATA *) * (vantQuantity - vn));
-                    delete oldvlist;
+                    delete[] oldvlist;
                 }
                 else
                     vlist = oldvlist;
             }
             else
             {
-                delete vlist;
+                delete[] vlist;
                 vlist = nullptr;
             }
             if (vn == vantQuantity)
@@ -630,7 +634,7 @@ void VANT::LoadIni()
         if (strcmp(TextureName, param))
             if (RenderService)
             {
-                delete TextureName;
+                delete[] TextureName;
                 const auto len = strlen(param) + 1;
                 TextureName = new char[len];
                 memcpy(TextureName, param, len);
@@ -707,7 +711,7 @@ void VANTL::LoadIni()
         if (strcmp(TextureName, param))
             if (RenderService)
             {
-                delete TextureName;
+                delete[] TextureName;
                 const auto len = strlen(param) + 1;
                 TextureName = new char[len];
                 memcpy(TextureName, param, len);
@@ -784,7 +788,7 @@ void VANTZ::LoadIni()
         if (strcmp(TextureName, param))
             if (RenderService)
             {
-                delete TextureName;
+                delete[] TextureName;
                 const auto len = strlen(param) + 1;
                 TextureName = new char[len];
                 memcpy(TextureName, param, len);
@@ -986,11 +990,11 @@ void VANT_BASE::SetAdd(int firstNum)
                 if (vn < vantQuantity)
                     memcpy(&vlist[vn], &oldvlist[vn + 1], sizeof(VANTDATA *) * (vantQuantity - vn));
                 if (vlist != oldvlist)
-                    delete oldvlist;
+                    delete[] oldvlist;
             }
             else
             {
-                delete vlist;
+                delete[] vlist;
                 vlist = nullptr;
             }
             if (vn == vantQuantity)
@@ -1055,7 +1059,7 @@ void VANT_BASE::DoSTORM_DELETE()
         // if the group is empty, then delete it
         if (gs == 0)
         {
-            delete gdata[gn].vantIdx;
+            delete[] gdata[gn].vantIdx;
             continue;
         }
 
@@ -1075,7 +1079,7 @@ void VANT_BASE::DoSTORM_DELETE()
         INDEX_BUFFER_RELEASE(RenderService, iBuf);
         delete[] vlist;
         vlist = nullptr;
-        delete gdata;
+        delete[] gdata;
         gdata = nullptr;
     }
     else if (nvn != vantQuantity || ngn != groupQuantity)

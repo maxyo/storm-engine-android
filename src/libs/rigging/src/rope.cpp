@@ -40,20 +40,26 @@ ROPE::~ROPE()
     {
         for (auto i = 0; i < ropeQuantity; i++)
             STORM_DELETE(rlist[i]);
-        STORM_DELETE(rlist);
+        delete[] rlist;
+        rlist = nullptr;
         ropeQuantity = 0;
     }
     // clearing and deleting the group list
     if (gdata)
     {
         for (auto i = 0; i < groupQuantity; i++)
-            STORM_DELETE(gdata[i].ropeIdx);
-        STORM_DELETE(gdata);
+        {
+            delete[] gdata[i].ropeIdx;
+            gdata[i].ropeIdx = nullptr;
+        }
+        delete[] gdata;
+        gdata = nullptr;
         groupQuantity = 0;
     }
     // removing textures
     TEXTURE_RELEASE(RenderService, texl);
-    STORM_DELETE(TextureName);
+    delete[] TextureName;
+    TextureName = nullptr;
 
     VERTEX_BUFFER_RELEASE(RenderService, vBuf);
     INDEX_BUFFER_RELEASE(RenderService, iBuf);
@@ -215,7 +221,7 @@ uint64_t ROPE::ProcessMessage(MESSAGE &message)
                 throw std::runtime_error("allocate memory error");
             }
             memcpy(gdata, oldgdata, sizeof(GROUPDATA) * groupQuantity);
-            delete oldgdata;
+            delete[] oldgdata;
             groupQuantity++;
         }
         else
@@ -261,7 +267,10 @@ uint64_t ROPE::ProcessMessage(MESSAGE &message)
         {
             groupQuantity--;
             if (groupQuantity <= 0)
-                STORM_DELETE(gdata);
+            {
+                delete[] gdata;
+                gdata = nullptr;
+            }
             return 0;
         }
 
@@ -586,7 +595,7 @@ void ROPE::AddLabel(GEOS::LABEL &lbl, NODE *nod, bool bDontSage)
             ROPEDATA **oldrlist = rlist;
             rlist = new ROPEDATA *[ropeQuantity + 1];
             memcpy(rlist, oldrlist, sizeof(ROPEDATA *) * ropeQuantity);
-            delete oldrlist;
+            delete[] oldrlist;
             ropeQuantity++;
         }
         rd = rlist[ropeQuantity - 1] = new ROPEDATA{};
@@ -662,7 +671,7 @@ void ROPE::AddLabel(GEOS::LABEL &lbl, NODE *nod, bool bDontSage)
                     memcpy(rlist, oldrlist, sizeof(ROPEDATA *) * rn);
                 if (rn < ropeQuantity - 1)
                     memcpy(&rlist[rn], &oldrlist[rn + 1], sizeof(ROPEDATA *) * (ropeQuantity - 1 - rn));
-                delete oldrlist;
+                delete[] oldrlist;
             }
             ropeQuantity--;
         }
@@ -804,7 +813,7 @@ void ROPE::LoadIni()
             if (RenderService)
             {
                 const auto len = strlen(param) + 1;
-                delete TextureName;
+                delete[] TextureName;
                 TextureName = new char[len];
                 memcpy(TextureName, param, len);
                 RenderService->TextureRelease(texl);
@@ -981,11 +990,11 @@ void ROPE::SetAdd(int firstNum)
                 if (rn < ropeQuantity)
                     memcpy(&rlist[rn], &oldrlist[rn + 1], sizeof(ROPEDATA *) * (ropeQuantity - rn));
                 if (oldrlist != rlist)
-                    delete oldrlist;
+                    delete[] oldrlist;
             }
             else
             {
-                delete rlist;
+                delete[] rlist;
                 rlist = nullptr;
             }
             if (rn == ropeQuantity)
@@ -1054,7 +1063,7 @@ void ROPE::DoSTORM_DELETE()
         // if the group is deleted, then skip it
         if (gdata[gn].bDeleted)
         {
-            delete gdata[gn].ropeIdx;
+            delete[] gdata[gn].ropeIdx;
             continue;
         }
 
@@ -1082,7 +1091,7 @@ void ROPE::DoSTORM_DELETE()
         // if the group has become empty, then delete it physically
         if (rq == 0)
         {
-            delete gdata[gn].ropeIdx;
+            delete[] gdata[gn].ropeIdx;
             continue;
         }
 
@@ -1097,7 +1106,7 @@ void ROPE::DoSTORM_DELETE()
             gdata[gn].ropeQuantity = rq;
             memcpy(gdata[gn].ropeIdx, oldropeIdx, sizeof(int) * rq);
             if (gdata[gn].ropeIdx != oldropeIdx)
-                delete oldropeIdx;
+                delete[] oldropeIdx;
         }
 
         if (ngn < gn)
