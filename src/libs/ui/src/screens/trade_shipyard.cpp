@@ -257,6 +257,11 @@ class ShipyardScreen final : public Screen
                 current = i;
         const Widget *owned = fleet.empty() ? nullptr : fleet[current];
         const bool empty_slot = Context(owned, "ownerKind") == "EMPTY_SLOT";
+        const bool has_owned_ship = Context(owned, "ownerKind") == "OWNER_SHIP";
+        // A captain remains in the slot after selling. Its old ship facts must not survive
+        // until a later purchase reuses that slot, even if no owned card is drawn meanwhile.
+        if (!has_owned_ship)
+            own_figures_.erase(Context(owned, "slot"));
         const auto slot_name = [&bindings](const Widget *slot) {
             return Context(slot, "ownerKind") == "EMPTY_SLOT" ? bindings.Text("yard.empty_slot")
                    : !Context(slot, "shipName").empty()       ? Context(slot, "shipName")
@@ -385,7 +390,7 @@ class ShipyardScreen final : public Screen
                 Json fact{{"k", row->CellText(1)}, {"v", value}, {"icon", figure ? figure->icon : "ship"}};
                 if (!yard_preview)
                     own_figures_[slot_key][row->row_id] = value;
-                else if (const auto kept = own_figures_.find(slot_key); kept != own_figures_.end() && kept->second.count(row->row_id))
+                else if (const auto kept = own_figures_.find(slot_key); has_owned_ship && kept != own_figures_.end() && kept->second.count(row->row_id))
                 {
                     const std::string &ours_value = kept->second[row->row_id];
                     fact["own"] = ours_value;
@@ -402,7 +407,7 @@ class ShipyardScreen final : public Screen
                         {"help", offers(picture, "help")},
                         {"helpLabel", bindings.Text("common.description")},
                         {"facts", facts},
-                        {"against", yard_preview && !empty_slot ? slot_name(owned) : std::string()},
+                        {"against", yard_preview && has_owned_ship ? slot_name(owned) : std::string()},
                         {"text", Lines(admitted.Label("INFO_TEXT"))},
                         {"actions", Json::array()}};
             bindings.On("detail-help", "", [send, picture](const Event &) { send(picture, "help"); });
@@ -445,7 +450,7 @@ class ShipyardScreen final : public Screen
                 const int price = Number(chosen ? chosen->CellText(4) : std::string());
                 const int quote = Number(Context(owned, "saleQuote"));
                 std::string label = buy->label, sub = chosen ? Grouped(chosen->CellText(4)) : std::string();
-                if (!empty_slot && chosen)
+                if (has_owned_ship && chosen)
                 {
                     label = bindings.Text(price >= quote ? StringKey("yard.trade_pay") : StringKey("yard.trade_get"));
                     sub = Grouped(std::to_string(std::abs(price - quote)));

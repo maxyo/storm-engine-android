@@ -1401,6 +1401,35 @@ static void Shipyard(const std::string &models)
         Expect(free_surface.props["detail"]["actions"][0]["label"] == "Купить" && free_surface.props["detail"]["actions"][0]["sub"] == "2 170" &&
                    !free_surface.props["detail"]["facts"][0].contains("own"),
                "the free place chosen: buy with the full price, nothing to compare with");
+
+        // A captain without a ship still occupies a fleet slot. Selling must invalidate the
+        // old ship comparison even when no owned card is drawn before looking at an offer.
+        FakeSurface sold_surface;
+        Router sold(sold_surface);
+        sold.SetInterface(main);
+        sold.SetInterface(preview);
+        Expect(sold_surface.props["detail"]["facts"][0].contains("own"), "sale regression starts with a cached owned ship");
+        const auto without_ship = [](InterfaceModel model) {
+            for (Widget &widget : model.widgets)
+                if (widget.node == "SHIPS_SCROLL" && widget.type == "choice" && widget.index == 0)
+                {
+                    widget.context["ownerKind"] = "OWNER_NO_SHIP";
+                    widget.context["shipName"] = "Нет корабля";
+                    widget.context["saleQuote"] = "0";
+                }
+            return model;
+        };
+        sold.SetInterface(without_ship(main));
+        Expect(sold_surface.props["detail"].is_null(), "the sold ship has no owned card");
+        sold.SetInterface(without_ship(preview));
+        const Json &purchase = sold_surface.props["detail"];
+        Expect(purchase["actions"][0]["label"] == "Купить" && purchase["actions"][0]["sub"] == "2 170" && purchase["against"] == "",
+               "a captain without a ship buys at the full price, with no trade or comparison caption");
+        Expect(std::none_of(purchase["facts"].begin(), purchase["facts"].end(), [](const Json &fact) { return fact.contains("own") || fact.contains("tone"); }),
+               "an offer after selling has no old ship figures or comparison colors");
+        // A subsequent purchase can fill the same slot before its new owned facts arrive.
+        sold.SetInterface(preview);
+        Expect(!sold_surface.props["detail"]["facts"][0].contains("own"), "selling erased the slot cache instead of temporarily hiding it");
     }
     router.OnEvent({"primary", "click", ""});
     ExpectEqual(surface.Last(), Yard(preview, "BUTTON_BUY", -1, "button", "press"), "buy presses the game's button");
