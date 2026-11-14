@@ -1,5 +1,6 @@
-// The device's thermal status, for the background work that must yield when it is hot: the relief generation and
-// the ray bakes (town light, visibility, bounce: fx::SetBakeThermal).
+// When the background work must yield: the relief generation and the ray bakes (town light, visibility, bounce:
+// fx::SetBakeGate). It waits while the device is hot and while the renderer holds it (the automatic graphics preset
+// measures the GPU: renderer auto_preset.hpp).
 #pragma once
 
 namespace storm::effects
@@ -10,5 +11,10 @@ namespace storm::effects
 // dlsym: the app's minimum API is 24; asked at most once a second). Older Android and the host have no thermal
 // status: never hot (said once in the log); a symbol missing on API 30+ is logged as an error.
 bool device_hot();
+
+// Main thread: the renderer holds the background work (`why` says why; null releases it). Logged on change.
+void hold_background_work(const char *why);
+// Why the background work must wait now (the hold, else the thermal status); null: it may run. Any thread.
+const char *background_wait_reason();
 
 } // namespace storm::effects

@@ -1795,9 +1795,9 @@ void CheckVisibility()
 }
 
 std::atomic<int> g_hot_calls{0};
-bool HotTwice()
+const char *HotTwice()
 {
-    return g_hot_calls.fetch_add(1) < 3;
+    return g_hot_calls.fetch_add(1) < 3 ? "check: hot" : nullptr;
 }
 
 void CheckBakeThermal()
@@ -1808,14 +1808,14 @@ void CheckBakeThermal()
         for (size_t i = first; i < last; ++i)
             once[i] = static_cast<int>(i * 7 % 13);
     });
-    SetBakeThermal(&HotTwice, 10);
+    SetBakeGate(&HotTwice, 10);
     const auto started = std::chrono::steady_clock::now();
     ParallelRanges(hot.size(), 4, [&](size_t first, size_t last) {
         for (size_t i = first; i < last; ++i)
             hot[i] = static_cast<int>(i * 7 % 13);
     });
     const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
-    SetBakeThermal(nullptr);
+    SetBakeGate(nullptr);
     std::printf("bake thermal: %d status calls, %.0f ms with a pause of 10 ms\n", g_hot_calls.load(), ms);
     CHECK(hot == once && g_hot_calls.load() > 3 && ms >= 10.0);
     // Few heavy items (the sun fit's candidates) still spread over the threads.
@@ -1824,9 +1824,9 @@ void CheckBakeThermal()
     CHECK(pieces.load() == 8);
 }
 
-bool AlwaysHot()
+const char *AlwaysHot()
 {
-    return true;
+    return "check: always hot";
 }
 
 template <class Done> bool WaitFor(Done done)
@@ -1847,7 +1847,7 @@ void CheckBakeCancel()
     // The bakes run on their own thread: a bake in the thermal pause (the device stays hot, the pause a minute) is
     // woken and stopped when its owner lets go of it, a bake queued behind it and let go of never runs, the next one
     // runs at once; ShutdownBakes stops a paused bake and returns at once; a bake posted after it runs again.
-    SetBakeThermal(&AlwaysHot, 60000);
+    SetBakeGate(&AlwaysHot, 60000);
     std::atomic<bool> started{false}, finished{false}, queued_ran{false}, marker{false};
     std::atomic<int> pieces{0};
     auto paused_bake = [&] {
@@ -1878,7 +1878,7 @@ void CheckBakeCancel()
     const double shutdown_ms = MsSince(t);
     std::printf("bake shutdown with a bake in the thermal pause: %.0f ms\n", shutdown_ms);
     CHECK(!finished && pieces == 0 && shutdown_ms < 2000.0);
-    SetBakeThermal(nullptr);
+    SetBakeGate(nullptr);
 
     marker = false;
     next = PostBake("check: after the shutdown", [&] { marker = true; });

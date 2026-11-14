@@ -428,6 +428,9 @@ namespace
 // it is logged.
 int effectsPreset = 0;
 std::vector<storm::render::EffectsOption> effectsOptions;
+// The scene's internal height of the rung below «Низкая» that the automatic preset measured (auto_preset.hpp; the
+// app reports it as fx_auto_render_height only while that automatic choice stands); 0: the preset's own.
+uint16_t effectsAutoHeight = 0;
 
 // Applies "name=value,..." over `preset` / `options`.
 void ApplyEffectsOverrides(std::string_view list, int &preset, std::vector<storm::render::EffectsOption> &options)
@@ -455,9 +458,14 @@ void ApplyEffectsOverrides(std::string_view list, int &preset, std::vector<storm
     }
 }
 
-void ApplyEffects(int preset, const std::vector<storm::render::EffectsOption> &options)
+// `auto_height` (the measured rung below «Низкая») applies to «Низкая» only; a developer fx_render_height wins.
+void ApplyEffects(int preset, uint16_t auto_height, const std::vector<storm::render::EffectsOption> &options)
 {
-    const auto report = storm::render::ConfigureEffects(preset, options);
+    std::vector<storm::render::EffectsOption> applied = options;
+    if (auto_height > 0 && preset == 0 &&
+        std::none_of(options.begin(), options.end(), [](const auto &option) { return option.name == "fx_render_height"; }))
+        applied.push_back({"fx_render_height", auto_height});
+    const auto report = storm::render::ConfigureEffects(preset, applied);
     for (const auto &error : report.errors)
         spdlog::error("graphics effects: {}", error);
 }
@@ -472,6 +480,16 @@ void ConfigureGraphicsEffects(const std::function<int(const char *, int)> &iniVa
     effectsPreset = iniValue("fx_preset", 0);
 #ifdef __ANDROID__
     effectsPreset = storm::android::graphicsSetting("fx_preset", effectsPreset);
+    effectsAutoHeight = static_cast<uint16_t>(std::clamp(storm::android::graphicsSetting("fx_auto_render_height", 0), 0, 4320));
+    if (effectsAutoHeight > 0 && effectsPreset != 0)
+    {
+        spdlog::error("graphics effects: the app reports the measured {}-line scene with preset {}; it belongs to «Низкая» "
+                      "only and is not applied", effectsAutoHeight, effectsPreset);
+        effectsAutoHeight = 0;
+    }
+    else if (effectsAutoHeight > 0)
+        spdlog::info("graphics effects: the automatic preset chose «Низкая» at a {}-line scene (the rung below it)",
+                     effectsAutoHeight);
 #endif
     // The single effects (and fx_anisotropy, which the preset decides too) are developer keys of
     // engine.ini; a debuggable Android build also offers some of them on the settings screen
@@ -497,7 +515,7 @@ void ConfigureGraphicsEffects(const std::function<int(const char *, int)> &iniVa
         spdlog::warn("graphics effects: STORM_FX_OPTIONS overrides the settings: {}", overrides);
         ApplyEffectsOverrides(overrides, effectsPreset, effectsOptions);
     }
-    ApplyEffects(effectsPreset, effectsOptions);
+    ApplyEffects(effectsPreset, effectsAutoHeight, effectsOptions);
 #ifdef STORM_SCENE_SWEEP
     // A sweep variant is applied over the configured options.
     storm::scene_sweep::setVariantHook([](const char *variant) {
@@ -505,7 +523,7 @@ void ConfigureGraphicsEffects(const std::function<int(const char *, int)> &iniVa
         auto options = effectsOptions;
         ApplyEffectsOverrides(variant, preset, options);
         spdlog::info("graphics effects: sweep variant '{}'", variant);
-        ApplyEffects(preset, options);
+        ApplyEffects(preset, effectsAutoHeight, options);
     }, [] { return !storm::render::CurrentEffects().pending; });
     storm::scene_sweep::setIncompleteFrameHook([] { return storm::render::LastIncompleteFrame(); });
 #endif
@@ -554,11 +572,37 @@ void ArmAutoPreset()
         return;
     }
     spdlog::info("graphics auto preset: will measure on the title screen (stored measurement version {}, current {}; "
-                 "target {:.0f} fps, p95 present interval <= {:.2f} ms; preset {} until then{})",
+                 "target {:.0f} fps with {:.2f}x headroom: GPU ms x {:.2f} <= {:.2f} and p95 present interval <= {:.2f} ms, "
+                 "without GPU timers p95 <= {:.2f} ms; paced at {} fps while measuring; relief generation and ray bakes "
+                 "held on the title until it ends; preset {} until then{})",
                  stored, storm::render::kAutoPresetVersion, storm::render::kAutoPresetTargetFps,
-                 storm::render::AutoPresetLimitMs(), effectsPreset,
+                 storm::render::kAutoPresetHeadroom, storm::render::kAutoPresetHeadroom, storm::render::AutoPresetBudgetMs(),
+                 storm::render::AutoPresetLimitMs(), storm::render::AutoPresetHeadroomLimitMs(),
+                 storm::render::kAutoPresetPacingFps, effectsPreset,
                  effectsOptions.empty() ? "" : "; developer fx_* overrides stay on during the measurement");
     autoPreset.emplace();
+}
+
+// The measurement ended (chosen or aborted): the present intervals are no longer kept, the player's frame rate and
+// the background work come back.
+void StopAutoPresetMeasurement()
+{
+    storm::render::SamplePresentIntervals(false);
+    storm::render::HoldBackgroundWork(nullptr);
+    ConfigureFrameRate();
+}
+
+void ApplyAutoPresetRung(int rung)
+{
+    const storm::render::AutoPresetRung &r = storm::render::kAutoPresetRungs[static_cast<size_t>(rung)];
+    ApplyEffects(r.preset, r.render_height, effectsOptions);
+}
+
+std::string AutoPresetRungName(int rung)
+{
+    const storm::render::AutoPresetRung &r = storm::render::kAutoPresetRungs[static_cast<size_t>(rung)];
+    return r.render_height ? fmt::format("preset {} at a {}-line scene", r.preset, r.render_height)
+                           : fmt::format("preset {}", r.preset);
 }
 
 void EndAutoPreset(const std::string &reason)
@@ -570,10 +614,11 @@ void EndAutoPreset(const std::string &reason)
         return;
     if (!running)
     {
+        storm::render::HoldBackgroundWork(nullptr); // it may have been waiting on the title
         spdlog::info("graphics auto preset: not measured this time: {}", reason);
         return;
     }
-    storm::render::SamplePresentIntervals(false);
+    StopAutoPresetMeasurement();
     spdlog::warn("graphics auto preset: measurement aborted: {}; nothing stored, preset {} again, the next start "
                  "measures again; so far {}", reason, effectsPreset, autoPreset->report());
 }
@@ -588,6 +633,11 @@ void AutoPresetFrame()
     frame.now_s = static_cast<double>(SDL_GetTicks64()) / 1000.0;
     frame.title = storm::android::mobileScreen == "mainmenu";
     frame.effects_ready = frame.title && !storm::render::CurrentEffects().pending;
+    // Held while the measurement waits on the title or runs; a relief map already in progress finishes first.
+    storm::render::HoldBackgroundWork(autoPreset->holds_background(frame.title)
+                                          ? "the automatic graphics preset measures the GPU on the title screen"
+                                          : nullptr);
+    frame.background_busy = !running && frame.title && storm::render::BackgroundWorkBusy();
     std::vector<float> intervals;
     if (running)
     {
@@ -604,45 +654,50 @@ void AutoPresetFrame()
     if (autoPreset->results().size() > measured)
     {
         const storm::render::AutoPresetResult &r = autoPreset->results().back();
-        spdlog::info("graphics auto preset: preset {} {} frames in {:.2f} s ({:.1f} fps), present ms p50 {:.2f} p95 {:.2f} "
-                     "max {:.2f}, gpu {}: {}",
-                     r.preset, r.frames, r.seconds, r.seconds > 0.0 ? r.frames / r.seconds : 0.0, r.p50_ms, r.p95_ms,
-                     r.max_ms, r.gpu_ms >= 0.0 ? fmt::format("{:.2f} ms", r.gpu_ms) : std::string("n/a (no timer queries)"),
-                     r.passes ? "holds the target" : "misses the target");
+        spdlog::info("graphics auto preset: {}: {} frames in {:.2f} s ({:.1f} fps), present ms p50 {:.2f} p95 {:.2f} "
+                     "max {:.2f}, gpu {}: {} ({})",
+                     AutoPresetRungName(r.rung), r.frames, r.seconds, r.seconds > 0.0 ? r.frames / r.seconds : 0.0,
+                     r.p50_ms, r.p95_ms, r.max_ms,
+                     r.gpu_ms >= 0.0 ? fmt::format("{:.2f} ms", r.gpu_ms) : std::string("n/a (no timer queries)"),
+                     r.passes ? "holds the target" : "misses the target", r.why);
     }
     if (step.aborted)
     {
-        storm::render::SamplePresentIntervals(false);
+        StopAutoPresetMeasurement();
         spdlog::warn("graphics auto preset: measurement aborted: {}; nothing stored, preset {} again, the next start "
                      "measures again; so far {}", autoPreset->reason(), effectsPreset, autoPreset->report());
-        ApplyEffects(effectsPreset, effectsOptions);
+        ApplyEffects(effectsPreset, effectsAutoHeight, effectsOptions);
         return;
     }
-    if (step.apply_preset >= 0 && !step.finished)
+    if (step.apply_rung >= 0 && !step.finished)
     {
         if (!running)
         {
+            storm::render::SetFrameRate(storm::render::kAutoPresetPacingFps);
             storm::render::SamplePresentIntervals(true);
             autoPresetPerf = storm::render::PerfTotals();
         }
-        spdlog::info("graphics auto preset: measuring preset {}", step.apply_preset);
-        ApplyEffects(step.apply_preset, effectsOptions);
+        spdlog::info("graphics auto preset: measuring {}", AutoPresetRungName(step.apply_rung));
+        ApplyAutoPresetRung(step.apply_rung);
     }
     if (step.finished)
     {
-        storm::render::SamplePresentIntervals(false);
+        StopAutoPresetMeasurement();
         const auto &results = autoPreset->results();
-        const bool held = std::any_of(results.begin(), results.end(), [](const auto &r) { return r.passes; });
-        spdlog::log(held ? spdlog::level::info : spdlog::level::warn, "graphics auto preset: chose preset {}{}: {}",
-                    step.apply_preset, held ? "" : " (no preset holds the target: the lowest)", autoPreset->report());
-        effectsPreset = step.apply_preset;
-        ApplyEffects(effectsPreset, effectsOptions);
+        const bool held = std::any_of(results.begin(), results.end(), [&](const auto &r) { return r.passes && r.rung == step.apply_rung; });
+        const storm::render::AutoPresetRung &chosen = storm::render::kAutoPresetRungs[static_cast<size_t>(step.apply_rung)];
+        spdlog::log(held ? spdlog::level::info : spdlog::level::warn, "graphics auto preset: chose {}{}: {}",
+                    AutoPresetRungName(step.apply_rung), held ? "" : " (it misses the target too: nothing is lower)",
+                    autoPreset->report());
+        effectsPreset = chosen.preset;
+        effectsAutoHeight = chosen.render_height;
+        ApplyEffects(effectsPreset, effectsAutoHeight, effectsOptions);
         auto *strings = static_cast<VSTRSERVICE *>(core.GetService("STRSERVICE"));
         const char *language = strings ? strings->GetLanguage() : nullptr;
         if (!language)
             spdlog::error("graphics auto preset: the string service has no game language; the app's notice follows the system's");
-        storm::android::reportAutoPreset(effectsPreset, storm::render::kAutoPresetVersion, autoPreset->report(),
-                                         language ? language : "");
+        storm::android::reportAutoPreset(effectsPreset, effectsAutoHeight, storm::render::kAutoPresetVersion,
+                                         autoPreset->report(), language ? language : "");
     }
 }
 

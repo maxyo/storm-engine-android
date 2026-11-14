@@ -12,7 +12,7 @@
 //     next starts skip it.
 //   * The worker and onnxruntime's threads run at nice 10, on all cores but two (the game's main and render threads).
 //     On Android 11+ the device's thermal status (and, on 12+, the headroom forecast) pauses the work from MODERATE up (logged); older Android has no
-//     thermal API (logged once). The models are loaded at the first job and released after 10 s with no work left.
+//     thermal API (logged once). The renderer's hold (the automatic graphics preset's measurement) pauses it too. The models are loaded at the first job and released after 10 s with no work left.
 // The maps persist: a texture's map is made once per game, method and map size.
 #pragma once
 
@@ -73,7 +73,8 @@ class ReliefGenerator
         uint32_t made = 0;         // maps made since the start
         double made_ms = 0.0;      // their worker time
         double slowest_ms = 0.0;   // the slowest of them
-        bool hot = false;          // paused by the thermal status
+        std::string paused;        // why the work waits (the thermal status, the renderer's hold); empty: it may run
+        bool working = false;      // a map (or the list of the rest) is being made now
         std::string device;        // where the networks run (relief::Session's provider), once loaded
     };
     Stats stats();
@@ -91,7 +92,7 @@ class ReliefGenerator
     void prepare_request(const Request &request);
     void prepare_rest();
     void release_models(const char *why); // worker, under mutex_
-    bool thermal_hot();
+    bool must_wait(); // under mutex_: the background gate (thermal.hpp), changes logged
 
     std::mutex mutex_;
     std::condition_variable wake_;

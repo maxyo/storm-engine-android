@@ -87,19 +87,6 @@ std::string Join(const Json &strings, const std::string &separator)
     return text;
 }
 
-// "{1}", "{2}" … of a string table entry replaced by the arguments.
-std::string Fill(std::string text, std::initializer_list<std::string> args)
-{
-    int number = 1;
-    for (const std::string &arg : args)
-    {
-        const std::string mark = "{" + std::to_string(number++) + "}";
-        for (size_t at = text.find(mark); at != std::string::npos; at = text.find(mark, at + arg.size()))
-            text.replace(at, mark.size(), arg);
-    }
-    return text;
-}
-
 // One decimal with the decimal mark of the language ("2,3").
 std::string Decimal(const Bindings &bindings, double value)
 {

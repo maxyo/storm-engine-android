@@ -9,7 +9,10 @@
 #include <vector>
 
 using storm::shim::ChooseSwapInterval;
+using storm::shim::DisplayInMode;
 using storm::shim::SlowestSwapInterval;
+using storm::shim::SwapPaced;
+using storm::shim::SwapThreshold;
 
 namespace
 {
@@ -113,6 +116,55 @@ int main()
     expect(SlowestSwapInterval(at60, hz(30)) == 4 * hz(120), "60 fps falls back to 30 fps in whole 120 Hz refreshes");
     const auto at30 = ChooseSwapInterval(phone, hz(120), hz(30));
     expect(SlowestSwapInterval(at30, hz(30)) == at30.interval(), "30 fps has no slower fallback");
-    std::puts("PASS: frame overlap choice; frame pacing swap interval (60/90/120 Hz display mode sets)");
+
+    // The setting is a cap: never faster than it, also on modes it does not divide.
+    expect_choice({hz(60)}, 60, 40, 60, 2, "40 fps on a 60 Hz panel: 30 fps, not 60");
+    expect_choice({hz(60)}, 60, 45, 60, 2, "45 fps on a 60 Hz panel: 30 fps");
+    expect_choice({hz(90)}, 90, 60, 90, 2, "60 fps on a 90 Hz-only panel: 45 fps");
+    expect_choice(phone, 60, 40, 120, 3, "40 fps on 60/90/120 Hz: three 120 Hz refreshes");
+
+    // The Xiaomi 15 Ultra at 60 Hz, 40 fps (perf audit 2026-11-14): it lists a 40 Hz mode and stays at 60 Hz.
+    {
+        const std::vector<uint64_t> xiaomi = {hz(60), hz(40), hz(90), hz(120)};
+        const auto chosen = ChooseSwapInterval(xiaomi, hz(60), hz(40));
+        expect(chosen.period == hz(40) && chosen.refreshes == 1, "40 fps: the 40 Hz mode, the slower exact one");
+        expect(!DisplayInMode(chosen.period, hz(60)), "the display at 60 Hz is not in the chosen 40 Hz mode");
+        expect(DisplayInMode(chosen.period, hz(40.3)) && DisplayInMode(hz(60), hz(59.94)),
+               "within 2 % the display is in the mode");
+        expect(!DisplayInMode(0, hz(60)) && !DisplayInMode(hz(60), 0), "an unknown period is no match");
+        // Chosen again with the display's own period: 30 fps, paced (the old choice left Swappy unpaced: its 33.33 ms
+        // interval was above the 25 ms threshold).
+        const std::vector<uint64_t> stayed = {hz(60)};
+        const auto again = ChooseSwapInterval(stayed, hz(60), hz(40));
+        expect(again.period == hz(60) && again.refreshes == 2, "re-chosen at 60 Hz: two refreshes");
+        const uint64_t slowest = SlowestSwapInterval(again, hz(30));
+        const uint64_t threshold = SwapThreshold(again, slowest);
+        expect(SwapPaced(again.interval(), threshold), "the re-chosen interval is paced");
+        const uint64_t old_threshold = SlowestSwapInterval(chosen, hz(30)); // before: the threshold was the slowest
+        expect(!SwapPaced(again.interval(), old_threshold), "the old threshold left 33.33 ms unpaced");
+    }
+
+    // The threshold paces the slowest interval, also with a measured period a little longer than nominal, and not the
+    // step Swappy's ladder takes past it.
+    {
+        const uint64_t measured = hz(120) + 70; // a refresh period measured 70 ns long
+        const std::vector<uint64_t> modes = {measured};
+        const auto at60 = ChooseSwapInterval(modes, measured, hz(60));
+        const uint64_t slowest = SlowestSwapInterval(at60, hz(30));
+        const uint64_t threshold = SwapThreshold(at60, slowest);
+        expect(slowest == 4 * measured && SwapPaced(4 * measured, threshold), "four 120 Hz refreshes are paced");
+        expect(!SwapPaced(slowest, hz(30)), "a bare 33.33 ms threshold would not pace them");
+        expect(!SwapPaced(5 * measured, threshold), "the step past the slowest is unpaced (logged so)");
+        const auto at30 = ChooseSwapInterval(modes, measured, hz(30));
+        expect(SwapPaced(at30.interval(), SwapThreshold(at30, SlowestSwapInterval(at30, hz(30)))) &&
+                   !SwapPaced(at30.interval() + measured, SwapThreshold(at30, SlowestSwapInterval(at30, hz(30)))),
+               "30 fps: paced, one refresh more is not");
+        const std::vector<uint64_t> sixty = {hz(60)};
+        const auto at60hz = ChooseSwapInterval(sixty, hz(60), hz(60));
+        const uint64_t t60 = SwapThreshold(at60hz, SlowestSwapInterval(at60hz, hz(30)));
+        expect(SwapPaced(2 * hz(60), t60) && !SwapPaced(3 * hz(60), t60), "60 Hz: 30 fps paced, 20 fps unpaced");
+    }
+    std::puts("PASS: frame overlap choice; frame pacing swap interval (60/90/120 Hz display mode sets, the setting as a "
+              "cap, a display that stays out of the chosen mode, the pacing threshold)");
     return 0;
 }

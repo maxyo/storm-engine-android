@@ -9,7 +9,13 @@
 // whole number of display refreshes (swap_interval.hpp); Swappy may pick another display mode for it (60 fps on a
 // 90/120 Hz panel: its 60 Hz mode or every second 120 Hz refresh). When frames take longer, Swappy's auto swap
 // interval lowers the rate to a steady fraction of it, down to 30 fps (kSlowestFrame), and raises it again when
-// they fit; it never paces faster than the setting.
+// they fit; it never paces faster than the setting. Frames that do not fit even the slowest let Swappy step past it,
+// where it stops pacing (swap_interval.hpp): logged as unpaced, not as a frame rate. About a second after a choice the
+// display's refresh rate (Android Display) is compared with the chosen mode; a display that stayed in another mode
+// gets a new choice among whole refreshes of the period it runs (logged as an error).
+//
+// Swappy's own ladder (auto swap interval) stays: it decides from the CPU and GPU (fence) time of each frame, which the
+// game does not see; an interval choice of our own with hysteresis would have only the present intervals.
 //
 // ADPF: the hint session's target is the setting's swap interval, not the interval Swappy fell back to (a
 // lowered target would let the CPU clock down and keep the game at the lower rate); its actual work is the
@@ -83,7 +89,10 @@ class FramePacing
     // What Swappy paces at now and the display's refresh period, for the backend in use.
     std::chrono::nanoseconds swappy_interval();
     std::chrono::nanoseconds swappy_refresh();
-    void choose_interval();
+    // `display_period` (ns) > 0: the display did not enter the chosen mode; choose among whole refreshes of it.
+    void choose_interval(uint64_t display_period = 0);
+    // Game thread, kModeCheckDelay after a choice: the display runs the chosen mode, else choose again.
+    void check_display_mode();
     // Any presenting path without Swappy: says why as an error, reads the display's rate for the statistics.
     void unpaced(const char *why);
     void log_stats(double seconds);
@@ -99,17 +108,21 @@ class FramePacing
     uint64_t vk_swap_chain_ = 0;
     uint64_t vk_refresh_ns_ = 0;             // SwappyVk_initAndGetRefreshCycleDuration
     uint64_t vk_interval_ns_ = 0;            // the interval the game thread chose last; a new swap chain starts on it
-    uint64_t vk_slowest_ns_ = 0;
+    uint64_t vk_threshold_ns_ = 0;           // Swappy's max auto swap interval for it
     std::atomic<bool> chain_changed_{false}; // a new swap chain: the game thread chooses its interval
     void *vulkan_library_ = nullptr;         // the loader, for vkQueuePresentKHR without Swappy
     int32_t (*vk_queue_present_)(void *queue, const void *present_info) = nullptr;
     std::chrono::nanoseconds preferred_{0}; // game thread: the interval of the setting
+    static constexpr std::chrono::seconds kModeCheckDelay{1};
+    uint64_t mode_check_period_ = 0; // game thread: the mode period to check at mode_check_at_; 0: none
+    std::chrono::steady_clock::time_point mode_check_at_{};
     std::chrono::nanoseconds present_wait_{0}; // presenting thread
     std::chrono::nanoseconds target_ = kDefaultFrame;
     std::atomic<bool> swappy_{false}; // false: no Swappy, presents with eglSwapBuffers / vkQueuePresentKHR
     // What follows is written by the present (render thread) and by the game thread's interval choice.
     std::mutex mutex_;
     std::chrono::nanoseconds swap_interval_{0}; // what Swappy paces at now
+    std::chrono::nanoseconds threshold_{0};     // Swappy paces intervals up to it (setMaxAutoSwapIntervalNS)
     std::chrono::nanoseconds refresh_period_{0};
     std::chrono::steady_clock::time_point last_present_{};
     std::chrono::steady_clock::time_point window_start_{};

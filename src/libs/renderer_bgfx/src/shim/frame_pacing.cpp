@@ -63,6 +63,46 @@ void log_error(const char *message)
     fprintf(stderr, "[storm-bgfx] ERROR: %s\n", message);
 }
 
+// The refresh period (ns) the display runs now, from Android (Display.getRefreshRate of the activity's window
+// manager's default display; game thread, through SDL's JNI environment); 0 when it cannot be read (logged).
+uint64_t display_refresh_period()
+{
+    auto *env = static_cast<JNIEnv *>(SDL_AndroidGetJNIEnv());
+    auto activity = env ? static_cast<jobject>(SDL_AndroidGetActivity()) : nullptr;
+    if (!activity)
+    {
+        log_error("frame pacing: no JNI environment or activity to read the display's refresh rate");
+        return 0;
+    }
+    float rate = 0.0f;
+    jclass activity_class = env->GetObjectClass(activity);
+    jmethodID window_manager = env->GetMethodID(activity_class, "getWindowManager", "()Landroid/view/WindowManager;");
+    jobject manager = window_manager ? env->CallObjectMethod(activity, window_manager) : nullptr;
+    jclass manager_class = manager ? env->GetObjectClass(manager) : nullptr;
+    jmethodID default_display = manager_class ? env->GetMethodID(manager_class, "getDefaultDisplay", "()Landroid/view/Display;") : nullptr;
+    jobject display = default_display ? env->CallObjectMethod(manager, default_display) : nullptr;
+    jclass display_class = display ? env->GetObjectClass(display) : nullptr;
+    jmethodID refresh = display_class ? env->GetMethodID(display_class, "getRefreshRate", "()F") : nullptr;
+    if (refresh)
+        rate = env->CallFloatMethod(display, refresh);
+    if (env->ExceptionCheck())
+    {
+        env->ExceptionDescribe();
+        env->ExceptionClear();
+        rate = 0.0f;
+    }
+    for (jobject local : {static_cast<jobject>(display_class), display, static_cast<jobject>(manager_class), manager,
+                          static_cast<jobject>(activity_class), activity})
+        if (local)
+            env->DeleteLocalRef(local);
+    if (!(rate > 1.0f))
+    {
+        log_error("frame pacing: Display.getRefreshRate gave no rate; the display mode is not checked");
+        return 0;
+    }
+    return static_cast<uint64_t>(1e9 / rate + 0.5);
+}
+
 // The Vulkan handles as bgfx's hooks pass them: a swap chain is 64 bits, a pointer on a 64-bit ABI.
 VkSwapchainKHR swap_chain_handle(uint64_t value)
 {
@@ -190,7 +230,7 @@ void FramePacing::vk_swap_chain_created(void *physical_device, void *device, voi
         if (pacing.vk_interval_ns_)
         {
             SwappyVk_setSwapIntervalNS(vk_device, vk_swap_chain, pacing.vk_interval_ns_);
-            SwappyVk_setMaxAutoSwapIntervalNS(pacing.vk_slowest_ns_);
+            SwappyVk_setMaxAutoSwapIntervalNS(pacing.vk_threshold_ns_);
         }
     }
     else
@@ -246,6 +286,8 @@ int32_t FramePacing::vk_present(void *queue, const void *present_info)
 
 void FramePacing::game_frame()
 {
+    if (mode_check_period_ && Clock::now() >= mode_check_at_)
+        check_display_mode();
     if (!chain_changed_.exchange(false))
         return;
     if (swappy_)
@@ -273,7 +315,27 @@ std::chrono::nanoseconds FramePacing::swappy_refresh()
     return std::chrono::nanoseconds(vulkan_ ? vk_refresh_ns_ : SwappyGL_getRefreshPeriodNanos());
 }
 
-void FramePacing::choose_interval()
+void FramePacing::check_display_mode()
+{
+    const uint64_t chosen = std::exchange(mode_check_period_, 0);
+    const uint64_t display = display_refresh_period();
+    if (!display)
+        return; // logged
+    if (DisplayInMode(chosen, display))
+    {
+        logf("frame pacing: the display runs the chosen %.0f Hz mode", 1e9 / chosen);
+        return;
+    }
+    char message[256];
+    snprintf(message, sizeof(message),
+             "frame pacing: the display stayed at %.2f Hz instead of the %.2f Hz mode chosen for %.0f fps; choosing "
+             "again among whole refreshes of %.2f ms",
+             1e9 / display, 1e9 / chosen, 1e9 / target_.count(), display / 1e6);
+    log_error(message);
+    choose_interval(display);
+}
+
+void FramePacing::choose_interval(uint64_t display_period)
 {
     // Vulkan: the swap chain stays while this runs (the presenting thread re-creates it under the same mutex).
     std::unique_lock chain(chain_mutex_, std::defer_lock);
@@ -294,11 +356,15 @@ void FramePacing::choose_interval()
         else
             SwappyGL_getSupportedRefreshPeriodsNS(periods.data(), count);
     }
-    const uint64_t current = vulkan_ ? vk_refresh_ns_ : SwappyGL_getRefreshPeriodNanos();
+    const uint64_t current = display_period ? display_period : vulkan_ ? vk_refresh_ns_ : SwappyGL_getRefreshPeriodNanos();
     if (periods.empty())
         periods.push_back(current);
+    // The display did not enter the mode chosen before: the mode it is in is the only one.
+    const std::vector<uint64_t> listed = periods;
+    if (display_period)
+        periods.assign(1, display_period);
     std::string rates;
-    for (const uint64_t period : periods)
+    for (const uint64_t period : listed)
     {
         if (period == 0)
             continue;
@@ -315,31 +381,37 @@ void FramePacing::choose_interval()
     }
     const uint64_t interval = choice.interval();
     const uint64_t slowest = SlowestSwapInterval(choice, static_cast<uint64_t>(kSlowestFrame.count()));
+    const uint64_t threshold = SwapThreshold(choice, slowest);
     if (vulkan_)
     {
         SwappyVk_setSwapIntervalNS(static_cast<VkDevice>(vk_device_), vk_swap_chain, interval);
-        SwappyVk_setMaxAutoSwapIntervalNS(slowest);
+        SwappyVk_setMaxAutoSwapIntervalNS(threshold);
         vk_interval_ns_ = interval;
-        vk_slowest_ns_ = slowest;
+        vk_threshold_ns_ = threshold;
     }
     else
     {
         SwappyGL_setSwapIntervalNS(interval);
-        SwappyGL_setMaxAutoSwapIntervalNS(slowest);
+        SwappyGL_setMaxAutoSwapIntervalNS(threshold);
     }
     {
         std::lock_guard lock(mutex_);
         swap_interval_ = swappy_interval();
         refresh_period_ = std::chrono::nanoseconds(current);
+        threshold_ = std::chrono::nanoseconds(threshold);
     }
+    // Whether the display entered the chosen mode is seen about a second later (game_frame); a choice among the
+    // display's own period is not checked again.
+    mode_check_period_ = display_period ? 0 : choice.period;
+    mode_check_at_ = Clock::now() + kModeCheckDelay;
     // Swappy Vk has no CPU affinity of its own to switch off.
     logf("frame pacing: Swappy %s %d.%d.%d (%s); frame rate %.0f fps (setting); display modes %s; current refresh "
-         "%.2f ms (%.0f Hz); swap interval %.2f ms (%.1f fps, %llu refreshes of the %.0f Hz mode), slower down to %.2f "
-         "ms when frames do not fit; CPU affinity off (ADPF)",
+         "%.2f ms (%.0f Hz)%s; swap interval %.2f ms (%.1f fps, %llu refreshes of the %.0f Hz mode), slower down to %.2f "
+         "ms when frames do not fit (paced up to %.2f ms; slower than that Swappy stops pacing); CPU affinity off (ADPF)",
          vulkan_ ? "Vk" : "GL", SWAPPY_MAJOR_VERSION, SWAPPY_MINOR_VERSION, SWAPPY_BUGFIX_VERSION, STORM_SWAPPY_PACKAGE,
-         1e9 / target_.count(),
-         rates.c_str(), current / 1e6, current ? 1e9 / current : 0.0, interval / 1e6, 1e9 / interval,
-         static_cast<unsigned long long>(choice.refreshes), 1e9 / choice.period, slowest / 1e6);
+         1e9 / target_.count(), rates.c_str(), current / 1e6, current ? 1e9 / current : 0.0,
+         display_period ? ", the only mode used (the display stayed in it)" : "", interval / 1e6, 1e9 / interval,
+         static_cast<unsigned long long>(choice.refreshes), 1e9 / choice.period, slowest / 1e6, threshold / 1e6);
     preferred_ = std::chrono::nanoseconds(interval);
     // ADPF aims at the preferred rate (FramePacing in frame_pacing.hpp: not at a lowered one).
     storm::platform::frameWorkTarget(std::chrono::nanoseconds(interval));
@@ -433,7 +505,8 @@ void FramePacing::shutdown()
             dlclose(vulkan_library_);
         vulkan_library_ = nullptr;
         vk_queue_present_ = nullptr;
-        vk_interval_ns_ = vk_slowest_ns_ = 0;
+        vk_interval_ns_ = vk_threshold_ns_ = 0;
+        mode_check_period_ = 0;
         chain_changed_ = false;
     }
     else
@@ -493,10 +566,17 @@ void FramePacing::presented(Clock::time_point before, Clock::time_point after)
     const std::chrono::nanoseconds interval = swappy_interval(), refresh = swappy_refresh();
     if (swappy_ && (interval != swap_interval_ || refresh != refresh_period_))
     {
-        logf("frame pacing: Swappy presents every %.2f ms (%.1f fps) at a %.2f ms (%.0f Hz) display refresh "
-             "(was %.2f ms at %.2f ms)",
-             to_ms(interval), interval.count() ? 1e9 / interval.count() : 0.0, to_ms(refresh),
-             refresh.count() ? 1e9 / refresh.count() : 0.0, to_ms(swap_interval_), to_ms(refresh_period_));
+        if (SwapPaced(static_cast<uint64_t>(interval.count()), static_cast<uint64_t>(threshold_.count())))
+            logf("frame pacing: Swappy presents every %.2f ms (%.1f fps) at a %.2f ms (%.0f Hz) display refresh "
+                 "(was %.2f ms at %.2f ms)",
+                 to_ms(interval), interval.count() ? 1e9 / interval.count() : 0.0, to_ms(refresh),
+                 refresh.count() ? 1e9 / refresh.count() : 0.0, to_ms(swap_interval_), to_ms(refresh_period_));
+        else
+            logf("frame pacing: Swappy stopped pacing: frames do not fit the slowest paced interval (%.2f ms), its auto "
+                 "interval stepped to %.2f ms past it; frames are presented unpaced, as they finish, at a %.2f ms (%.0f Hz) "
+                 "display refresh (was %.2f ms)",
+                 to_ms(threshold_), to_ms(interval), to_ms(refresh), refresh.count() ? 1e9 / refresh.count() : 0.0,
+                 to_ms(swap_interval_));
         swap_interval_ = interval;
         refresh_period_ = refresh;
     }
@@ -522,9 +602,12 @@ void FramePacing::log_stats(double seconds)
     for (const float ms : intervals_ms_)
         ++buckets[std::clamp<long>(std::lround(ms / refresh), 1, 6) - 1];
     const auto share = [&](uint64_t value, uint64_t total) { return total ? 100.0 * value / total : 0.0; };
-    char pacing[64];
-    if (swappy_)
+    char pacing[96];
+    if (swappy_ && SwapPaced(static_cast<uint64_t>(swap_interval_.count()), static_cast<uint64_t>(threshold_.count())))
         snprintf(pacing, sizeof(pacing), "Swappy %s at %.2f ms intervals", vulkan_ ? "Vk" : "GL", to_ms(swap_interval_));
+    else if (swappy_)
+        snprintf(pacing, sizeof(pacing), "Swappy %s unpaced (frames slower than %.2f ms)", vulkan_ ? "Vk" : "GL",
+                 to_ms(threshold_));
     else
         snprintf(pacing, sizeof(pacing), "%s, no Swappy", vulkan_ ? "vkQueuePresentKHR" : "eglSwapBuffers");
     logf("frame pacing: %.1f s, %zu frames (%.1f fps), %s, %.2f ms refresh%s; frame ms p50 %.2f p95 %.2f p99 %.2f max "

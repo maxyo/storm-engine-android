@@ -83,4 +83,25 @@ bool device_hot()
 #endif
 }
 
+namespace
+{
+std::atomic<const char *> g_hold{nullptr};
+} // namespace
+
+void hold_background_work(const char *why)
+{
+    const char *was = g_hold.exchange(why);
+    if (why && !was)
+        shim::logf("effects: background work (relief generation, ray bakes) held: %s", why);
+    else if (!why && was)
+        shim::logf("effects: background work (relief generation, ray bakes) released (was held: %s)", was);
+}
+
+const char *background_wait_reason()
+{
+    if (const char *held = g_hold.load())
+        return held;
+    return device_hot() ? "the device is hot (thermal status MODERATE or higher)" : nullptr;
+}
+
 } // namespace storm::effects

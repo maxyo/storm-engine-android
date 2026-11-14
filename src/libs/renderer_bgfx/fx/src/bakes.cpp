@@ -36,7 +36,7 @@ bool Cancelled(const detail::BakeState *bake)
 // The bake the calling thread runs (the bake thread while it runs one; null elsewhere: never cancelled).
 thread_local const detail::BakeState *t_bake = nullptr;
 
-std::atomic<bool (*)()> g_hot{nullptr};
+std::atomic<const char *(*)()> g_gate{nullptr};
 std::mutex g_pause;
 std::condition_variable g_pause_wake; // a bake was cancelled: the pause ends for it
 bool g_paused = false;
@@ -51,24 +51,25 @@ void WakePausedBakes()
     g_pause_wake.notify_all();
 }
 
-// Between two pieces of a bake: while the device is hot every bake thread waits, the pause logged once; a cancelled
+// Between two pieces of a bake: while the gate says wait every bake thread waits, the pause logged once; a cancelled
 // bake goes on at once (to its end: ParallelRanges takes no further piece).
-void ThermalGate(const detail::BakeState *bake)
+void BakeGate(const detail::BakeState *bake)
 {
-    bool (*hot)() = g_hot.load();
-    if (!hot || !hot())
+    const char *(*gate)() = g_gate.load();
+    if (!gate || !gate())
         return;
     std::unique_lock lock(g_pause);
     for (;;)
     {
         if (Cancelled(bake))
             return;
-        if (!hot())
+        const char *why = gate();
+        if (!why)
         {
             if (g_paused)
             {
                 g_paused = false;
-                Log(LogLevel::Info, "ray bakes resumed after %.1f s: the device cooled down",
+                Log(LogLevel::Info, "ray bakes resumed after %.1f s",
                     std::chrono::duration<double>(std::chrono::steady_clock::now() - g_paused_at).count());
             }
             return;
@@ -77,7 +78,7 @@ void ThermalGate(const detail::BakeState *bake)
         {
             g_paused = true;
             g_paused_at = std::chrono::steady_clock::now();
-            Log(LogLevel::Info, "ray bakes paused: the device is hot (thermal status MODERATE or higher)");
+            Log(LogLevel::Info, "ray bakes paused: %s", why);
         }
         g_pause_wake.wait_for(lock, std::chrono::milliseconds(g_pause_ms.load()), [&] { return Cancelled(bake); });
     }
@@ -238,9 +239,9 @@ void ShutdownBakes()
     BakeQueue::instance().shutdown(true);
 }
 
-void SetBakeThermal(bool (*hot)(), int pause_ms)
+void SetBakeGate(const char *(*wait_reason)(), int pause_ms)
 {
-    g_hot = hot;
+    g_gate = wait_reason;
     g_pause_ms = pause_ms;
 }
 
@@ -249,7 +250,7 @@ void ParallelRanges(size_t count, unsigned threads, const std::function<void(siz
     const detail::BakeState *bake = t_bake;
     min_piece = std::max<size_t>(1, min_piece);
     threads = std::max(1u, std::min<unsigned>(threads, static_cast<unsigned>(std::max<size_t>(1, count / min_piece))));
-    // Pieces of at least min_piece items, about 16 per thread, taken in turn: the thermal gate sits between them.
+    // Pieces of at least min_piece items, about 16 per thread, taken in turn: the gate (SetBakeGate) sits between them.
     const size_t piece = std::max<size_t>(min_piece, (count + threads * 16 - 1) / (threads * 16));
     std::atomic<size_t> next{0};
     auto run = [&] {
@@ -260,7 +261,7 @@ void ParallelRanges(size_t count, unsigned threads, const std::function<void(siz
             const size_t first = next.fetch_add(piece);
             if (first >= count)
                 return;
-            ThermalGate(bake);
+            BakeGate(bake);
             if (Cancelled(bake))
                 return;
             work(first, std::min(count, first + piece));

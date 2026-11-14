@@ -23,7 +23,7 @@ namespace
 {
 using Clock = std::chrono::steady_clock;
 constexpr auto kIdleRelease = std::chrono::seconds(10);
-constexpr auto kThermalPause = std::chrono::seconds(5);
+constexpr auto kWaitPause = std::chrono::seconds(5); // asked again this often while the work must wait
 // The rest of the game only after this long without a request (and after the start): not while a location loads.
 constexpr auto kRestQuiet = std::chrono::seconds(30);
 
@@ -176,13 +176,14 @@ void ReliefGenerator::run()
                 else
                     wake_.wait_until(lock, until);
             }
-            if (thermal_hot())
+            if (must_wait())
             {
                 if (request)
                     requests_.push_front(std::move(*request));
-                wake_.wait_for(lock, kThermalPause, [this] { return stopping_; });
+                wake_.wait_for(lock, kWaitPause, [this] { return stopping_; });
                 continue;
             }
+            stats_.working = true;
         }
         if (!open_session())
         {
@@ -194,6 +195,7 @@ void ReliefGenerator::run()
                 if (const std::shared_ptr<NormalMapEntry> entry = r.entry.lock())
                     entry->state = NormalMapEntry::Missing;
             requests_.clear();
+            stats_.working = false;
             continue;
         }
         if (request)
@@ -213,6 +215,7 @@ void ReliefGenerator::run()
         }
         std::lock_guard lock(mutex_);
         idle_since_ = Clock::now();
+        stats_.working = false;
     }
 }
 
@@ -401,14 +404,15 @@ void ReliefGenerator::prepare_rest()
     }
 }
 
-bool ReliefGenerator::thermal_hot()
+bool ReliefGenerator::must_wait()
 {
-    const bool hot = device_hot();
-    if (hot != stats_.hot)
-        shim::logf(hot ? "effects: relief generation paused: the device is hot (thermal status MODERATE or higher)"
-                       : "effects: relief generation resumed: the device cooled down");
-    stats_.hot = hot;
-    return hot;
+    const char *why = background_wait_reason();
+    if (why && stats_.paused != why)
+        shim::logf("effects: relief generation paused: %s", why);
+    else if (!why && !stats_.paused.empty())
+        shim::logf("effects: relief generation resumed (was paused: %s)", stats_.paused.c_str());
+    stats_.paused = why ? why : "";
+    return why != nullptr;
 }
 
 } // namespace storm::effects

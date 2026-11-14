@@ -209,7 +209,7 @@ Host &Host::instance()
 void Host::on_device_created()
 {
     fx::SetLogSink(log_sink);
-    fx::SetBakeThermal(&device_hot); // the ray bakes (town light, visibility) pause while the device is hot
+    fx::SetBakeGate(&background_wait_reason); // the ray bakes pause while the device is hot or the renderer holds them
     fx::RendererFacts facts;
     // The game's offscreen depth is a D24S8 BGFX_TEXTURE_RT texture (TexStore::create_gpu): sampleable. With MSAA
     // the pinned bgfx GL backend blits the depth into that texture too when the frame buffer is resolved
@@ -926,6 +926,16 @@ void TrimRelief()
 void ShutdownRelief()
 {
     effects::ReliefGenerator::instance().shutdown();
+}
+
+void HoldBackgroundWork(const char *why)
+{
+    effects::hold_background_work(why);
+}
+
+bool BackgroundWorkBusy()
+{
+    return effects::ReliefGenerator::instance().stats().working;
 }
 
 void RemoveOldReliefStores(const std::vector<std::filesystem::path> &directories, const std::filesystem::path &live)

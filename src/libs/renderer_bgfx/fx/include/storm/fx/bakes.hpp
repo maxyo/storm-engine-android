@@ -7,7 +7,7 @@
 // done there, otherwise its bake stage is queued on the bake thread. It is cancelled when its owner drops it (the BakeTicket, or the Bake<Job> that holds it, is
 // reset or destroyed: the player left the place, the option was switched off) and by ShutdownBakes: a bake not
 // started yet is not run, a running one stops at its next piece (ParallelRanges throws BakeCancelled, which the bake
-// thread catches) and a bake waiting in the thermal pause is woken at once.
+// thread catches) and a bake waiting in the pause is woken at once.
 #pragma once
 
 #include <atomic>
@@ -23,13 +23,13 @@ namespace storm::fx
 // Runs `work(first, last)` over [0, count) on `threads` threads, in pieces of at least `min_piece` items (about 16 per
 // thread); returns when all are done. The bakes over an Occluders (one Scratch per piece). The threads it starts run at
 // nice 10 (Linux, Android): the game's main and render threads go first. Between pieces every thread waits while the
-// device is hot (SetBakeThermal), the pause and the resume logged. On the bake thread a cancelled bake takes no
+// gate says so (SetBakeGate: the device is hot, the renderer holds the work), the pause and the resume logged. On the bake thread a cancelled bake takes no
 // further piece and throws BakeCancelled once the pieces already running are done.
 void ParallelRanges(size_t count, unsigned threads, const std::function<void(size_t, size_t)> &work,
                     size_t min_piece = 256);
-// The device's thermal status for ParallelRanges (true: hot; asked between pieces, so cheap), null: never pauses.
-// While hot it is asked again every `pause_ms`; a cancelled bake leaves the pause at once.
-void SetBakeThermal(bool (*hot)(), int pause_ms = 5000);
+// Why ParallelRanges must wait now (null: it may run; asked between pieces, so cheap); a null gate never pauses.
+// While it says wait it is asked again every `pause_ms`; a cancelled bake leaves the pause at once.
+void SetBakeGate(const char *(*wait_reason)(), int pause_ms = 5000);
 // The threads of a background bake: all cores but the game's main and render threads (at least one), as the relief
 // generation takes them.
 unsigned BakeThreads();

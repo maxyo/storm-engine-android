@@ -287,6 +287,12 @@ void ShutdownRelief();
 // Any thread, the system low on memory (Android onTrimMemory / onLowMemory): the relief's models are released after
 // the texture in progress and the GPU's Vulkan instance closed (logged); they load again when work comes.
 void TrimRelief();
+// Main thread: holds the background work, the relief generation and the ray bakes, while `why` is not null (the
+// automatic graphics preset measures the GPU); null releases it. Work already started finishes its piece: a relief
+// map in progress is made to its end (BackgroundWorkBusy), a bake stops at its next piece. Logged on change.
+void HoldBackgroundWork(const char *why);
+// A relief map (or the list of the game's relief textures) is being made now.
+bool BackgroundWorkBusy();
 // Main thread, at start: removes the stores of normal maps earlier builds kept elsewhere (the files directory's
 // "relief" before the relief maps moved to the cache, the "NormalMaps" cache before the relief directory), each if it
 // is still there (logged with what it held). Never `live` (the relief directory in use), anything inside it or anything

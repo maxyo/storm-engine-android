@@ -5,6 +5,7 @@
 #include "screen.h"
 
 #include <functional>
+#include <initializer_list>
 
 namespace storm::ui::screens
 {
@@ -14,6 +15,8 @@ std::string Upper(std::string_view text);
 std::string OneLine(const std::string &text);
 bool Short(const std::string &text, size_t chars); // at most `chars` code points, one line
 size_t Length(const std::string &text);            // code points
+// "{1}", "{2}" … of a string table entry replaced by the arguments.
+std::string Fill(std::string text, std::initializer_list<std::string> args);
 
 enum class ButtonRole
 {

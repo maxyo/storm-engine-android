@@ -239,6 +239,18 @@ std::string NationOf(const ImageRef *image)
     return {};
 }
 
+std::string Fill(std::string text, std::initializer_list<std::string> args)
+{
+    int number = 1;
+    for (const std::string &arg : args)
+    {
+        const std::string mark = "{" + std::to_string(number++) + "}";
+        for (size_t at = text.find(mark); at != std::string::npos; at = text.find(mark, at + arg.size()))
+            text.replace(at, mark.size(), arg);
+    }
+    return text;
+}
+
 std::string OneLine(const std::string &text)
 {
     std::string out;

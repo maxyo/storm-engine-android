@@ -439,7 +439,7 @@ void NormalMaps::end_frame()
                "a map (generation unavailable); %u height maps derived (%.0f ms); %u loaded while relief was off; models on %s",
                now.resident, static_cast<double>(now.bytes) / 1048576.0, max_size_, now.materials,
                static_cast<double>(now.material_bytes) / 1048576.0, now.waiting, rest,
-               generator.hot ? " (paused: the device is hot)" : "", generator.made, generator.made_ms,
+               generator.paused.empty() ? "" : (" (paused: " + generator.paused + ")").c_str(), generator.made, generator.made_ms,
                generator.slowest_ms, now.missing, now.derived, now.derive_ms, now.unqueued,
                generator.device.empty() ? "(not loaded)" : generator.device.c_str());
     if (!gloss_same)

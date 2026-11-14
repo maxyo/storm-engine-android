@@ -4,7 +4,8 @@
 // BTN_CANCEL: «Готово» is BTN_OK, ← is BTN_CANCEL, and there is no unsaved-changes question
 // (owner decision). The image page is one graphics choice (owner decision): the quality
 // preset «Низкая / Средняя / Высокая» (engine renderer_bgfx fx_preset 0/1/2, applied at once:
-// the host asks the engine to re-read it), plus the texture quality (memory on small phones,
+// the host asks the engine to re-read it; «Низкая» chosen by the automatic preset at a lower scene height shows that
+// height under it), plus the texture quality (memory on small phones,
 // at the next start), both application options from the platform host on the state channel
 // "appSettings", kept as a draft and sent back with «Готово» (Bindings::SendHost); and the
 // game's own grass and sea detail (scene density the renderer preset does not cover), and the frame rate
@@ -152,6 +153,12 @@ class SettingsScreen final : public Screen
             Segment(bindings, graphics, "fx_preset", "settings.graphics", {0, 1, 2},
                     {bindings.Text("settings.fx_low"), bindings.Text("settings.fx_medium"), bindings.Text("settings.fx_high")}, false);
             graphics.rows.back().erase("label");
+            // The automatic preset's rung below «Низкая»: «Низкая» with the scene at a lower height, which only the
+            // measurement chooses (fx_auto_render_height, while that choice stands); its height under the row.
+            if (Known("fx_auto_render_height") && draft_["fx_auto_render_height"].get<int>() > 0 && Known("fx_preset") &&
+                draft_["fx_preset"].get<int>() == 0)
+                graphics.rows.back()["hint"] =
+                    Fill(bindings.Text("settings.fx_scene_height"), {std::to_string(draft_["fx_auto_render_height"].get<int>())});
             Segment(bindings, graphics, "texture_degradation", "settings.texture_quality", {0, 1, 2},
                     {bindings.Text("settings.texture_full"), bindings.Text("settings.texture_medium"), bindings.Text("settings.texture_low")});
             // «Частота кадров»: the rates the host found the display can show (frame_rate_options: whole divisors
@@ -310,11 +317,13 @@ class SettingsScreen final : public Screen
         bindings.On("done", "", [this, &bindings, ok](const Event &) {
             if (draft_.is_object() && draft_ != AppSettings())
             {
-                // The settings only: what the host reports about the device (frame_rate_options) and whether the
-                // preset was measured (fx_preset_auto: the host's automatic choice, not shown) are not ones.
+                // The settings only: what the host reports about the device (frame_rate_options), whether the preset
+                // was measured (fx_preset_auto: the host's automatic choice) and the measured scene height
+                // (fx_auto_render_height) are not ones.
                 Json settings = draft_;
                 settings.erase("frame_rate_options");
                 settings.erase("fx_preset_auto");
+                settings.erase("fx_auto_render_height");
                 bindings.SendHost("app-settings", settings.dump());
                 AppSettings() = draft_;
             }
