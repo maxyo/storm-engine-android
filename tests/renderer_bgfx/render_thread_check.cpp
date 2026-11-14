@@ -73,6 +73,9 @@ bool run(SDL_Window *window, bool render_thread)
         // Android's UI thread asks for the surface at any point of the game thread's frames.
         std::atomic<bool> stop{false}, flying{false}, slow{false};
         std::atomic<int> releases{0};
+        // The game thread's restores, as it sees them: Context::ready() is the game thread's (Android's UI thread
+        // never reads it), so the fake UI thread waits on this.
+        std::atomic<int> restores{0};
         std::thread ui([&] {
             for (int i = 0; i < 40 && !stop; ++i)
             {
@@ -84,19 +87,24 @@ bool run(SDL_Window *window, bool render_thread)
                 if (std::chrono::steady_clock::now() - before > std::chrono::seconds(2))
                     slow = true;
                 ++releases;
+                const int restored = restores;
                 context.request_surface_restore();
-                // Until the game thread has restored the surface.
-                for (int wait = 0; wait < 2000 && !context.ready() && !stop; ++wait)
+                // Until the game thread has restored the surface (a release it had not seen yet costs it no restore).
+                for (int wait = 0; wait < 2000 && restores == restored && !stop; ++wait)
                     std::this_thread::sleep_for(std::chrono::milliseconds(1));
             }
             stop = true;
         });
         int presented = 0;
         const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(60);
+        uint32_t generation = context.Surface().generation; // a loss and a restore both move it, even in one frame
         while (!stop && std::chrono::steady_clock::now() < deadline)
         {
             context.present(BGFX_INVALID_HANDLE, 0, 0); // polls the surface: honours the release, restores
             ++presented;
+            if (context.ready() && context.Surface().generation != generation)
+                ++restores;
+            generation = context.Surface().generation;
         }
         stop = true;
         ui.join();
