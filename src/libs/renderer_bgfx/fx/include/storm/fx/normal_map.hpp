@@ -78,6 +78,10 @@ struct NormalMap
     // What 0..1 of the material's height spans, in texels of the top mip (DropTopMips keeps it in texels of the new
     // top); 0: a flat height (no parallax, no cavity).
     float depth = 0.0f;
+    // The parallax trust (parallax_trust.hpp): the mask at a quarter of the map's size (R8, 255 trusted) for the debug
+    // view, and the share of trusted texels (1: all, or a map made without a colour texture). Not uploaded.
+    std::vector<uint8_t> trust;
+    float trust_coverage = 1.0f;
 };
 
 // Bump this when the derivation changes, and put NormalMapCacheKey() into the cache key of the device cache.

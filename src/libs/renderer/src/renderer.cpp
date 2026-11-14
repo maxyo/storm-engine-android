@@ -885,6 +885,8 @@ bool Renderer::Init()
             };
 #endif
         storm::render::ConfigureRelief(relief);
+        // The owner's parallax tuning (the debug view's toggles): the app's files directory, not the cache.
+        storm::render::ConfigureParallaxExclusions(fs::GetStashPath() / "pom_user_exclusions.txt");
 #ifdef __ANDROID__
         {
             // The relief maps of earlier builds in the files directories (kept across «Очистить кэш»). The old

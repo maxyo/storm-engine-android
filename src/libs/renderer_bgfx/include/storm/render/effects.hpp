@@ -282,6 +282,9 @@ struct ReliefConfig
     std::function<std::vector<uint8_t>(const char *file)> model;
 };
 void ConfigureRelief(const ReliefConfig &config);
+// The owner's parallax tuning file (fx/parallax_exclusions.hpp): `exclude <texture>` / `include <texture>` lines, written by
+// the debug view's toggle. Kept in the app's files directory: his choices, not a cache. Before the first texture is loaded.
+void ConfigureParallaxExclusions(const std::filesystem::path &user_file);
 // Before the renderer goes: stops the generator (the texture in progress is abandoned, its map made next time).
 void ShutdownRelief();
 // Any thread, the system low on memory (Android onTrimMemory / onLowMemory): the relief's models are released after

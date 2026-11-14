@@ -610,7 +610,11 @@ Outcome Session::PrepareFile(const std::filesystem::path &textures, const std::f
         {
             // The material's G: the gloss stretched over the map (empty: no gloss class, G 0).
             const std::vector<uint8_t> g = gloss.gloss.empty() ? std::vector<uint8_t>{} : Stretch(gloss.gloss, gw, gh, mw, mh);
-            if (!fx::AddReliefMaterial(rg8, relief, fx::ReliefModelHeight(height_planes, mw, mh), g))
+            // The parallax trust reads the colour at the map's size.
+            int aw = width, ah = height;
+            const std::vector<uint8_t> albedo = HalveTo(rgba, aw, ah, mw, mh);
+            if (aw != mw || ah != mh ||
+                !fx::AddReliefMaterial(rg8, relief, fx::ReliefModelHeight(height_planes, mw, mh), g, albedo))
                 Log("relief %s: flat, no height", candidate->name.c_str());
         }
         map = {rg8.width, rg8.height, rg8.mip_count, fx::NormalMapFormat::EacRg11,
@@ -620,6 +624,8 @@ Outcome Session::PrepareFile(const std::filesystem::path &textures, const std::f
             map.material = texture::encode_eac_chain(texture::EacFormat::Rg11, rg8.material.data(), rg8.width, rg8.height,
                                                      rg8.mip_count);
             map.depth = rg8.depth;
+            map.trust = std::move(rg8.trust);
+            map.trust_coverage = rg8.trust_coverage;
         }
         if (!fx::WriteReliefMap(output, *key, map))
         {
@@ -650,10 +656,10 @@ Outcome Session::PrepareFile(const std::filesystem::path &textures, const std::f
         mean_gloss += g;
     mean_gloss = gloss.gloss.empty() ? 0.0 : mean_gloss / static_cast<double>(gloss.gloss.size());
     Log("relief %s: %dx%d%s, gloss %s %dx%d (mean %.2f), %.0f ms (read %.0f, decode %.0f, models %.0f of which "
-        "inference %.0f: %s; gloss %.0f, mips, material, encode and write %.0f; depth %.1f texels; %s)",
+        "inference %.0f: %s; gloss %.0f, mips, material, encode and write %.0f; depth %.1f texels, parallax trust %.0f%%; %s)",
         candidate->name.c_str(), key ? mw : 0, key ? mh : 0, key ? "" : " (no relief)", fx::GlossClassName(candidate->gloss),
         gloss.width, gloss.height, mean_gloss, ms, read_ms, decode_ms, model_ms, infer_ms, per_model.c_str(), gloss_ms,
-        write_ms, static_cast<double>(map.depth), impl_->stats.provider.c_str());
+        write_ms, static_cast<double>(map.depth), 100.0 * static_cast<double>(map.trust_coverage), impl_->stats.provider.c_str());
     return Outcome::Prepared;
 }
 

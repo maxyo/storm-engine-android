@@ -4,6 +4,7 @@
 #include "relief.hpp"
 #include "shim/device.hpp"
 #include "storm/fx/height_map.hpp"
+#include "storm/fx/parallax_trust.hpp"
 #include "storm/fx/lighting.hpp"
 #include "storm/fx/relief_store.hpp"
 #include "texture/core/formats.hpp"
@@ -29,7 +30,15 @@ std::filesystem::path directory()
     std::lock_guard lock(directory_mutex);
     return relief_directory;
 }
+
+std::filesystem::path user_exclusions_file;
 } // namespace
+
+void ConfigureParallaxExclusions(const std::filesystem::path &user_file)
+{
+    std::lock_guard lock(directory_mutex);
+    user_exclusions_file = user_file;
+}
 
 void ConfigureRelief(ReliefSetup setup)
 {
@@ -242,6 +251,89 @@ void NormalMaps::read_stored(const std::shared_ptr<NormalMapEntry> &entry)
     });
 }
 
+void NormalMaps::load_exclusions()
+{
+    exclusions_loaded_ = true;
+    std::vector<std::string> problems;
+    exclusions_.LoadShipped(fx::ParallaxExclusions::ShippedText(), &problems);
+    for (const std::string &problem : problems)
+        shim::logf("ERROR: effects: parallax exclusions: %s", problem.c_str());
+    std::filesystem::path user;
+    {
+        std::lock_guard lock(directory_mutex);
+        user = user_exclusions_file;
+    }
+    bool readable = true;
+    if (!user.empty())
+        readable = exclusions_.LoadUser(user);
+    shim::logf("effects: parallax exclusions: %zu textures in the shipped list, %zu in the user list %s%s", exclusions_.shipped_count(),
+               exclusions_.user_count(), user.empty() ? "(none configured)" : user.string().c_str(),
+               readable ? "" : " (ERROR: cannot be read)");
+}
+
+bool NormalMaps::parallax_allowed(const NormalMapEntry &entry)
+{
+    if (!exclusions_loaded_)
+        load_exclusions();
+    switch (exclusions_.Of(entry.name))
+    {
+    case fx::ParallaxExclusions::Verdict::Excluded:
+        return false;
+    case fx::ParallaxExclusions::Verdict::Included:
+        return true;
+    case fx::ParallaxExclusions::Verdict::Default:
+        break;
+    }
+    return entry.trust_coverage >= fx::kParallaxMinCoverage;
+}
+
+ParallaxInfo NormalMaps::parallax_info(const std::string &name)
+{
+    ParallaxInfo info;
+    for (const std::weak_ptr<NormalMapEntry> &weak : entries_)
+    {
+        const std::shared_ptr<NormalMapEntry> entry = weak.lock();
+        if (!entry || entry->name != name)
+            continue;
+        info.found = true;
+        info.uploaded = entry->state == NormalMapEntry::Uploaded;
+        info.coverage = entry->trust_coverage;
+        info.trust = entry->trust;
+        info.trust_width = entry->trust_width;
+        info.trust_height = entry->trust_height;
+        if (!exclusions_loaded_)
+            load_exclusions();
+        const auto verdict = exclusions_.Of(name);
+        info.parallax = info.uploaded && bgfx::isValid(entry->material) && parallax_allowed(*entry);
+        if (!info.uploaded)
+            info.reason = "its relief is not made yet";
+        else if (!bgfx::isValid(entry->material))
+            info.reason = "no height";
+        else if (verdict == fx::ParallaxExclusions::Verdict::Excluded)
+            info.reason = "excluded by a list";
+        else if (!info.parallax)
+            info.reason = "too few trusted texels";
+        break;
+    }
+    return info;
+}
+
+bool NormalMaps::toggle_parallax(const std::string &name, bool &parallax_now)
+{
+    const ParallaxInfo info = parallax_info(name);
+    if (!info.found)
+        return false;
+    const bool wanted = !info.parallax;
+    if (!exclusions_.SetUser(name, wanted))
+    {
+        shim::logf("ERROR: effects: parallax of %s: the user list cannot be written", name.c_str());
+        return false;
+    }
+    parallax_now = wanted;
+    shim::logf("effects: parallax of %s: switched %s by the user (appended to the user list)", name.c_str(), wanted ? "on" : "off");
+    return true;
+}
+
 NormalMaps::Relief NormalMaps::handle(shim::TexStore &store, fx::Lighting &lighting)
 {
     return store.normal_map ? upload(store.normal_map, lighting, max_size_) : Relief{};
@@ -273,6 +365,10 @@ NormalMaps::Relief NormalMaps::upload(const std::shared_ptr<NormalMapEntry> &ent
         entry->bytes = entry->map.rg.size();
         entry->width = entry->map.width;
         entry->height_texels = entry->map.height;
+        entry->trust_coverage = entry->map.trust_coverage;
+        entry->trust = std::move(entry->map.trust);
+        entry->trust_width = fx::TrustThumbnailSize(entry->map.width);
+        entry->trust_height = fx::TrustThumbnailSize(entry->map.height);
         if (material_ && !entry->map.material.empty())
         {
             const fx::NormalMap material{entry->map.width, entry->map.height, entry->map.mip_count, entry->map.format,
@@ -310,7 +406,8 @@ NormalMaps::Relief NormalMaps::upload(const std::shared_ptr<NormalMapEntry> &ent
         return {};
     const float fade = std::chrono::duration<float>(now_ - entry->uploaded).count() /
                        std::chrono::duration<float>(kReliefFade).count();
-    return {entry->handle, std::clamp(fade, 0.0f, 1.0f), entry->material, entry->depth, entry->width, entry->height_texels};
+    return {entry->handle,   std::clamp(fade, 0.0f, 1.0f), entry->material,          entry->depth,
+            parallax_allowed(*entry), entry->width,          entry->height_texels};
 }
 
 void NormalMaps::configure_gloss(bool enabled, int max_size)

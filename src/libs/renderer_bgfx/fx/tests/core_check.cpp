@@ -18,6 +18,8 @@
 #include "storm/fx/gloss_map.hpp"
 #include "storm/fx/height_map.hpp"
 #include "storm/fx/normal_map.hpp"
+#include "storm/fx/parallax_exclusions.hpp"
+#include "storm/fx/parallax_trust.hpp"
 #include "storm/fx/relief_store.hpp"
 #include "storm/fx/settings.hpp"
 #include "storm/fx/wave_clock.hpp"
@@ -1024,9 +1026,12 @@ void CheckReliefModel()
     // With the material texture: it and its depth read back.
     eac.material.assign(eac.rg.size(), 9);
     eac.depth = 6.5f;
+    eac.trust.assign(2, 200);
+    eac.trust_coverage = 0.25f;
     CHECK(WriteReliefMap(dir, key, eac));
     const std::optional<NormalMap> with_material = ReadReliefMap(dir, key);
-    CHECK(with_material && with_material->rg == eac.rg && with_material->material == eac.material && with_material->depth == 6.5f);
+    CHECK(with_material && with_material->rg == eac.rg && with_material->material == eac.material && with_material->depth == 6.5f &&
+          with_material->trust == eac.trust && with_material->trust_coverage == 0.25f);
     std::filesystem::resize_file(ReliefFile(dir, key), 40);
     std::string error;
     CHECK(!ReadReliefMap(dir, key, &error) && !error.empty() && !HasReliefMap(dir, key));
@@ -2202,6 +2207,87 @@ void CheckGlossMaps()
           std::abs(material.rg[201] - std::lround(metal.gloss[100] * 255.0f)) <= 1);
 }
 
+// The parallax trust (parallax_trust.hpp): plain relief keeps it, a dark pane set into a wall loses it, a texture of
+// nothing but panes is below the coverage a texture needs; the exclusion lists (parallax_exclusions.hpp).
+void CheckParallaxTrust()
+{
+    const int n = 256;
+    const size_t texels = static_cast<size_t>(n) * n;
+    std::vector<uint8_t> rgba(texels * 4, 255);
+    std::vector<float> height(texels);
+    uint32_t seed = 12345;
+    const auto noise = [&seed] {
+        seed = seed * 1664525u + 1013904223u;
+        return static_cast<float>(seed >> 8) / 16777216.0f;
+    };
+    // Plain stone: mid-grey colour with grain, a height of grain with thin joints.
+    for (int y = 0; y < n; ++y)
+        for (int x = 0; x < n; ++x)
+        {
+            const size_t t = static_cast<size_t>(y) * n + x;
+            const uint8_t grey = static_cast<uint8_t>(120 + noise() * 60.0f);
+            rgba[t * 4] = rgba[t * 4 + 1] = rgba[t * 4 + 2] = grey;
+            height[t] = 0.6f + noise() * 0.1f - ((x % 32 < 2 || y % 32 < 2) ? 0.3f : 0.0f);
+        }
+    const std::vector<float> plain = ParallaxTrust(rgba, height, n, n);
+    CHECK(plain.size() == texels && TrustCoverage(plain) > 0.95f);
+    // A window: a 40 x 56 texel pane, dark and flat, its height deep.
+    std::vector<uint8_t> walled = rgba;
+    std::vector<float> recessed = height;
+    for (int y = 100; y < 156; ++y)
+        for (int x = 100; x < 140; ++x)
+        {
+            const size_t t = static_cast<size_t>(y) * n + x;
+            walled[t * 4] = walled[t * 4 + 1] = walled[t * 4 + 2] = 20;
+            recessed[t] = 0.05f;
+        }
+    const std::vector<float> with_window = ParallaxTrust(walled, recessed, n, n);
+    CHECK(with_window[128 * n + 120] < 0.05f);                      // the pane: no parallax
+    CHECK(with_window[20 * n + 20] > 0.95f && with_window[200 * n + 200] > 0.95f); // the wall far from it keeps it
+    CHECK(TrustCoverage(with_window) > 0.85f && TrustCoverage(with_window) < 0.97f);
+    CHECK(TrustThumbnail(with_window, n, n).size() == static_cast<size_t>(TrustThumbnailSize(n)) * TrustThumbnailSize(n));
+    // Nothing but dark flat glass: no trusted texel to speak of.
+    std::vector<uint8_t> glass(texels * 4, 15);
+    CHECK(TrustCoverage(ParallaxTrust(glass, std::vector<float>(texels, 0.5f), n, n)) < kParallaxMinCoverage);
+    CHECK(ParallaxTrust(rgba, std::vector<float>(10), n, n).empty());
+
+    // In the material: the pane's height goes to the top (1), the coverage and the mask are kept; a texture below the
+    // coverage keeps its height whole.
+    NormalMap map;
+    map.width = map.height = n;
+    map.format = NormalMapFormat::Rg8;
+    for (int w = n; w >= 1; w /= 2)
+        ++map.mip_count;
+    map.rg.assign(NormalMapBytes(n, n), 128);
+    std::vector<float> varied = recessed;
+    for (size_t t = 0; t < texels; ++t)
+        varied[t] += 0.3f * static_cast<float>((t / n / 8 + t % n / 8) & 1);
+    CHECK(AddReliefMaterial(map, ReliefClass::Stone, varied, {}, walled));
+    CHECK(map.trust_coverage > 0.85f && map.trust.size() == static_cast<size_t>(TrustThumbnailSize(n)) * TrustThumbnailSize(n));
+    CHECK(map.material[(128 * n + 120) * 2] > 250); // the pane: the top
+    NormalMap dark = map;
+    dark.material.clear();
+    CHECK(AddReliefMaterial(dark, ReliefClass::Stone, varied, {}, glass));
+    CHECK(dark.trust_coverage < kParallaxMinCoverage);
+
+    // The lists.
+    ParallaxExclusions lists;
+    std::vector<std::string> problems;
+    lists.LoadShipped("# comment\nsignboardsa  # a sign\n\nbad name\nlocations/wall\n", &problems);
+    CHECK(lists.shipped_count() == 2 && problems.size() == 1);
+    const std::filesystem::path file = std::filesystem::temp_directory_path() / "storm_fx_pom_user_check" / "user.txt";
+    std::filesystem::remove_all(file.parent_path());
+    CHECK(lists.LoadUser(file) && lists.user_count() == 0);
+    CHECK(lists.Of("signboardsa") == ParallaxExclusions::Verdict::Excluded && lists.Of("tavern2") == ParallaxExclusions::Verdict::Default);
+    CHECK(lists.SetUser("signboardsa", true) && lists.SetUser("tavern2", false) &&
+          lists.Of("signboardsa") == ParallaxExclusions::Verdict::Included && lists.Of("tavern2") == ParallaxExclusions::Verdict::Excluded);
+    ParallaxExclusions again;
+    again.LoadShipped(ParallaxExclusions::ShippedText());
+    CHECK(again.LoadUser(file) && again.user_count() == 2 && again.shipped_count() > 0 &&
+          again.Of("signboardsa") == ParallaxExclusions::Verdict::Included && again.Of("tavern2") == ParallaxExclusions::Verdict::Excluded);
+    std::filesystem::remove_all(file.parent_path());
+}
+
 int main()
 {
     CheckSettings();
@@ -2233,6 +2319,7 @@ int main()
     CheckOccluderLargeTown();
     CheckOccluderBackdrop();
     CheckBounce();
+    CheckParallaxTrust();
     CheckSeaWaves();
     CheckGlossMaps();
     if (failures)

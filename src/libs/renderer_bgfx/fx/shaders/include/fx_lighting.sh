@@ -221,7 +221,8 @@ vec3 fxPerturbNormal(vec3 N, vec3 gu, vec3 gv, vec2 rg)
 //         the class's depth, the strength and the relief's fade-in); z: the most steps of the ray (1 = one-tap offset
 //         mapping); w: log2 of the map's larger side (the level the steps read).
 // [1] x: the self-shadow towards the sun, 0..1 of the sun's light it may take (0 = none: offset mapping, interiors);
-//     y: 1 = the debug view (ff_fragment.sh, fx_parallax_debug); z: the cavity's strength (fxReliefCavity, 0 = none).
+//     y: 1 = the debug view (ff_fragment.sh, fx_parallax_debug); z: the cavity's strength (fxReliefCavity, 0 = none);
+//     w: the deepest the parallax goes, in metres (0 = no cap).
 // With z set and no parallax (x, y and z of [0] zero) the variant draws only the cavity.
 uniform vec4 u_fxParallax[2];
 
@@ -229,8 +230,9 @@ uniform vec4 u_fxParallax[2];
 // derivatives dux, duy; frame gu, gv; geometric unit normal Ng facing the viewer; distance: the pixel's from the eye in
 // metres). The relief's top is the surface: the ray goes down into the texture's pits, never above it. The step count
 // grows towards grazing views (8 looking straight at the surface, up to z), the last two steps are interpolated
-// linearly; the effect fades out between 10 and 15 m, where it is not drawn at all. At grazing views the shift is held
-// to 2.5 times the depth: further, it runs off the texture's region at the edge of a polygon (a dark band under a step).
+// linearly; the effect fades out between 10 and 15 m, where it is not drawn at all. The depth is capped at
+// u_fxParallax[1].w metres and fades out towards grazing views (smoothstep of N.V, 0.08..0.35); the rest of the shift is
+// held to twice the depth: further, it runs off the texture's region at the edge of a polygon (a dark band under a step).
 // One tap (z = 1): offset mapping with offset limiting (no division by the cosine).
 // `found`, for fxParallaxShadow: x the full depth in metres (0: no parallax drawn), y where the eye's ray met the relief
 // (0 the top .. 1 the deepest), z the level the steps read.
@@ -244,8 +246,16 @@ vec2 fxParallax(vec2 uv, vec2 dux, vec2 duy, vec3 gu, vec3 gv, vec3 Ng, vec3 V, 
     // The full depth in metres: the depth in texels times a texel's size along u and along v, averaged.
     float lu = length(gu);
     float lv = length(gv);
-    float depth = 0.5 * (u_fxParallax[0].x / max(lu, 1e-6) + u_fxParallax[0].y / max(lv, 1e-6)) * fade;
+    float depth = 0.5 * (u_fxParallax[0].x / max(lu, 1e-6) + u_fxParallax[0].y / max(lv, 1e-6));
+    // A texture stretched over a large surface would get centimetres of depth: held to u_fxParallax[1].w metres.
+    if (u_fxParallax[1].w > 0.0)
+        depth = min(depth, u_fxParallax[1].w);
     float nv = clamp(dot(Ng, V), 0.0, 1.0);
+    // Towards grazing views the depth goes to nothing (0.08..0.35 of N.V): the ray runs along the surface, the shift
+    // grows without bound, the texture swims and stretches at polygon edges.
+    depth *= fade * smoothstep(0.08, 0.35, nv);
+    if (depth <= 0.0)
+        return uv;
     // Along the ray, going one metre down into the surface moves the point 1 / nv metres along it, its uv by gu, gv.
     vec2 along = vec2(dot(gu, V), dot(gv, V)) * depth;
     found.x = depth;
@@ -255,7 +265,7 @@ vec2 fxParallax(vec2 uv, vec2 dux, vec2 duy, vec3 gu, vec3 gv, vec3 Ng, vec3 V, 
         found.y = 1.0 - h;
         return uv - along * (1.0 - h);
     }
-    vec2 shift = along / max(nv, 0.4);
+    vec2 shift = along / max(nv, 0.5);
     float steps = mix(u_fxParallax[0].z, 8.0, nv);
     float layer = 1.0 / steps;
     vec2 step = shift * layer;

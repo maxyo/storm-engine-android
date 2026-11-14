@@ -122,6 +122,7 @@ struct FfDraw
     std::array<float, 4> gloss{};
     std::array<float, 8> parallax{};
     bool parallax_variant = false; // the FX_LIGHT_PARALLAX variant: u_fxParallax is set
+    bool parallax_untrusted = false; // ... but the texture's mask or a list takes the parallax from it (the cavity still draws)
     bool shadow = false;           // FX_LIGHT_SHADOW variant: submit() binds the map for `view`
     bool caster = false;           // the shim also submits this draw into the shadow view (submit_caster)
     std::array<float, 16> view{};  // the draw's device world -> view (the sun cascade: casters and receivers alike)
@@ -220,13 +221,14 @@ class Lighting
         Projected,     // the relief's stage with projected coordinates
         Clamped,       // the relief's stage clamp-addressed
         NoRelief,      // the draw took no relief: a lit material without it (props, hull parts), or fading in at 0
+        NotTrusted,    // the texture's trust coverage is below kParallaxMinCoverage, or a list excludes it
         Other,
     };
     static const char *ParallaxMissName(ParallaxMiss miss);
     // After prepare() (or instead of it, for a draw prepare() never sees): counts the draw for the census.
     void census(const shim::Device &device, const shim::LayoutInfo &layout, bool ported, bool decal, uint32_t cube_variant,
                 const FfDraw &draw);
-    static constexpr size_t kParallaxMisses = 15;
+    static constexpr size_t kParallaxMisses = 16;
     // Draws of the last presented frame that used a lit / baked / coverage variant (effects profile).
     struct Counts
     {

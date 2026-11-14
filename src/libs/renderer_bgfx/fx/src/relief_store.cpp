@@ -18,7 +18,7 @@ namespace storm::fx
 namespace
 {
 constexpr char kMagic[8] = {'S', 'T', 'R', 'E', 'L', 'I', 'E', 'F'};
-constexpr uint32_t kFileVersion = 3;
+constexpr uint32_t kFileVersion = 4;
 
 struct Header
 {
@@ -27,6 +27,8 @@ struct Header
     uint64_t payload;        // the normals (NormalMap::rg)
     uint64_t material_payload; // the material texture after them (NormalMap::material): the normals' bytes, or 0
     float depth;             // NormalMap::depth
+    uint32_t trust_bytes;    // the trust mask after the material (NormalMap::trust)
+    float trust_coverage;    // NormalMap::trust_coverage
     uint32_t reserved;
 };
 
@@ -119,9 +121,12 @@ bool WriteMapFile(const std::filesystem::path &target, const NormalMap &map)
         header.payload = map.rg.size();
         header.material_payload = map.material.size();
         header.depth = map.depth;
+        header.trust_bytes = static_cast<uint32_t>(map.trust.size());
+        header.trust_coverage = map.trust_coverage;
         out.write(reinterpret_cast<const char *>(&header), sizeof(header));
         out.write(reinterpret_cast<const char *>(map.rg.data()), static_cast<std::streamsize>(map.rg.size()));
         out.write(reinterpret_cast<const char *>(map.material.data()), static_cast<std::streamsize>(map.material.size()));
+        out.write(reinterpret_cast<const char *>(map.trust.data()), static_cast<std::streamsize>(map.trust.size()));
         if (!out.good())
         {
             out.close();
@@ -159,7 +164,9 @@ std::optional<NormalMap> ReadMapFile(const std::filesystem::path &path, std::ini
             ++levels;
         ok = map.mip_count == levels && header.payload == NormalMapBytes(map.width, map.height, map.format) &&
              (header.material_payload == 0 || header.material_payload == header.payload) &&
-             std::isfinite(header.depth) && header.depth >= 0.0f;
+             std::isfinite(header.depth) && header.depth >= 0.0f &&
+             std::isfinite(header.trust_coverage) && header.trust_coverage >= 0.0f && header.trust_coverage <= 1.0f &&
+             header.trust_bytes <= header.payload;
     }
     if (ok)
     {
@@ -172,6 +179,13 @@ std::optional<NormalMap> ReadMapFile(const std::filesystem::path &path, std::ini
         {
             in.read(reinterpret_cast<char *>(map.material.data()), static_cast<std::streamsize>(map.material.size()));
             ok = in.gcount() == static_cast<std::streamsize>(map.material.size());
+        }
+        map.trust.resize(header.trust_bytes);
+        map.trust_coverage = header.trust_coverage;
+        if (ok && !map.trust.empty())
+        {
+            in.read(reinterpret_cast<char *>(map.trust.data()), static_cast<std::streamsize>(map.trust.size()));
+            ok = in.gcount() == static_cast<std::streamsize>(map.trust.size());
         }
     }
     if (!ok)

@@ -24,6 +24,7 @@
 
 #include "storm/fx/gloss_map.hpp"
 #include "storm/fx/normal_map.hpp"
+#include "storm/fx/parallax_exclusions.hpp"
 
 #include <bgfx/bgfx.h>
 
@@ -55,6 +56,20 @@ struct ReliefSetup;
 // (logged once).
 void ConfigureRelief(ReliefSetup setup);
 
+// The parallax's exclusion lists (fx/parallax_exclusions.hpp): the shipped one, and the owner's file `user_file` (empty: none).
+// Both are loaded and logged here; the debug view's toggles write the user file. Before the first texture is loaded.
+void ConfigureParallaxExclusions(const std::filesystem::path &user_file);
+// What the debug view shows for a texture by its normalized name: whether it draws with the parallax, and why not.
+struct ParallaxInfo
+{
+    bool found = false;           // a relief texture of that name is loaded
+    bool uploaded = false;        // its maps are on the GPU
+    bool parallax = false;        // it draws with the parallax
+    float coverage = 1.0f;        // the share of trusted texels
+    int trust_width = 0, trust_height = 0;
+    std::vector<uint8_t> trust;   // its mask (R8, 255 trusted)
+    const char *reason = "";      // when no parallax: why
+};
 inline constexpr std::chrono::milliseconds kReliefFade{300};
 
 // One texture's normal map (TexStore::normal_map) or gloss map (TexStore::gloss_map: `gloss` is not None), owned by its
@@ -86,6 +101,9 @@ struct NormalMapEntry
     bgfx::TextureHandle handle = BGFX_INVALID_HANDLE;
     bgfx::TextureHandle material = BGFX_INVALID_HANDLE; // the uploaded material texture (R height, G gloss)
     float depth = 0.0f;     // the height's 0..1 span in texels of the uploaded top mip
+    float trust_coverage = 1.0f; // the share of trusted texels (fx/parallax_trust.hpp)
+    std::vector<uint8_t> trust;  // the mask at a quarter of the map's size, for the debug view
+    int trust_width = 0, trust_height = 0;
     int width = 0, height_texels = 0; // the uploaded top mip
     size_t bytes = 0; // of the uploaded textures
     size_t material_bytes = 0; // of them the material's
@@ -113,6 +131,7 @@ class NormalMaps
         float fade = 0.0f;
         bgfx::TextureHandle material = BGFX_INVALID_HANDLE; // the material texture, for a class with a height
         float depth = 0.0f;                                 // its height's span in texels of the top mip
+        bool parallax = true;                               // the parallax draws (trust coverage, exclusion lists)
         int width = 0, height_texels = 0;                 // the top mip
     };
     Relief handle(shim::TexStore &store, fx::Lighting &lighting);
@@ -120,6 +139,11 @@ class NormalMaps
     // Gloss maps: as configure() and handle(), for Settings::gloss and Settings::gloss_map_size.
     void configure_gloss(bool enabled, int max_size);
     Relief gloss(shim::TexStore &store, fx::Lighting &lighting);
+
+    // The debug view (render::ParallaxProbe): a loaded relief texture by its normalized name; and the owner's toggle of its
+    // parallax, which appends the choice to the user file and logs it (false: the file cannot be written).
+    ParallaxInfo parallax_info(const std::string &name);
+    bool toggle_parallax(const std::string &name, bool &parallax_now);
 
     struct Stats
     {
@@ -140,6 +164,11 @@ class NormalMaps
     void end_frame();
 
   private:
+    // The draw takes the parallax: not excluded, and the trust coverage reaches kParallaxMinCoverage.
+    bool parallax_allowed(const NormalMapEntry &entry);
+    void load_exclusions();
+    fx::ParallaxExclusions exclusions_;
+    bool exclusions_loaded_ = false;
     void release(NormalMapEntry &entry);
     void read_stored(const std::shared_ptr<NormalMapEntry> &entry);
     // On a texture worker: Stored when the directory has its map, else requested (colour textures) or derived (height

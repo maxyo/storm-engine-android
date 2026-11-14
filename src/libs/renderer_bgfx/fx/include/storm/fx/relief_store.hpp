@@ -30,8 +30,8 @@ inline constexpr uint32_t kReliefHeightMethod = 0x48000002u; // 2: the file layo
 // Bump when the prepared maps change in a way ReliefMethod cannot see (the models' post-processing, the file layout).
 // The models, the height's version, the gloss's and the height maps' derivation are in ReliefMethod. 6: PBRify's normals
 // and height instead of DeepBump (the owner's choice), the file with the material texture; 7: the material's gloss
-// from PBRify's roughness.
-inline constexpr uint32_t kReliefMethodVersion = 7;
+// from PBRify's roughness; 8: the parallax trust beside the material (file layout 4).
+inline constexpr uint32_t kReliefMethodVersion = 8;
 
 // The method of a texture's map: everything its making depends on, so a change never reuses a map made before it.
 // PBRify maps (the same for every colour class with a height): kReliefMethodVersion, the models

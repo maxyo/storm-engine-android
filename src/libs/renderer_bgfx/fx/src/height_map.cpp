@@ -1,5 +1,8 @@
 #include "storm/fx/height_map.hpp"
 
+#include "image_ops.hpp"
+
+#include "storm/fx/parallax_trust.hpp"
 #include "storm/fx/relief_store.hpp"
 
 #include <algorithm>
@@ -8,42 +11,6 @@
 
 namespace storm::fx
 {
-namespace
-{
-// One wrapping box filter of width 2r+1 along x (horizontal) or y, with a running sum.
-std::vector<float> Box(const std::vector<float> &in, int w, int h, int r, bool horizontal)
-{
-    std::vector<float> out(in.size());
-    const int length = horizontal ? w : h, lines = horizontal ? h : w;
-    const size_t step = horizontal ? 1 : static_cast<size_t>(w), line_step = horizontal ? static_cast<size_t>(w) : 1;
-    const float scale = 1.0f / static_cast<float>(2 * r + 1);
-    const auto at = [length](int i) { return ((i % length) + length) % length; };
-    for (int line = 0; line < lines; ++line)
-    {
-        const float *src = in.data() + line * line_step;
-        float *dst = out.data() + line * line_step;
-        float sum = 0.0f;
-        for (int i = -r; i <= r; ++i)
-            sum += src[at(i) * step];
-        for (int i = 0; i < length; ++i)
-        {
-            dst[i * step] = sum * scale;
-            sum += src[at(i + r + 1) * step] - src[at(i - r) * step];
-        }
-    }
-    return out;
-}
-
-// A Gaussian of `sigma` texels as three box passes per axis (their variance adds up: 3 (w² - 1) / 12 = sigma²).
-std::vector<float> Gaussian(std::vector<float> v, int w, int h, float sigma)
-{
-    const int r = std::max(1, static_cast<int>(std::lround((std::sqrt(4.0f * sigma * sigma + 1.0f) - 1.0f) * 0.5f)));
-    for (int pass = 0; pass < 3; ++pass)
-        v = Box(Box(v, w, h, r, true), w, h, r, false);
-    return v;
-}
-} // namespace
-
 bool ReliefHasHeight(ReliefClass relief)
 {
     switch (relief)
@@ -67,44 +34,47 @@ float ReliefDepthTexels(ReliefClass relief)
     switch (relief)
     {
     case ReliefClass::Stone:
-        return 12.0f;
-    case ReliefClass::Building:
-        return 8.0f;
-    case ReliefClass::HeightMap: // the game's own detail heights, tiled small over their surface
         return 6.0f;
-    case ReliefClass::Plaster:
-        return 5.0f;
-    case ReliefClass::Wood:
+    case ReliefClass::Building:
         return 4.0f;
-    case ReliefClass::Prop:
+    case ReliefClass::HeightMap: // the game's own detail heights, tiled small over their surface
         return 3.0f;
-    case ReliefClass::Metal: // cannons, fittings: curved small parts, a shallow relief
+    case ReliefClass::Plaster:
+        return 2.5f;
+    case ReliefClass::Wood:
+        return 2.0f;
+    case ReliefClass::Prop:
         return 1.5f;
+    case ReliefClass::Metal: // cannons, fittings: curved small parts, a shallow relief
+        return 0.75f;
     case ReliefClass::None:
         return 0.0f;
     }
     return 0.0f;
 }
 
-bool AddReliefMaterial(NormalMap &map, ReliefClass relief, std::span<const float> height, std::span<const uint8_t> gloss)
+bool AddReliefMaterial(NormalMap &map, ReliefClass relief, std::span<const float> height, std::span<const uint8_t> gloss,
+                       std::span<const uint8_t> albedo)
 {
     map.material.clear();
+    map.trust.clear();
+    map.trust_coverage = 1.0f;
     map.depth = 0.0f;
     const int w = map.width, h = map.height;
     const size_t texels = static_cast<size_t>(w) * h;
     if (map.format != NormalMapFormat::Rg8 || w < 4 || h < 4 || !ReliefHasHeight(relief) || height.size() != texels ||
-        (!gloss.empty() && gloss.size() != texels))
+        (!gloss.empty() && gloss.size() != texels) || (!albedo.empty() && albedo.size() != texels * 4))
         return false;
 
     // Each region against its own neighbourhood: (h - mean) / spread, the spread floored so that a plain wall's noise
     // is not blown up into relief.
     const float scale = static_cast<float>(w) / static_cast<float>(kReliefMapSize), sigma = kHeightRegionTexels * scale;
     std::vector<float> v(height.begin(), height.end());
-    const std::vector<float> mean = Gaussian(v, w, h, sigma);
+    const std::vector<float> mean = image::Gaussian(v, w, h, sigma);
     std::vector<float> square(texels);
     for (size_t t = 0; t < texels; ++t)
         square[t] = (v[t] - mean[t]) * (v[t] - mean[t]);
-    const std::vector<float> spread = Gaussian(square, w, h, sigma);
+    const std::vector<float> spread = image::Gaussian(square, w, h, sigma);
     constexpr float kFloor = 0.03f; // of the model's 0..1: below it a region is flat
     for (size_t t = 0; t < texels; ++t)
         v[t] = (v[t] - mean[t]) / std::sqrt(spread[t] + kFloor * kFloor);
@@ -124,6 +94,18 @@ bool AddReliefMaterial(NormalMap &map, ReliefClass relief, std::span<const float
     {
         rh[t] = std::clamp((v[t] - low) / (high - low), 0.0f, 1.0f);
         rg[t] = gloss.empty() ? 0.0f : gloss[t] / 255.0f;
+    }
+    // Where the height cannot be trusted (windows, glass: parallax_trust.hpp) it goes to the top, by the trust: the
+    // parallax shifts nothing there. A texture with almost no trusted texel keeps its height whole (the cavity reads it)
+    // and gets no parallax at all (kParallaxMinCoverage, the draw).
+    if (!albedo.empty())
+    {
+        const std::vector<float> trust = ParallaxTrust(albedo, rh, w, h);
+        map.trust_coverage = TrustCoverage(trust);
+        map.trust = TrustThumbnail(trust, w, h);
+        if (map.trust_coverage >= kParallaxMinCoverage)
+            for (size_t t = 0; t < texels; ++t)
+                rh[t] = 1.0f - trust[t] * (1.0f - rh[t]);
     }
     map.material.reserve(map.rg.size());
     int lw = w, lh = h;

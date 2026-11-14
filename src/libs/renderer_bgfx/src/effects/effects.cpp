@@ -923,6 +923,11 @@ void TrimRelief()
     effects::ReliefGenerator::instance().trim();
 }
 
+void ConfigureParallaxExclusions(const std::filesystem::path &user_file)
+{
+    effects::ConfigureParallaxExclusions(user_file);
+}
+
 void ShutdownRelief()
 {
     effects::ReliefGenerator::instance().shutdown();

@@ -491,12 +491,13 @@ void Lighting::prepare(const shim::Device &device, const shim::LayoutInfo &layou
         const bool clamped = u == BGFX_SAMPLER_U_CLAMP || u == BGFX_SAMPLER_U_BORDER || v == BGFX_SAMPLER_V_CLAMP ||
                              v == BGFX_SAMPLER_V_BORDER;
         // The cavity needs no shift: it also draws on a clamped stage 0 or with the parallax off.
-        const bool parallax = settings_.parallax != fx::ParallaxQuality::Off && !clamped;
+        const bool parallax = settings_.parallax != fx::ParallaxQuality::Off && !clamped && relief_map.parallax;
         if (bgfx::isValid(relief_map.material) && relief_map.depth > 0.0f && (parallax || settings_.relief_cavity) &&
             !(device.s.tss[relief_stage][D3DTSS_TEXTURETRANSFORMFLAGS] & D3DTTFF_PROJECTED))
         {
             relief = 2;
             draw.parallax_variant = true;
+            draw.parallax_untrusted = settings_.parallax != fx::ParallaxQuality::Off && !clamped && !relief_map.parallax;
             draw.material = relief_map.material;
             draw.material_flags = draw.normal_map_flags;
             // The class's own depth (stored with the height, fx::ReliefDepthTexels), the player's strength, the fade-in.
@@ -508,8 +509,9 @@ void Lighting::prepare(const shim::Device &device, const shim::LayoutInfo &layou
                              !parallax ? 0.0f : occlusion ? static_cast<float>(fx::kParallaxSteps) : 1.0f,
                              std::log2(static_cast<float>(std::max(relief_map.width, relief_map.height_texels))),
                              self_shadow ? fx::kParallaxShadow : 0.0f, settings_.parallax_debug ? 1.0f : 0.0f,
-                             settings_.relief_cavity ? fx::kReliefCavity : 0.0f, 0.0f};
-            ++frame_.parallax;
+                             settings_.relief_cavity ? fx::kReliefCavity : 0.0f, fx::kParallaxMaxDepth};
+            if (!draw.parallax_untrusted)
+                ++frame_.parallax;
         }
     }
     // Gloss: the map's texels shape the highlight; u_fxGloss.w switches on the lamps' and the baked surfaces'
@@ -612,7 +614,8 @@ const char *Lighting::ParallaxMissName(ParallaxMiss miss)
     static const char *const names[] = {"no relief by its class", "ported shader", "decal", "pretransformed",
                                         "no vertex normals", "cube map", "character", "switched off",
                                         "stage 1 height texture without a height", "map not ready", "map without height",
-                                        "projected coordinates", "clamp-addressed", "no relief on the draw", "other"};
+                                        "projected coordinates", "clamp-addressed", "no relief on the draw",
+                                        "too few trusted texels or excluded", "other"};
     static_assert(std::size(names) == kParallaxMisses);
     return names[static_cast<int>(miss)];
 }
@@ -631,6 +634,12 @@ void Lighting::census(const shim::Device &device, const shim::LayoutInfo &layout
     if (draw.parallax_variant)
     {
         // counted as frame_.parallax
+        if (draw.parallax_untrusted)
+        {
+            ++frame_.parallax_miss[static_cast<size_t>(ParallaxMiss::NotTrusted)];
+            cover(texture, texture.normal_map->relief, static_cast<uint8_t>(ParallaxMiss::NotTrusted));
+            return;
+        }
         cover(texture, texture.normal_map->relief, kCoverageParallax);
         return;
     }
