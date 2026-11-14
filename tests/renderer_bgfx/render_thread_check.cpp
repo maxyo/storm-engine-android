@@ -5,7 +5,8 @@
 //   2. frames present with the game thread taking turns with the render thread, and overlapping it;
 //   3. a surface release from another thread (Android's surfaceDestroyed) returns only when no frame is in flight,
 //      presentation stops, and resumes after the surface is restored: many times, at any point of a frame; a restore
-//      asked for before the surface was destroyed again is dropped, the next one restores;
+//      asked for before the surface was destroyed again is dropped, the next one restores; a surface release after
+//      a reset waits until a frame applied it (never a later read-back's flush frame, to a destroyed window);
 //   4. the renderer shuts down and starts again.
 #include "device.hpp"
 #include "storm/render/frame_owner.hpp"
@@ -118,6 +119,35 @@ bool run(SDL_Window *window, bool render_thread)
         context.request_surface_restore();
         present(context, 3);
         ok &= expect(context.ready(), mode, "the next surfaceChanged restores");
+
+        // A reset (here a resize; a restore or new reset flags alike) is applied by the next frame the render thread
+        // runs, a read-back's flush frame too. A surfaceDestroyed right after it must not return before a frame
+        // applied it to the window: Android destroys the window then, and a later read-back would apply the reset to
+        // the destroyed one.
+        {
+            present(context, 2);
+            context.resize(kWidth + 16, kHeight + 8);
+            std::atomic<bool> returned{false}, pending_at_return{true};
+            std::thread destroyed([&] {
+                context.request_surface_release();
+                pending_at_return = context.surface_reset_pending();
+                returned = true;
+            });
+            // Android's UI thread first: the game thread's next frame comes only after a while.
+            for (int wait = 0; wait < 200 && !returned; ++wait)
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            for (int frame = 0; frame < 200 && !returned; ++frame)
+                present(context, 1);
+            destroyed.join();
+            ok &= expect(!pending_at_return, mode,
+                         "a surfaceDestroyed after a reset returns only once a frame applied the reset to the window");
+            present(context, 2);
+            ok &= expect(!context.ready() && !context.surface_reset_pending(), mode,
+                         "the surface is given up with no reset left for a read-back's flush frame");
+            context.request_surface_restore();
+            present(context, 3);
+            ok &= expect(context.ready(), mode, "... and restored");
+        }
         context.shutdown();
         ok &= expect(!context.initialised() && !context.frames_in_flight(), mode, "the renderer shuts down");
     }

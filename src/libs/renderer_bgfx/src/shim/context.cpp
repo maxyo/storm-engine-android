@@ -768,6 +768,10 @@ void Context::shutdown()
     overlap_logged_ = false;
     gate_end_ = {};
     backend_attempt_.reset(); // a Vulkan start that never presented keeps its marker
+    {
+        std::lock_guard lock(release_mutex_);
+        reset_unapplied_ = false; // went with bgfx
+    }
     initialised_ = false;
     surface_.valid = false;
     surface_lost();
@@ -788,7 +792,7 @@ void Context::resize(uint32_t width, uint32_t height)
     chain.width = width;
     chain.height = height;
     chain.formatDepthStencil = bgfx::TextureFormat::Count; // as in start()
-    bgfx::reset(reset_flags(), &chain);
+    reset_surface(chain);
     picture_held_ = false; // see surface_lost
     // A display change (fold, split screen, wm size/density) usually changes the density as well.
     read_density();
@@ -806,7 +810,7 @@ void Context::refresh_reset_flags()
     chain.width = surface_.width_px;
     chain.height = surface_.height_px;
     chain.formatDepthStencil = bgfx::TextureFormat::Count; // as in start()
-    bgfx::reset(reset_flags(), &chain);
+    reset_surface(chain);
     picture_held_ = false; // see surface_lost
 }
 
@@ -853,6 +857,15 @@ uint32_t Context::reset_flags() const
            (surface_epoch_flag_ ? BGFX_RESET_FLUSH_AFTER_RENDER : BGFX_RESET_NONE);
 }
 
+void Context::reset_surface(bgfx::SwapChain &chain)
+{
+    {
+        std::lock_guard lock(release_mutex_);
+        reset_unapplied_ = true;
+    }
+    bgfx::reset(reset_flags(), &chain);
+}
+
 void Context::surface_lost()
 {
     if (surface_.valid)
@@ -863,6 +876,22 @@ void Context::surface_lost()
         picture_held_ = false; // the kept pause picture may not survive the surface: drawn again and kept anew
         logf("surface lost: presentation suspended");
     }
+    bool unapplied = false, in_use = false;
+    {
+        std::lock_guard lock(release_mutex_);
+        unapplied = reset_unapplied_;
+        in_use = surface_in_use_;
+    }
+    if (unapplied && initialised_ && in_use)
+    {
+        // The last reset (a restore, a resize, new flags) is applied now, by a frame that presents nothing and drops
+        // the draws of the frame the surface went away in, while the window is still there (a surfaceDestroyed waits
+        // for it in render_idle): otherwise the next read-back's flush frame would apply it to a destroyed window.
+        run_frame(BGFX_FRAME_FLUSH | BGFX_FRAME_DISCARD);
+    }
+    else if (unapplied && initialised_)
+        logf("ERROR: a bgfx reset is pending for a surface no longer in use: the next frame applies it to a window "
+             "that may be destroyed");
     {
         std::unique_lock lock(release_mutex_);
         // The render thread may still be presenting the last frame to the window.
@@ -909,6 +938,7 @@ bool Context::run_frame(uint32_t flags, uint32_t *frame_number)
     {
         std::lock_guard lock(release_mutex_);
         in_frame_ = false;
+        reset_unapplied_ = false; // this frame applies the last reset
         handed_frame_ = number;
         frames_handed_ = true;
         hand_time_[number & 3] = before;
@@ -1010,7 +1040,7 @@ void Context::try_restore()
         // From here on a new surfaceDestroyed waits for our frames.
         surface_in_use_ = true;
     }
-    bgfx::reset(reset_flags(), &chain);
+    reset_surface(chain);
     FramePacing::instance().set_window(chain.nwh);
     window_released();
     if (frame_aborted_)

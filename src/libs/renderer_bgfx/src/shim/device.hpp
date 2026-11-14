@@ -82,6 +82,12 @@ class Context final : public render::FrameOwner
         std::lock_guard lock(release_mutex_);
         return !render_idle();
     }
+    // Any thread: a bgfx::reset of the surface waits for the frame that applies it.
+    bool surface_reset_pending()
+    {
+        std::lock_guard lock(release_mutex_);
+        return reset_unapplied_;
+    }
 
     BonePalettes &bone_palettes() { return bone_palettes_; }
 
@@ -194,9 +200,15 @@ class Context final : public render::FrameOwner
     uint32_t reset_flags() const;
     // Render thread (bgfx::setRenderFrameDone): frame `frame` is rendered and presented.
     static void render_frame_done(uint32_t frame);
-    // True when the render thread has finished every frame handed over and no restore holds a native window it
-    // read; release_mutex_ held.
-    bool render_idle() const { return !in_frame_ && !restoring_ && (!frames_handed_ || done_frame_ == handed_frame_); }
+    // True when the render thread has finished every frame handed over, no restore holds a native window it read and
+    // no bgfx::reset waits for a frame to apply it to the window; release_mutex_ held.
+    bool render_idle() const
+    {
+        return !in_frame_ && !restoring_ && !reset_unapplied_ && (!frames_handed_ || done_frame_ == handed_frame_);
+    }
+    // Every bgfx::reset of the surface goes through here: the next frame the render thread runs applies it to the
+    // window, a read-back's flush frame too, so until one did a surfaceDestroyed waits (render_idle).
+    void reset_surface(bgfx::SwapChain &chain);
     // Waits for render_idle(); `lock` holds release_mutex_. False after `what` was logged as an error (3 s).
     bool wait_render_idle(std::unique_lock<std::mutex> &lock, const char *what);
     // Game thread, after presenting frame `number` was handed to the render thread: waits for the frame that
@@ -222,6 +234,7 @@ class Context final : public render::FrameOwner
     // Guarded by release_mutex_; release_done_ is notified when any of them changes.
     bool in_frame_ = false;       // the game thread is inside bgfx::frame()
     bool restoring_ = false;      // try_restore holds a native window it read (until bgfx and Swappy have it)
+    bool reset_unapplied_ = false; // a bgfx::reset no frame handed to the render thread has applied yet
     uint64_t surface_destroys_ = 0; // request_surface_release calls (Android's surfaceDestroyed)
     uint64_t restore_destroys_ = 0; // surface_destroys_ when the pending restore was asked for
     bool frames_handed_ = false;  // handed_frame_ is a frame of this device
