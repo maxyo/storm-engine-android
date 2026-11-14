@@ -44,6 +44,14 @@ class Lights : public Entity
         D3DVECTOR pos;       // Source position
         storm::location::FlameFlicker flicker;
         float corona;        // Crown transparency
+        // The last test of the line of sight from the camera to the lamp (Realize)
+        struct
+        {
+            bool known = false;
+            bool seen = false;
+            uint32_t age = 0; // frames since the test
+            D3DVECTOR lamp{};
+        } ray;
 
         int32_t type; // Source type index
     };
@@ -155,6 +163,9 @@ class Lights : public Entity
 
     // portable light sources
     std::vector<MovingLight> aMovingLight;
+
+    // The camera of the last Realize: coronas are tested against a camera that stands still less often
+    glm::vec3 lastCamera{0.0f};
 
     // Lantern models
     entid_t lampModels[16];

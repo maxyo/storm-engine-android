@@ -20,6 +20,13 @@
 #include "storm/render/effects.hpp"
 #include "string_compare.hpp"
 
+namespace
+{
+// Frames between the tests of the line of sight to a lamp (see Lights::Realize), with the camera still and moving.
+constexpr uint32_t kRayPeriodStill = 16;
+constexpr uint32_t kRayPeriodMoving = 4;
+} // namespace
+
 // ============================================================================================
 // Construction, destruction
 // ============================================================================================
@@ -226,6 +233,8 @@ void Lights::Realize(uint32_t delta_time)
     rs->SetTransform(D3DTS_VIEW, storm::math::d3dMatrix(glm::mat4()));
     rs->SetTransform(D3DTS_WORLD, storm::math::d3dMatrix(glm::mat4()));
     const auto camPDist = -(pos.x * storm::math::vx(camMtx).z + pos.y * storm::math::vy(camMtx).z + pos.z * storm::math::vz(camMtx).z);
+    const uint32_t period = pos == lastCamera ? kRayPeriodStill : kRayPeriodMoving;
+    lastCamera = pos;
     for (int32_t i = 0, n = 0; i < numLights; i++)
     {
         // Source
@@ -246,12 +255,22 @@ void Lights::Realize(uint32_t delta_time)
         if (!isVisible)
             continue;
 
-        // Visibility
+        // Visibility: the ray from the camera to the lamp is cast when the lamp moved, and then every few frames (the
+        // corona fades over 125 ms, and the ray also meets characters walking through it); lamps are spread over the
+        // frames by their index.
         if (collide)
         {
-            const auto dist = collide->Trace(core.GetEntityIds(SUN_TRACE), pos,
-                                             glm::vec3(ls.pos.x, ls.pos.y, ls.pos.z), lampModels, numLampModels);
-            isVisible = dist > 1.0f;
+            auto &ray = ls.ray;
+            const bool lampMoved = !ray.known || ray.lamp.x != ls.pos.x || ray.lamp.y != ls.pos.y || ray.lamp.z != ls.pos.z;
+            if (lampMoved || ++ray.age >= period)
+            {
+                ray.seen = collide->Trace(core.GetEntityIds(SUN_TRACE), pos, glm::vec3(ls.pos.x, ls.pos.y, ls.pos.z),
+                                          lampModels, numLampModels) > 1.0f;
+                ray.lamp = ls.pos;
+                ray.age = lampMoved ? static_cast<uint32_t>(i) % period : 0;
+                ray.known = true;
+            }
+            isVisible = ray.seen;
         }
         ls.corona += isVisible ? 0.008f * delta_time : -0.008f * delta_time;
         if (ls.corona <= 0.0f)
@@ -389,6 +408,7 @@ void Lights::AddLight(int32_t index, const glm::vec3 &pos)
     lights[numLights].pos.z = pos.z;
     lights[numLights].flicker = {};
     lights[numLights].type = index;
+    lights[numLights].ray = {};
 
     // Send a message to the lighter
     if (const auto eid = core.GetEntityId("Lighter"))

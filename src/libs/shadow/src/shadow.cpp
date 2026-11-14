@@ -9,10 +9,14 @@ dynamic shadow cpp file
 ******************************************************************************/
 #include "shadow.h"
 #include "live_list.hpp"
+#include "polygon_clip.hpp"
 #include "storm/render/effects.hpp"
 
 #include "core.h"
 #include "shared/messages.h"
+
+#include <algorithm>
+#include <cmath>
 
 CREATE_CLASS(Shadow)
 
@@ -45,6 +49,23 @@ float Shadow::fogDensity_ = 0.0f;
 // Frames a shadow keeps its occlusion rays while neither it nor the light moved (other characters walking through the
 // rays are seen this much later; the shading fades at 1 per second anyway).
 static constexpr uint32_t kRayRefresh = 8;
+// A character that moved this far (metres), or a light that turned this much (length of the direction difference),
+// wants new rays.
+static constexpr float kRayMove = 0.25f;
+static constexpr float kRayTurn = 0.02f;
+// Shadows granted a ray cast (head ray and ten body rays) per frame, nearest to the camera first; a shadow whose rays
+// are kRayMaxAge frames old is granted one whatever the budget.
+static constexpr size_t kRaysPerFrame = 4;
+static constexpr uint32_t kRayMaxAge = 16;
+// The fan of polygons (Shadow::Fan): widening of the projector's volume (metres), the distance from the character at
+// which a turn of the light moves the volume as far as a step of the character, and the frames after which the
+// location is read again (for models that move).
+static constexpr float kFanMargin = 1.0f;
+static constexpr float kFanReach = 16.0f;
+static constexpr uint32_t kFanRefresh = 20;
+// How far from a head position its shadow's sphere (centre, radius) can reach (prepare: a blocked head ray gives at
+// most 5 + 5, a free one 4 + 8).
+static constexpr float kShadowReach = 12.0f;
 
 namespace
 {
@@ -186,6 +207,28 @@ bool AddPoly(const glm::vec3 *vr, int32_t nverts)
     return true;
 }
 
+namespace
+{
+// The polygons of a fan being recorded (Shadow::rebuildFan) and the most of them kept.
+std::vector<glm::vec3> *recordVerts = nullptr;
+std::vector<uint8_t> *recordCounts = nullptr;
+std::vector<glm::vec4> *recordPlanes = nullptr;
+constexpr size_t kFanMaxVerts = 16384;
+
+// Collision clip callback: keeps the polygon instead of drawing it.
+bool recordPoly(const glm::vec3 *vr, int32_t nverts)
+{
+    if (recordVerts->size() + nverts > kFanMaxVerts)
+        return false;
+    recordVerts->insert(recordVerts->end(), vr, vr + nverts);
+    recordCounts->push_back(static_cast<uint8_t>(nverts));
+    // as AddPoly and the location's tree see the polygon's plane
+    const auto normal = storm::math::normalizeOrZero(glm::cross(vr[1] - vr[0], vr[2] - vr[0]));
+    recordPlanes->emplace_back(normal, glm::dot(normal, vr[0]));
+    return true;
+}
+} // namespace
+
 //------------------------------------------------------------------------------------
 // realize
 //------------------------------------------------------------------------------------
@@ -230,9 +273,20 @@ void Shadow::prepareAll(uint32_t Delta_Time)
     HEAD_DENSITY = ((VDATA *)pV->GetArrayElement(0))->GetInt();
     DENSITY = ((VDATA *)pV->GetArrayElement(1))->GetInt();
     fogDensity_ = core.Event("EWhr_GetFogDensity")->GetFloat();
+    // Which shadows are in view, and which of them are due for new rays: the nearest few get them now.
+    std::vector<Shadow *> due;
+    storm::shadow::forEachLive(instances_, [&](Shadow *shadow) {
+        shadow->setup(prev_view, prev_proj);
+        shadow->rayGranted_ = false;
+        if (shadow->pending_ && shadow->raysDue())
+            due.push_back(shadow);
+    });
+    std::sort(due.begin(), due.end(), [](const Shadow *a, const Shadow *b) { return a->camDist2_ < b->camDist2_; });
+    for (size_t i = 0; i < due.size(); i++)
+        due[i]->rayGranted_ = i < kRaysPerFrame || due[i]->rays_.age >= kRayMaxAge;
     int32_t tiles = 0;
     storm::shadow::forEachLive(instances_, [&](Shadow *shadow) {
-        shadow->prepare(Delta_Time, prev_view, prev_proj);
+        shadow->finish(Delta_Time);
         if (shadow->prepared_.visible)
             shadow->prepared_.tile = tiles++;
     });
@@ -271,9 +325,12 @@ void Shadow::prepareAll(uint32_t Delta_Time)
     rs->SetViewport(&vp);
 }
 
-void Shadow::prepare(uint32_t Delta_Time, const glm::mat4 &visView, const glm::mat4 &visPoj)
+// The cheap part of a shadow's frame: where the character and the light are, and whether the shadow can be in view
+// at all (its sphere is within kShadowReach of the head, so no ray is cast for a character far off screen).
+void Shadow::setup(const glm::mat4 &visView, const glm::mat4 &visPoj)
 {
     prepared_.visible = false;
+    pending_ = false;
     auto *obj = static_cast<MODEL *>(core.GetEntityPointer(entity));
     if (!obj)
         return;
@@ -281,11 +338,13 @@ void Shadow::prepare(uint32_t Delta_Time, const glm::mat4 &visView, const glm::m
     auto *node = obj->GetNode(0);
     GEOS::INFO gi;
     node->geo->GetInfo(gi);
-    objPos = storm::math::pos(obj->mtx);
-    ObjPos = objPos;
-    objPos.y += gi.radius;
-    auto headPos = objPos;
-    headPos.y += gi.radius;
+    Setup &st = setup_;
+    st.radius = gi.radius;
+    st.ObjPos = storm::math::pos(obj->mtx);
+    st.objPos = st.ObjPos;
+    st.objPos.y += gi.radius;
+    st.headPos = st.objPos;
+    st.headPos.y += gi.radius;
 
     D3DLIGHT9 dLight;
     BOOL bOk = false;
@@ -295,48 +354,71 @@ void Shadow::prepare(uint32_t Delta_Time, const glm::mat4 &visView, const glm::m
     else
         return;
 
-    dLight.Position.y = lightPos.y;
-
     auto light_pos = storm::math::normalizeOrZero(glm::vec3(dLight.Direction.x, dLight.Direction.y, dLight.Direction.z));
     if (light_pos.y > -0.6f)
         light_pos.y = -0.6f;
     light_pos = -1000.0f * (storm::math::normalizeOrZero(light_pos));
 
-    light_pos = objPos - storm::math::normalizeOrZero(objPos - light_pos) * 100.0f;
+    light_pos = st.objPos - storm::math::normalizeOrZero(st.objPos - light_pos) * 100.0f;
 
-    glm::vec3 dir = storm::math::normalizeOrZero(objPos - light_pos);
-    lightPos = light_pos;
+    st.dir = storm::math::normalizeOrZero(st.objPos - light_pos);
+    st.lightPos = light_pos;
 
     // check visibility of shadow
-    camPos.x = -visView[3][0] * visView[0][0] - visView[3][1] * visView[0][1] - visView[3][2] * visView[0][2];
-    camPos.y = -visView[3][0] * visView[1][0] - visView[3][1] * visView[1][1] - visView[3][2] * visView[1][2];
-    camPos.z = -visView[3][0] * visView[2][0] - visView[3][1] * visView[2][1] - visView[3][2] * visView[2][2];
+    st.camPos.x = -visView[3][0] * visView[0][0] - visView[3][1] * visView[0][1] - visView[3][2] * visView[0][2];
+    st.camPos.y = -visView[3][0] * visView[1][0] - visView[3][1] * visView[1][1] - visView[3][2] * visView[1][2];
+    st.camPos.z = -visView[3][0] * visView[2][0] - visView[3][1] * visView[2][1] - visView[3][2] * visView[2][2];
 
+    camDist2_ = storm::math::lengthSquared(st.headPos - st.camPos);
+    const float farReach = farBlend + kShadowReach;
+    if (camDist2_ > farReach * farReach)
+        return;
     FindPlanes(visView, visPoj);
-
-    const auto its = core.GetEntityIds(SHADOW);
-
-    // Reuse the rays while the character, the light and the model size stand still (and for at most kRayRefresh
-    // frames); the ray inputs are exact functions of these.
-    const bool still = rays_.radius == gi.radius && rays_.objPos == ObjPos && rays_.lightPos == light_pos;
-    if (!still)
+    for (int32_t p = 0; p < 4; p++)
     {
+        const float dist = st.headPos.x * planes[p].Nx + st.headPos.y * planes[p].Ny + st.headPos.z * planes[p].Nz - planes[p].D;
+        if (dist > kShadowReach)
+            return;
+    }
+    pending_ = true;
+}
+
+// New rays are wanted when there are none, when the character, the light or the model size moved since they were
+// cast, or when they are kRayRefresh frames old.
+bool Shadow::raysDue() const
+{
+    const Rays &r = rays_;
+    return r.headRay < 0.0f || r.radius != setup_.radius || r.age >= kRayRefresh ||
+           storm::math::lengthSquared(r.ObjPos - setup_.ObjPos) > kRayMove * kRayMove ||
+           storm::math::lengthSquared(r.dir - setup_.dir) > kRayTurn * kRayTurn;
+}
+
+void Shadow::finish(uint32_t Delta_Time)
+{
+    if (!pending_)
+        return;
+    const Setup &st = setup_;
+    const auto &its = core.GetEntityIds(SHADOW);
+
+    // The first rays are cast whatever the budget; later ones when granted. The refreshes of shadows that stand still
+    // are spread over the frames.
+    const bool first = rays_.headRay < 0.0f;
+    if (first || rayGranted_)
+    {
+        const uint32_t age =
+            first ? static_cast<uint32_t>(reinterpret_cast<uintptr_t>(this) / sizeof(void *)) % kRayRefresh : 0;
         rays_ = Rays{};
-        rays_.objPos = ObjPos;
-        rays_.lightPos = light_pos;
-        rays_.radius = gi.radius;
-        // Spread the refreshes of shadows that stand still over the frames.
-        rays_.age = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(this) / sizeof(void *)) % kRayRefresh;
+        rays_.ObjPos = st.ObjPos;
+        rays_.dir = st.dir;
+        rays_.radius = st.radius;
+        rays_.age = age;
     }
-    else if (++rays_.age >= kRayRefresh)
-    {
-        rays_.age = 0;
-        rays_.headRay = rays_.minVal = -1.0f;
-    }
+    else
+        rays_.age++;
 
-    glm::vec3 hdest = headPos + storm::math::normalizeOrZero(headPos - light_pos) * 100.0f;
+    glm::vec3 hdest = st.headPos + storm::math::normalizeOrZero(st.headPos - st.lightPos) * 100.0f;
     if (rays_.headRay < 0.0f)
-        rays_.headRay = col->Trace(its, headPos, hdest, nullptr, 0);
+        rays_.headRay = col->Trace(its, st.headPos, hdest, nullptr, 0);
     float ray = rays_.headRay;
     glm::vec3 cen;
     float radius;
@@ -346,15 +428,16 @@ void Shadow::prepare(uint32_t Delta_Time, const glm::mat4 &visView, const glm::m
             ray = 4.0f / 100.0f;
         if (ray > 10.0f / 100.0f)
             ray = 10.0f / 100.0f;
-        cen = headPos + 0.5f * ray * (hdest - headPos);
+        cen = st.headPos + 0.5f * ray * (hdest - st.headPos);
         radius = ray * 50.0f;
     }
     else
     {
-        cen = headPos + 4.0f * storm::math::normalizeOrZero(hdest - headPos);
+        cen = st.headPos + 4.0f * storm::math::normalizeOrZero(hdest - st.headPos);
         radius = 8.0f;
     }
 
+    // The view's planes of setup() are still this shadow's own; the projector's frustum below replaces them.
     int32_t p;
     for (p = 0; p < 4; p++)
     {
@@ -372,9 +455,9 @@ void Shadow::prepare(uint32_t Delta_Time, const glm::mat4 &visView, const glm::m
         float minVal = 0.0f;
         for (int32_t it = 0; it < 10; it++)
         {
-            glm::vec3 ps = ObjPos;
-            ps.y += gi.radius * 0.111f * static_cast<float>(it);
-            if (col->Trace(its, ps, lightPos, nullptr, 0) > 1.0f)
+            glm::vec3 ps = st.ObjPos;
+            ps.y += st.radius * 0.111f * static_cast<float>(it);
+            if (col->Trace(its, ps, st.lightPos, nullptr, 0) > 1.0f)
                 minVal += 0.1f;
         }
         rays_.minVal = minVal;
@@ -391,7 +474,7 @@ void Shadow::prepare(uint32_t Delta_Time, const glm::mat4 &visView, const glm::m
     shading *= (blendValue >> 24) / 255.0f;
 
     {
-        float dist = sqrtf(storm::math::lengthSquared(cen - camPos));
+        float dist = sqrtf(storm::math::lengthSquared(cen - st.camPos));
         if (dist > farBlend) // too far
         {
             return;
@@ -402,11 +485,11 @@ void Shadow::prepare(uint32_t Delta_Time, const glm::mat4 &visView, const glm::m
 
     // view matrix-------------------------------------
     glm::mat4 lightmtx;
-    storm::math::viewMatrix(lightmtx, glm::vec3(0.0f, 0.0f, 0.0f), dir, glm::vec3(0.0f, 1.0f, 0.0f));
-    storm::math::setInversePosition(lightmtx, light_pos.x, light_pos.y, light_pos.z);
+    storm::math::viewMatrix(lightmtx, glm::vec3(0.0f, 0.0f, 0.0f), st.dir, glm::vec3(0.0f, 1.0f, 0.0f));
+    storm::math::setInversePosition(lightmtx, st.lightPos.x, st.lightPos.y, st.lightPos.z);
     // projection matrix-------------------------------------
     glm::mat4 proj;
-    float tanfov = sqrtf(storm::math::lengthSquared(objPos - light_pos)) / (1.2f * gi.radius);
+    float tanfov = sqrtf(storm::math::lengthSquared(st.objPos - st.lightPos)) / (1.2f * st.radius);
     float fov = 2.0f * atanf(1.0f / tanfov);
 
     proj = storm::math::projectionMatrix(fov, TEXTURE_SIZE, TEXTURE_SIZE, 0.1f, 1000.0f);
@@ -421,14 +504,14 @@ void Shadow::prepare(uint32_t Delta_Time, const glm::mat4 &visView, const glm::m
     out.trans = lightmtx;
     out.perspective = std::max(proj[0][0], proj[1][1]);
     out.lightmtx = lightmtx;
-    out.dir = dir;
+    out.dir = st.dir;
     out.cen = cen;
     out.radius = radius;
-    out.objPos = objPos;
-    out.ObjPos = ObjPos;
-    out.lightPos = lightPos;
-    out.camPos = camPos;
-    float dist = 3.0f * sqrtf(storm::math::lengthSquared(cen - camPos));
+    out.objPos = st.objPos;
+    out.ObjPos = st.ObjPos;
+    out.lightPos = st.lightPos;
+    out.camPos = st.camPos;
+    float dist = 3.0f * sqrtf(storm::math::lengthSquared(cen - st.camPos));
     shading *= powf(2.71f, -fogDensity_ * dist);
     out.shade = static_cast<int32_t>(fabsf(shading * 255.0f));
 }
@@ -510,17 +593,73 @@ void Shadow::project()
     rs->SetTransform(D3DTS_WORLD, storm::math::d3dMatrix(glm::mat4()));
 
     rs->SetRenderState(D3DRS_TEXTUREFACTOR, (in.shade << 16) | (in.shade << 8) | (in.shade << 0));
-    const auto its = core.GetEntityIds(SHADOW);
     tot_verts = 0;
     shadvert = static_cast<SHADOW_VERTEX *>(rs->LockVertexBuffer(vbuff, D3DLOCK_DISCARD | D3DLOCK_NOSYSLOCK));
     if (!shadvert)
         return;
-    col->Clip(its, &planes[0], 5, in.cen, in.radius, AddPoly, &entity, 1);
+    if (fanFits())
+        fan_.age++;
+    else
+        rebuildFan();
+    // The exact clip of the location's polygons around the character
+    size_t first = 0;
+    glm::vec3 poly[32];
+    for (size_t i = 0; i < fan_.counts.size(); i++)
+    {
+        const size_t count = fan_.counts[i];
+        const glm::vec3 *from = fan_.verts.data() + first;
+        first += count;
+        const glm::vec4 &plane = fan_.planes[i];
+        const float side = glm::dot(glm::vec3(plane), in.cen) - plane.w;
+        if (side * side >= in.radius * in.radius)
+            continue; // the location's tree would not have offered it
+        std::copy(from, from + count, poly);
+        const int32_t n = storm::shadow::clipPolygon(planes, 5, poly, count);
+        if (n >= 3 && !AddPoly(poly, n))
+            break;
+    }
 
     rs->UnLockVertexBuffer(vbuff);
 
     if (tot_verts >= 3)
         rs->DrawPrimitive(D3DPT_TRIANGLELIST, vbuff, sizeof(SHADOW_VERTEX), 0, tot_verts / 3, "shadow_draw");
+}
+
+// Is the projector's volume of this frame inside what the fan was cut for: the character and the light moved less than
+// the margin, and the blob's sphere lies within the fan's sphere?
+bool Shadow::fanFits() const
+{
+    const Prepared &in = prepared_;
+    const Fan &fan = fan_;
+    return fan.valid && fan.age < kFanRefresh && std::abs(fan.perspective - in.perspective) <= 1e-3f * fan.perspective &&
+           glm::length(in.ObjPos - fan.ObjPos) + kFanReach * glm::length(in.dir - fan.dir) <= kFanMargin &&
+           glm::length(in.cen - fan.cen) + in.radius <= fan.sphereRadius;
+}
+
+// Reads the location's polygons within the projector's volume widened by kFanMargin (planes 0-4 of project()).
+void Shadow::rebuildFan()
+{
+    const Prepared &in = prepared_;
+    PLANE wide[5];
+    for (int32_t p = 0; p < 5; p++)
+    {
+        wide[p] = planes[p];
+        wide[p].D += kFanMargin;
+    }
+    fan_.verts.clear();
+    fan_.counts.clear();
+    fan_.planes.clear();
+    recordVerts = &fan_.verts;
+    recordCounts = &fan_.counts;
+    recordPlanes = &fan_.planes;
+    col->Clip(core.GetEntityIds(SHADOW), wide, 5, in.cen, in.radius + kFanMargin, recordPoly, &entity, 1);
+    fan_.valid = true;
+    fan_.age = 0;
+    fan_.ObjPos = in.ObjPos;
+    fan_.dir = in.dir;
+    fan_.cen = in.cen;
+    fan_.perspective = in.perspective;
+    fan_.sphereRadius = in.radius + kFanMargin;
 }
 
 void Shadow::FindPlanes(const glm::mat4 &view, const glm::mat4 &proj)

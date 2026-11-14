@@ -186,6 +186,9 @@ class Animation
     virtual int32_t GetNumBones() const = 0;
     // Get animation matrix for bone
     virtual glm::mat4 &GetAnimationMatrix(int32_t iBone) const = 0;
+    // A character far from the camera: its bone matrices are rebuilt on every second step only (a request in
+    // between gets the pose of the step before). Time and events keep running on every step.
+    virtual void SetDistantPose(bool distant) = 0;
     // miscellanea
     // Get custom data for animation
     virtual const char *GetData(const char *dataName) const = 0;

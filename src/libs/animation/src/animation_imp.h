@@ -51,6 +51,10 @@ class AnimationImp final : public Animation
     int32_t GetNumBones() const override;
     // Get animation matrix for bone
     glm::mat4 &GetAnimationMatrix(int32_t iBone) const override;
+    void SetDistantPose(bool distant) override
+    {
+        distantPose_ = distant;
+    }
     // misc
     // Get custom data for animation
     const char *GetData(const char *dataName) const override;
@@ -135,6 +139,9 @@ class AnimationImp final : public Animation
     glm::mat4 *matrix;
     // Set by Execute(); the bone matrices are stale until GetAnimationMatrix() rebuilds them
     mutable bool matricesDirty_ = false;
+    // SetDistantPose(): steps since the matrices were built (starts high: the first request always builds)
+    bool distantPose_ = false;
+    mutable uint32_t stepsSinceBuild_ = 2;
     // Internal event subscribers
     AnimationEventListener *ae_listeners[ae_numevents][ANIIMP_MAXLISTENERS];
     // Subscribers to external events

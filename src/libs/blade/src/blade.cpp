@@ -13,6 +13,8 @@ model binded to an animated locator
 #include "geometry.h"
 #include "shared/messages.h"
 
+#include <glm/gtc/matrix_access.hpp>
+
 CREATE_CLASS(BLADE)
 
 static const char *handName = "Saber_hand";
@@ -29,6 +31,29 @@ static const char *gunFire = "gun_fire";
 static const char *sabergunHandName = "sabergun_hand";
 static const char *sabergunBeltName = "sabergun_belt";
 static const char *sabergunFire = "sabersabgun_fire";
+
+// Is any of the character, with the room for what it holds in a hand, inside the sides of the view? A weapon of a
+// character that is not drawn is not drawn either, and asking its animation for a matrix costs the whole pose.
+static bool characterInView(VRenderer *rs, MODEL *mdl, NODE *manNode)
+{
+    GEOS::INFO gi;
+    manNode->geo->GetInfo(gi);
+    glm::mat4 view, proj;
+    rs->GetTransform(D3DTS_VIEW, storm::math::d3dMatrix(view));
+    rs->GetTransform(D3DTS_PROJECTION, storm::math::d3dMatrix(proj));
+    const glm::mat4 viewProj = proj * view;
+    const auto centre = storm::math::transformPoint(mdl->mtx, glm::vec3(gi.boxcenter.x, gi.boxcenter.y, gi.boxcenter.z));
+    const float radius = gi.radius + 1.5f;
+    const glm::vec4 w = glm::row(viewProj, 3);
+    for (const glm::vec4 &side : {w + glm::row(viewProj, 0), w - glm::row(viewProj, 0), w + glm::row(viewProj, 1),
+                                   w - glm::row(viewProj, 1)})
+    {
+        const glm::vec3 normal(side);
+        if (glm::dot(normal, centre) + side.w < -radius * glm::length(normal))
+            return false;
+    }
+    return true;
+}
 
 BLADE::BLADE_INFO::BLADE_INFO()
     : eid(0), vrt{}
@@ -253,6 +278,8 @@ void BLADE::Realize(uint32_t Delta_Time)
         return;
 
     auto *manNode = mdl->GetNode(0);
+    if (!characterInView(rs, mdl, manNode))
+        return;
     rs->TextureSet(0, -1);
     rs->TextureSet(1, -1);
     rs->TextureSet(2, -1);

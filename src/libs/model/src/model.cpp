@@ -104,6 +104,8 @@ void SetChildrenTechnique(NODE *_root, const char *_name)
 // realize
 //-----------------------------------------------------------------------------------
 GEOS::PLANE ViewPlane[4];
+// Beyond this distance (metres) from the camera the pose of an animated model is rebuilt every second frame.
+static constexpr float kDistantPoseRange = 30.0f;
 
 void MODELR::Realize(uint32_t Delta_Time)
 {
@@ -154,6 +156,15 @@ void MODELR::Realize(uint32_t Delta_Time)
     rs->GetTransform(D3DTS_VIEW, storm::math::d3dMatrix(view));
     rs->GetTransform(D3DTS_PROJECTION, storm::math::d3dMatrix(proj));
     FindPlanes(view, proj);
+
+    if (ani)
+    {
+        // A character this far away is a few pixels: its pose is rebuilt every second frame.
+        glm::vec3 camPos, camAng;
+        float persp;
+        rs->GetCamera(camPos, camAng, persp);
+        ani->SetDistantPose(storm::math::lengthSquared(storm::math::pos(mtx) - camPos) > kDistantPoseRange * kDistantPoseRange);
+    }
 
     glm::vec3 tmp;
     root->Update(mtx, tmp);

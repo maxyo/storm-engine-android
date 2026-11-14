@@ -123,9 +123,10 @@ glm::mat4 &AnimationImp::GetAnimationMatrix(int32_t iBone) const
     // Matrices are built on first use after a time step, not on every step:
     // animations that nothing reads this frame (characters that are not drawn)
     // cost no matrix work, and a long frame split into several steps builds once.
-    if (matricesDirty_)
+    if (matricesDirty_ && (!distantPose_ || stepsSinceBuild_ >= 2))
     {
         matricesDirty_ = false;
+        stepsSinceBuild_ = 0;
         const_cast<AnimationImp *>(this)->BuildAnimationMatrices();
     }
     return matrix[iBone];
@@ -224,6 +225,8 @@ void AnimationImp::Execute(int32_t dltTime)
         timer[i].Execute(dltTime);
     // Animation matrices are rebuilt lazily, see GetAnimationMatrix()
     matricesDirty_ = true;
+    if (stepsSinceBuild_ < 2)
+        ++stepsSinceBuild_;
 }
 
 // Calculate animation matrices
