@@ -1387,6 +1387,8 @@ void CheckFixtures()
     AddBox(p, idx, {4.8f, 2.3f, 4.8f}, {5.2f, 2.8f, 5.2f});          // 4: the lantern on it
     AddBox(p, idx, {6.0f, 0.0f, 0.0f}, {6.3f, 4.0f, 10.0f});         // 5: a house wall
     AddBox(p, idx, {5.7f, 2.0f, 2.95f}, {6.0f, 2.1f, 3.05f});        // 6: a sconce's arm on it
+    AddBox(p, idx, {8.0f, 0.0f, 7.9f}, {8.15f, 3.0f, 8.05f});        // 7: a gallows post
+    AddBox(p, idx, {8.15f, 2.9f, 7.95f}, {8.9f, 3.0f, 8.05f});       // 8: its arm; the lantern under it has no collision
     // The same mesh as the game stores it: every triangle with vertices of its own (normals, texture coordinates).
     std::vector<Vec3> loose;
     std::vector<uint32_t> loose_idx;
@@ -1396,12 +1398,12 @@ void CheckFixtures()
         loose.push_back(p[v]);
     }
     const std::vector<std::vector<Vec3>> flames = {
-        {{0.6f, 1.15f, 0.4f}}, {{5.0f, 2.55f, 5.0f}}, {{5.75f, 2.25f, 3.0f}}, {{-10.0f, 3.0f, -10.0f}}};
+        {{0.6f, 1.15f, 0.4f}}, {{5.0f, 2.55f, 5.0f}}, {{5.75f, 2.25f, 3.0f}}, {{-10.0f, 3.0f, -10.0f}}, {{8.7f, 2.5f, 8.0f}}};
     for (const bool welded : {true, false})
     {
         const std::vector<Fixture> f = welded ? FindFixtures(p, idx, flames) : FindFixtures(loose, loose_idx, flames);
         const auto box_of = [](uint32_t triangle) { return triangle / 12; };
-        CHECK(f.size() == 4);
+        CHECK(f.size() == 5);
         // The candlestick, not the table under it or the ground.
         CHECK(f[0].pieces == 1 && f[0].triangles.size() == 12 && box_of(f[0].triangles.front()) == 2);
         // The lantern and its post, not the ground or the wall.
@@ -1411,6 +1413,8 @@ void CheckFixtures()
         // A flame with nothing around it: no fixture (the caller falls back to the sphere around the flame).
         CHECK(f[3].pieces == 0 && f[3].triangles.empty());
         CHECK(std::is_sorted(f[1].triangles.begin(), f[1].triangles.end()));
+        // The gallows: the arm the lantern hangs from and its post.
+        CHECK(f[4].pieces >= 1 && f[4].triangles.size() == 24 && box_of(f[4].triangles.front()) == 7 && box_of(f[4].triangles.back()) == 8);
     }
     // Left out of the lamp's casters: TrianglesInSphere skips them.
     const TriangleGrid grid = BuildTriangleGrid(p, idx, 4.0f);

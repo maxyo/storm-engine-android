@@ -48,21 +48,22 @@ LightShape ShapeOf(const Lamp &lamp);
 std::vector<Lamp> ClusterLamps(std::span<const Lamp> lamps, float radius);
 
 // A lamp's own fixture: the pieces of the still geometry (triangles joined by shared vertices or vertices at the same
-// place) that hold its flames
-// (a candlestick, a torch, a lantern's frame and glass, a chandelier, a sconce's arm) and what carries them from below
-// or above (a lantern's post, a chandelier's chain). They cast no shadow of that lamp: a flame sits inside its own
-// fixture, whose real light fills in the shadows of its bars. A piece holds a flame when
+// place) that hold its flames (a candlestick, a torch, a lantern's frame and glass, a chandelier, a sconce's arm) and
+// what carries them (a lantern's post and arm, a chandelier's chain). They cast no shadow of that lamp: a flame sits
+// in its own fixture, whose real light fills in the shadows of its bars. A piece holds a flame when
 //   * the flame is inside its box (grown by kFixtureEnclose) and it is at most kFixtureEnclosing across, or
-//   * the flame is within kFixtureTouch of its box and it is narrow (at most kFixtureNarrow across in x and z, at
-//     most kFixtureTall high);
-// narrow pieces stacked on those (their x-z boxes overlap, their heights meet within kFixtureGap) join, while the
-// fixture stays narrow and at most kFixtureTall high. A table under a candle, a wall behind a sconce, a beam over a
-// lamp are no fixture: they are wide. `flames`: per lamp the positions of its flames.
+//   * it is slim (at most kFixtureSlim across in x or z, at most kFixtureWide in the other, at most kFixtureTall high)
+//     and the flame is within kFixtureTouch of its box (a lantern whose glass has no collision hangs that far under
+//     its arm);
+// slim pieces touching those (within kFixtureGap) join, while the fixture stays at most kFixtureWide across in x and z and
+// kFixtureTall high. A table under a candle, a wall behind a sconce, a beam over a lamp are no fixture: they are
+// wide. `flames`: per lamp the positions of its flames.
 inline constexpr float kFixtureEnclose = 0.05f;
 inline constexpr float kFixtureEnclosing = 2.0f;
-inline constexpr float kFixtureTouch = 0.25f;
-inline constexpr float kFixtureNarrow = 0.6f;
-inline constexpr float kFixtureTall = 5.0f;
+inline constexpr float kFixtureSlim = 0.4f;
+inline constexpr float kFixtureTouch = 0.5f;
+inline constexpr float kFixtureWide = 1.5f;
+inline constexpr float kFixtureTall = 6.0f;
 inline constexpr float kFixtureGap = 0.03f;
 struct Fixture
 {

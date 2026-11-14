@@ -69,13 +69,23 @@ struct Piece
 {
     Vec3 lo{1e30f, 1e30f, 1e30f}, hi{-1e30f, -1e30f, -1e30f};
     std::vector<uint32_t> triangles;
-    bool narrow() const
+    // Slim: at most kFixtureSlim across in x or z, at most kFixtureWide in the other, at most kFixtureTall high (a post,
+    // an arm, a gallows of both, a candlestick, a chain).
+    bool slim() const
     {
-        return hi[0] - lo[0] <= kFixtureNarrow && hi[2] - lo[2] <= kFixtureNarrow && hi[1] - lo[1] <= kFixtureTall;
+        const float x = hi[0] - lo[0], z = hi[2] - lo[2];
+        return std::min(x, z) <= kFixtureSlim && std::max(x, z) <= kFixtureWide && hi[1] - lo[1] <= kFixtureTall;
     }
     float across() const
     {
         return std::max({hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]});
+    }
+    bool touches(const Piece &other, float margin) const
+    {
+        for (int k = 0; k < 3; ++k)
+            if (lo[k] > other.hi[k] + margin || hi[k] < other.lo[k] - margin)
+                return false;
+        return true;
     }
     bool holds(const Vec3 &p, float margin) const
     {
@@ -158,10 +168,10 @@ std::vector<Fixture> FindFixtures(std::span<const Vec3> positions, std::span<con
                 piece.hi[k] = std::max(piece.hi[k], positions[indices[3 * t + j]][k]);
             }
     }
-    std::vector<uint32_t> narrow;
+    std::vector<uint32_t> slims;
     for (uint32_t p = 0; p < pieces.size(); ++p)
-        if (pieces[p].narrow())
-            narrow.push_back(p);
+        if (pieces[p].slim())
+            slims.push_back(p);
     for (size_t l = 0; l < flames.size(); ++l)
     {
         std::vector<uint32_t> taken;
@@ -177,26 +187,24 @@ std::vector<Fixture> FindFixtures(std::span<const Vec3> positions, std::span<con
         for (uint32_t p = 0; p < pieces.size(); ++p)
             for (const Vec3 &flame : flames[l])
                 if ((pieces[p].across() <= kFixtureEnclosing && pieces[p].holds(flame, kFixtureEnclose)) ||
-                    (pieces[p].narrow() && pieces[p].holds(flame, kFixtureTouch)))
+                    (pieces[p].slim() && pieces[p].holds(flame, kFixtureTouch)))
                 {
                     take(p);
                     break;
                 }
-        // What carries it: narrow pieces stacked on it, while it stays narrow and not too tall.
+        // What carries it: slim pieces touching it (a post, an arm, a chain), while the fixture stays within its size.
         for (bool grew = !taken.empty(); grew;)
         {
             grew = false;
-            for (const uint32_t p : narrow)
+            for (const uint32_t p : slims)
             {
                 const Piece &piece = pieces[p];
                 if (std::find(taken.begin(), taken.end(), p) != taken.end())
                     continue;
-                const bool over = piece.lo[0] <= hi[0] && piece.hi[0] >= lo[0] && piece.lo[2] <= hi[2] && piece.hi[2] >= lo[2];
-                const bool meets = piece.lo[1] <= hi[1] + kFixtureGap && piece.hi[1] >= lo[1] - kFixtureGap;
-                const bool stays = std::max(hi[0], piece.hi[0]) - std::min(lo[0], piece.lo[0]) <= kFixtureNarrow &&
-                                   std::max(hi[2], piece.hi[2]) - std::min(lo[2], piece.lo[2]) <= kFixtureNarrow &&
+                const bool stays = std::max(hi[0], piece.hi[0]) - std::min(lo[0], piece.lo[0]) <= kFixtureWide &&
+                                   std::max(hi[2], piece.hi[2]) - std::min(lo[2], piece.lo[2]) <= kFixtureWide &&
                                    std::max(hi[1], piece.hi[1]) - std::min(lo[1], piece.lo[1]) <= kFixtureTall;
-                if (over && meets && stays)
+                if (stays && std::any_of(taken.begin(), taken.end(), [&](uint32_t t) { return pieces[t].touches(piece, kFixtureGap); }))
                 {
                     take(p);
                     grew = true;
