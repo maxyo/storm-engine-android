@@ -736,14 +736,12 @@ class CommerceScreen final : public Screen
         }
         view["stats"] = stats;
 
-        // The captions of a money deal's prices name the operation («Купить», «Продать»): the column is
-        // what one pack costs in that direction.
-        // Each caption with its icon: the hold, the store, the price we pay, the price we get.
+        // Price columns are identified by their buy/sell icons; keep the numeric values without redundant captions.
         std::vector<std::pair<std::string, std::string>> captions{{own_caption, own_icon}, {other_caption, other_icon}};
         if (money)
         {
-            captions.emplace_back(bindings.Text("trade.buy"), "price-buy");
-            captions.emplace_back(bindings.Text("trade.sell"), "price-sell");
+            captions.emplace_back("", "price-buy");
+            captions.emplace_back("", "price-sell");
         }
         Json cols = Json::array();
         for (size_t i = 0; i < captions.size(); ++i)
