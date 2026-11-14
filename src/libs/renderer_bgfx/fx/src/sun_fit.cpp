@@ -37,8 +37,8 @@ Vec3 Direction(float azimuth_deg, float elevation_deg)
 } // namespace
 
 Occluders::Occluders(std::span<const Vec3> positions, std::span<const uint32_t> indices,
-                     std::span<const std::array<float, 2>> uvs, std::vector<Cut> cut, float cell)
-    : Occluders(positions, indices, cell)
+                     std::span<const std::array<float, 2>> uvs, std::vector<Cut> cut, std::optional<Box> within)
+    : Occluders(positions, indices, within)
 {
     if (uvs.size() == positions.size() && cut.size() == triangles_)
     {
@@ -47,19 +47,80 @@ Occluders::Occluders(std::span<const Vec3> positions, std::span<const uint32_t> 
     }
 }
 
-Occluders::Occluders(std::span<const Vec3> positions, std::span<const uint32_t> indices, float cell)
-    : positions_(positions.begin(), positions.end()), indices_(indices.begin(), indices.end()), cell_(cell)
+Box BoundsOf(std::span<const Vec3> points, float margin)
+{
+    Box b{{1e30f, 1e30f, 1e30f}, {-1e30f, -1e30f, -1e30f}};
+    for (const Vec3 &p : points)
+        for (int k = 0; k < 3; ++k)
+        {
+            b.lo[k] = std::min(b.lo[k], p[k] - margin);
+            b.hi[k] = std::max(b.hi[k], p[k] + margin);
+        }
+    return b;
+}
+
+bool Occluders::Covers(const Vec3 &point) const
+{
+    for (int k = 0; k < 3; ++k)
+        if (!(point[k] >= lo_[k] && point[k] <= hi_[k]))
+            return false;
+    return triangles_ > 0;
+}
+
+Occluders::Occluders(std::span<const Vec3> positions, std::span<const uint32_t> indices, std::optional<Box> within)
+    : positions_(positions.begin(), positions.end()), indices_(indices.begin(), indices.end())
 {
     triangles_ = indices_.size() / 3;
     if (triangles_ == 0)
         return;
+    // Triangles wholly outside `within` stay in the arrays (the triangle numbers of `cut` keep their meaning) but go
+    // in no cell: no ray tests them.
+    std::vector<uint8_t> kept(triangles_, 1);
+    auto triangle_box = [&](size_t t) {
+        Box b{{1e30f, 1e30f, 1e30f}, {-1e30f, -1e30f, -1e30f}};
+        for (int j = 0; j < 3; ++j)
+            for (int k = 0; k < 3; ++k)
+            {
+                b.lo[k] = std::min(b.lo[k], positions_[indices_[3 * t + j]][k]);
+                b.hi[k] = std::max(b.hi[k], positions_[indices_[3 * t + j]][k]);
+            }
+        return b;
+    };
     lo_ = {1e30f, 1e30f, 1e30f};
     hi_ = {-1e30f, -1e30f, -1e30f};
-    for (const uint32_t i : indices_)
+    excluded_bounds_ = {{1e30f, 1e30f, 1e30f}, {-1e30f, -1e30f, -1e30f}};
+    for (size_t t = 0; t < triangles_; ++t)
+    {
+        const Box tri_box = triangle_box(t);
+        bool inside = true;
+        if (within)
+            for (int k = 0; k < 3; ++k)
+                inside = inside && tri_box.hi[k] >= within->lo[k] && tri_box.lo[k] <= within->hi[k];
+        Vec3 &l = inside ? lo_ : excluded_bounds_.lo;
+        Vec3 &h = inside ? hi_ : excluded_bounds_.hi;
         for (int k = 0; k < 3; ++k)
         {
-            lo_[k] = std::min(lo_[k], positions_[i][k]);
-            hi_[k] = std::max(hi_[k], positions_[i][k]);
+            l[k] = std::min(l[k], tri_box.lo[k]);
+            h[k] = std::max(h[k], tri_box.hi[k]);
+        }
+        if (!inside)
+        {
+            kept[t] = 0;
+            ++excluded_;
+        }
+    }
+    if (!excluded_)
+        excluded_bounds_ = {};
+    if (excluded_ == triangles_)
+    {
+        triangles_ = 0; // nothing a ray from `within` can reach
+        return;
+    }
+    if (within)
+        for (int k = 0; k < 3; ++k)
+        {
+            lo_[k] = std::max(lo_[k], within->lo[k]);
+            hi_[k] = std::min(hi_[k], within->hi[k]);
         }
     // The grid's cells over the box with a cell of margin: grown while there are more than kMaxOccluderCells (each
     // costs 12 bytes while it is built), which only changes how many triangles a ray step tests, not what it hits.
@@ -100,14 +161,16 @@ Occluders::Occluders(std::span<const Vec3> positions, std::span<const uint32_t> 
     };
     std::vector<uint32_t> counts(cells + 1, 0);
     for (size_t t = 0; t < triangles_; ++t)
-        visit(t, [&](size_t c) { ++counts[c + 1]; });
+        if (kept[t])
+            visit(t, [&](size_t c) { ++counts[c + 1]; });
     for (size_t c = 1; c < counts.size(); ++c)
         counts[c] += counts[c - 1];
     start_ = counts;
     items_.resize(counts.back());
     std::vector<uint32_t> fill(counts.begin(), counts.end() - 1);
     for (size_t t = 0; t < triangles_; ++t)
-        visit(t, [&](size_t c) { items_[fill[c]++] = static_cast<uint32_t>(t); });
+        if (kept[t])
+            visit(t, [&](size_t c) { items_[fill[c]++] = static_cast<uint32_t>(t); });
 }
 
 bool Occluders::Hits(uint32_t tri, const Vec3 &origin, const Vec3 &dir, float reach, Hit &hit) const

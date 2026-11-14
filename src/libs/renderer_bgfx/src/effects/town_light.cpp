@@ -1,5 +1,7 @@
 #include "effects/town_light.hpp"
 
+#include "effects/occluder_log.hpp"
+
 #include "shim/shim.hpp"
 #include "texture/core/cache.hpp"
 #include "texture/core/formats.hpp"
@@ -177,7 +179,7 @@ void TownLight::start_place()
     place_job_.start("town light of " + name_, job,
                  [job, stores, positions = positions_, uvs = uvs_, indices = indices_, triangle_lightmap = triangle_lightmap_,
                   lightmaps = lightmaps_, occ_positions = occluder_positions_, occ_indices = occluder_indices_,
-                  occ_uvs = occluder_uvs_, occ_cut = occluder_cut_,
+                  occ_uvs = occluder_uvs_, occ_cut = occluder_cut_, name = name_,
                   directory = service.cache_directory()] {
         const auto started = std::chrono::steady_clock::now();
         uint64_t key = 1469598103934665603ull;
@@ -208,8 +210,11 @@ void TownLight::start_place()
         }
         bool sky_cached = sky_entry.blob.has_value(), set_cached = set_entry.blob.has_value();
         double sky_ms = 0.0, fit_ms = 0.0, sun_ms = 0.0;
-        job->occluders = std::make_shared<const fx::Occluders>(occ_positions, occ_indices, occ_uvs, occ_cut);
+        // Only what the rays from the lightmapped ground can reach: a backdrop island kilometres away is left out.
+        job->occluders = std::make_shared<const fx::Occluders>(occ_positions, occ_indices, occ_uvs, occ_cut,
+                                                               fx::BoundsOf(positions, fx::kSunRayReach));
         const fx::Occluders &occluders = *job->occluders;
+        LogExcluded("town light", name, occluders);
         const unsigned threads = Threads();
         std::vector<fx::SunFitSample> samples;
         for (size_t m = 0; m < lightmaps.size(); ++m)

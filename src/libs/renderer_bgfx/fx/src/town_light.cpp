@@ -199,7 +199,7 @@ std::vector<uint8_t> SunVisibility(const Occluders &occluders, const LightmapTex
                              texels.position[i][2] + n[2] * kSurfaceOffset + t[2] * jx + b[2] * jy};
                 const Vec3 d = Normalize({sun[0] + st[0] * dx + sb[0] * dy, sun[1] + st[1] * dx + sb[1] * dy,
                                           sun[2] + st[2] * dx + sb[2] * dy});
-                lit += occluders.Occluded(o, d, 300.0f, scratch) ? 0 : 1;
+                lit += occluders.Occluded(o, d, kSunRayReach, scratch) ? 0 : 1;
             }
             // The sun's direct light on the texel: the visible share times the cosine (a low sun lights the ground
             // less than a high one, the walls facing it more).
@@ -367,7 +367,8 @@ TownWallTone CalibrateTownWalls(std::span<const Vec3> positions, std::span<const
         Occluders::Scratch scratch;
         for (size_t v = first; v < last; ++v)
         {
-            if (!used[v])
+            // Walls outside what the occluders cover (a backdrop island) are not the place's: left out.
+            if (!used[v] || !occluders.Covers(positions[v]))
                 continue;
             const float l = std::sqrt(Dot(normal[v], normal[v]));
             if (l < 1e-8f)
@@ -380,7 +381,7 @@ TownWallTone CalibrateTownWalls(std::span<const Vec3> positions, std::span<const
             // In the shade of the bake's sun: facing away, or its ray closed.
             const Vec3 o{positions[v][0] + n[0] * kSurfaceOffset, positions[v][1] + n[1] * kSurfaceOffset,
                          positions[v][2] + n[2] * kSurfaceOffset};
-            shaded[v] = Dot(n, bake) <= 0.05f || occluders.Occluded(o, bake, 300.0f, scratch) ? 1 : 0;
+            shaded[v] = Dot(n, bake) <= 0.05f || occluders.Occluded(o, bake, kSunRayReach, scratch) ? 1 : 0;
         }
     });
     double open_sum = 0.0, open_sky = 0.0, bin_sum[TownWallTone::kSkyBins] = {};

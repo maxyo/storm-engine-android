@@ -378,7 +378,7 @@ SurfelLight SunOnSurfels(const Occluders &occluders, const BounceScene &scene, c
                 const Vec3 o{scene.position[s][0] + n[0] * kSurfaceOffset + t[0] * j,
                              scene.position[s][1] + n[1] * kSurfaceOffset + t[1] * j,
                              scene.position[s][2] + n[2] * kSurfaceOffset + t[2] * j};
-                lit += occluders.Occluded(o, sun, 300.0f, scratch) ? 0 : 1;
+                lit += occluders.Occluded(o, sun, kSunRayReach, scratch) ? 0 : 1;
             }
             const float e = std::fabs(d) * 0.5f * static_cast<float>(lit);
             light[s * 2 + (d > 0.0f ? 1 : 0)] = {color[0] * e, color[1] * e, color[2] * e};

@@ -1,5 +1,7 @@
 #include "effects/bounce.hpp"
 
+#include "effects/occluder_log.hpp"
+
 #include "effects/casters.hpp"
 #include "effects/visibility.hpp"
 #include "shim/shim.hpp"
@@ -119,7 +121,16 @@ void Bounce::start_scene(const fx::BounceGrid &grid)
         const auto started = std::chrono::steady_clock::now();
         auto scene = std::make_shared<Scene>();
         // Built in the stage that finishes the scene (the load when it is in the cache, else the bake).
-        auto build_occluders = [&] { scene->occluders = std::make_shared<const fx::Occluders>(positions, indices, uvs, cut); };
+        // Only what the rays from the grid's cells can reach (the sun's run farthest): a backdrop is left out.
+        auto build_occluders = [&] {
+            const fx::Vec3 far{grid.origin[0] + grid.cell * static_cast<float>(grid.size[0]),
+                               grid.origin[1] + grid.cell * static_cast<float>(grid.size[1]),
+                               grid.origin[2] + grid.cell * static_cast<float>(grid.size[2])};
+            const fx::Vec3 corners[2] = {grid.origin, far};
+            scene->occluders = std::make_shared<const fx::Occluders>(positions, indices, uvs, cut,
+                                                                     fx::BoundsOf(corners, fx::kSunRayReach));
+            LogExcluded("bounce", name, *scene->occluders);
+        };
         std::vector<const fx::BounceTexture *> images;
         for (const auto &t : textures)
             images.push_back(t.get());

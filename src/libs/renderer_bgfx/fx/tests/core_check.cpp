@@ -1886,6 +1886,52 @@ void CheckBakeCancel()
     ShutdownBakes();
 }
 
+void CheckOccluderBackdrop()
+{
+    // Charles_town-like: a 60 x 60 m town with a 10 m wall, and a backdrop island 18.7 km across (Nevis#31) whose
+    // nearest edge is 1 km off. All of it: the cap coarsens the grid (logged as an error). Within the town's box grown
+    // by the sun's reach: the island is left out, the cells stay 2 m, and the wall's shadow is the same.
+    std::vector<Vec3> positions = {{0.0f, 0.0f, 0.0f},  {60.0f, 0.0f, 0.0f},  {60.0f, 0.0f, 60.0f}, {0.0f, 0.0f, 60.0f},
+                                   {30.0f, 0.0f, 10.0f}, {30.0f, 0.0f, 50.0f}, {30.0f, 10.0f, 50.0f}, {30.0f, 10.0f, 10.0f}};
+    std::vector<uint32_t> indices = {0, 2, 1, 0, 3, 2, 4, 5, 6, 4, 6, 7};
+    const std::vector<Vec3> town(positions.begin(), positions.end());
+    constexpr int kSide = 40; // the island: a 40 x 40 vertex mesh, 18.7 km across, up to 600 m high
+    const uint32_t first = static_cast<uint32_t>(positions.size());
+    for (int z = 0; z < kSide; ++z)
+        for (int x = 0; x < kSide; ++x)
+        {
+            const float u = static_cast<float>(x) / (kSide - 1), v = static_cast<float>(z) / (kSide - 1);
+            const float height = 600.0f * std::sin(3.14159f * u) * std::sin(3.14159f * v);
+            positions.push_back({1060.0f + 18700.0f * u, height, -9000.0f + 18700.0f * v});
+        }
+    for (int z = 0; z + 1 < kSide; ++z)
+        for (int x = 0; x + 1 < kSide; ++x)
+        {
+            const uint32_t a = first + z * kSide + x;
+            indices.insert(indices.end(), {a, a + kSide, a + 1, a + 1, a + kSide, a + kSide + 1});
+        }
+    static int errors = 0;
+    errors = 0;
+    SetLogSink([](LogLevel level, const char *) { errors += level == LogLevel::Error ? 1 : 0; });
+    const Occluders all(positions, indices);
+    const int all_errors = errors;
+    errors = 0;
+    const Occluders town_only(positions, indices, BoundsOf(town, kSunRayReach));
+    const int town_errors = errors;
+    SetLogSink(nullptr);
+    Occluders::Scratch scratch;
+    const Vec3 sun{0.6f, 0.8f, 0.0f}; // from +x, 53° up: the wall at x = 30 shades the ground west of it
+    const bool shade_all = all.Occluded({25.0f, 0.05f, 30.0f}, sun, kSunRayReach, scratch);
+    const bool shade_town = town_only.Occluded({25.0f, 0.05f, 30.0f}, sun, kSunRayReach, scratch);
+    const bool open_town = town_only.Occluded({40.0f, 0.05f, 30.0f}, sun, kSunRayReach, scratch);
+    std::printf("occluder backdrop: all of it %d cap error(s); within the town's reach %d error(s), %zu of %zu triangles "
+                "left out (x %.0f..%.0f m); the wall's shade %d / %d, open ground %d\n",
+                all_errors, town_errors, town_only.Excluded(), town_only.Triangles(), town_only.ExcludedBounds().lo[0],
+                town_only.ExcludedBounds().hi[0], shade_all ? 1 : 0, shade_town ? 1 : 0, open_town ? 1 : 0);
+    CHECK(all_errors == 1 && town_errors == 0 && town_only.Excluded() == static_cast<size_t>((kSide - 1) * (kSide - 1) * 2) &&
+          shade_all && shade_town && !open_town);
+}
+
 void CheckBakeLoads()
 {
     // A result in the cache (a bake's load stage) does not wait behind a running bake: the same cache read posted as
@@ -2169,6 +2215,7 @@ int main()
     CheckBakeCancel();
     CheckBakeLoads();
     CheckOccluderCap();
+    CheckOccluderBackdrop();
     CheckBounce();
     CheckSeaWaves();
     CheckGlossMaps();

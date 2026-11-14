@@ -1,5 +1,7 @@
 #include "effects/visibility.hpp"
 
+#include "effects/occluder_log.hpp"
+
 #include "shim/shim.hpp"
 #include "texture/core/cache.hpp"
 #include "texture/core/service.hpp"
@@ -113,7 +115,15 @@ void Visibility::start()
             return false; // not in the cache: baked on the bake thread
         }
         const auto started = std::chrono::steady_clock::now();
-        const fx::Occluders occluders(positions, indices);
+        // Only what the rays from the cells can reach (params.lo..hi, when the place gives them): a backdrop is left out.
+        std::optional<fx::Box> within;
+        if (params.lo[0] < params.hi[0])
+        {
+            const fx::Vec3 corners[2] = {params.lo, params.hi};
+            within = fx::BoundsOf(corners, params.reach);
+        }
+        const fx::Occluders occluders(positions, indices, within);
+        LogExcluded("visibility", name, occluders);
         job->volume = fx::BakeVisibility(occluders, positions, indices, params);
         const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
         if (job->volume.Empty())

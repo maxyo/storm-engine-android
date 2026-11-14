@@ -31,11 +31,24 @@ namespace storm::fx
 // logged as an error so that a location of that size is seen (its rays get slower).
 inline constexpr size_t kMaxOccluderCells = size_t(1) << 22;
 
-// Triangles on a uniform grid for any-hit rays (3D DDA); `cell` in metres, grown under kMaxOccluderCells.
+// The farthest any ray over an Occluders runs towards the sun (the town light's sun and walls, the bounce's sun).
+inline constexpr float kSunRayReach = 300.0f;
+
+struct Box
+{
+    Vec3 lo{}, hi{};
+};
+// The box of `points` grown by `margin` on every side (empty points: an empty box, lo > hi).
+Box BoundsOf(std::span<const Vec3> points, float margin);
+
+// Triangles on a uniform grid for any-hit rays (3D DDA), cells of 2 m grown under kMaxOccluderCells.
+// `within`: the region the rays start in grown by their reach: triangles wholly outside it are left out (Excluded,
+// a backdrop island kilometres away cannot shade the place and would only coarsen the grid) and the grid covers no
+// more than it; a ray from outside it hits nothing.
 class Occluders
 {
   public:
-    Occluders(std::span<const Vec3> positions, std::span<const uint32_t> indices, float cell = 2.0f);
+    Occluders(std::span<const Vec3> positions, std::span<const uint32_t> indices, std::optional<Box> within = std::nullopt);
     // Triangles whose texture's alpha cuts holes (foliage, nets): a ray passes where the mask at the hit is at or
     // below the material's reference, as the colour pass's alpha test lets the background through (fx/cutout.hpp).
     struct Cut
@@ -45,8 +58,13 @@ class Occluders
     };
     // `uvs` per position; `cut` per triangle (an empty mask: solid).
     Occluders(std::span<const Vec3> positions, std::span<const uint32_t> indices, std::span<const std::array<float, 2>> uvs,
-              std::vector<Cut> cut, float cell = 2.0f);
+              std::vector<Cut> cut, std::optional<Box> within = std::nullopt);
     bool Empty() const { return triangles_ == 0; }
+    // Triangles left out (outside `within`) and the box they span (empty when none).
+    size_t Excluded() const { return excluded_; }
+    const Box &ExcludedBounds() const { return excluded_bounds_; }
+    // `point` lies inside the grid (rays from outside it hit nothing).
+    bool Covers(const Vec3 &point) const;
     // Per-thread state of the rays (the triangles a ray tested already).
     struct Scratch
     {
@@ -75,6 +93,8 @@ class Occluders
     size_t triangles_ = 0;
     Vec3 lo_{}, hi_{};
     float cell_ = 2.0f;
+    size_t excluded_ = 0;
+    Box excluded_bounds_{};
     int n_[3] = {0, 0, 0};
     std::vector<uint32_t> start_, items_; // triangle numbers per cell (CSR)
     std::vector<std::array<float, 2>> uvs_;
