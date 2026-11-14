@@ -61,6 +61,7 @@ class WdmCamera
     float elasticAy;
 
     bool isFreeMode;
+    float freeHeight; // the free camera's eye height: the game's (GetHightHeight), lowered by a pinch on Android
     float lastAng;
     glm::vec3 bndPos;
     float kBlendPos;

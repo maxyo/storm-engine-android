@@ -44,6 +44,7 @@ WdmCamera::WdmCamera()
     hgh = pos.y;
     kBlendPos = 1.0f;
     lock = false;
+    freeHeight = pos.y; // set on entering the free mode (Move)
 }
 
 WdmCamera::~WdmCamera()
@@ -90,6 +91,7 @@ void WdmCamera::Move(float dltTime, VRenderer *rs)
     {
         if (freeMode)
         {
+            GetHightHeight(freeHeight); // the game's height of the free camera, from which the pinch lowers it
             lastAng = this->ang.y;
             this->ang.y = ang.y + elasticAy;
         }
@@ -134,11 +136,16 @@ void WdmCamera::Move(float dltTime, VRenderer *rs)
     }
     // The pinch of the camera look (platform/android_camera_zoom.hpp) moves the height the wheel
     // moves (WMapForward / WMapBackward), along the same line of sight and within the same
-    // limits, as many times lower as the fingers spread. The free camera has no zoom
-    // (GetHightHeight), so a pinch there reaches no camera and is reported.
-    if (float freeHeight; !GetHightHeight(freeHeight))
-        if (const float scale = storm::android::cameraZoom.take(); scale != 1.0f)
+    // limits, as many times lower as the fingers spread. The free camera, which has no wheel zoom
+    // on the PC (one height, GetHightHeight), is lowered from that height down to the follow
+    // camera's lowest: the map can be panned at every zoom.
+    if (const float scale = storm::android::cameraZoom.take(); scale != 1.0f)
+    {
+        if (float top; GetHightHeight(top))
+            freeHeight = storm::android::pinchDistance(freeHeight, scale, WDM_CAMERA_HEIGHT_MIN, top);
+        else
             zoomspd += (pos.y - storm::android::pinchDistance(pos.y, scale, WDM_CAMERA_HEIGHT_MIN, WDM_CAMERA_HEIGHT_MAX)) / snX;
+    }
 #endif
     // The point at height 0 at which we are looking relative to the current camera position
     const auto cx = sn * pos.y * csX / snX;
@@ -196,10 +203,10 @@ void WdmCamera::Move(float dltTime, VRenderer *rs)
     // Set the new camera position
     float height;
     k = dltTime * 2000.0f;
-    if (!GetHightHeight(height))
-    {
+    if (GetHightHeight(height))
+        height = freeHeight;
+    else
         height = pos.y;
-    }
     if (realHeight <= height)
     {
         realHeight += k;
