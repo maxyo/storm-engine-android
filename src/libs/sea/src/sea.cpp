@@ -12,12 +12,19 @@
 #include "tga.h"
 #include "v_file_service.h"
 
+#include <fmt/format.h>
+#include <spdlog/spdlog.h>
+
 CREATE_CLASS(SEA)
 
 //#define OLD_WORLD_POS
 
 #define NUM_VERTEXS 65500
 #define NUM_INDICES 165000
+// The sea is drawn with 16-bit indices. FitBlocksToBuffer keeps every block's vertex grid ((size0 + 1)^2 points, the
+// pIndices entries) within NUM_VERTEXS, hence its 2 * size0^2 triangles within the index buffer.
+static_assert(NUM_VERTEXS <= 65536, "sea vertices are indexed with uint16_t");
+static_assert(2 * NUM_VERTEXS <= NUM_INDICES, "the triangles of NUM_VERTEXS grid points must fit the index buffer");
 
 #define FRAMES 64
 #define XWIDTH 128
@@ -116,6 +123,9 @@ SEA::SEA()
 
 SEA::~SEA()
 {
+    if (dwFramesCut)
+        spdlog::warn("sea: in {} frames the farthest blocks did not fit the vertex buffer, at most {} blocks at once",
+                     dwFramesCut, dwMostBlocksCut);
     ReleaseTargets();
     rs->TextureRelease(volumeTexture);
 
@@ -893,13 +903,55 @@ float SEA::WaveXZ(float x, float z, glm::vec3 *pNormal)
     return fRes;
 }
 
+// Orders the blocks far to near (coarse LOD first, PrepareIndicesForBlock stitches each block to the coarser ones
+// before it) and drops the farthest ones whose vertices do not fit the buffer. A block of size0 cells a side takes
+// (size0 + 1)^2 grid points (pIndices) and writes at most as many vertices (fewer when it shares an edge).
+void SEA::FitBlocksToBuffer()
+{
+    const auto distance2 = [this](const SeaBlock &block) {
+        const float size = fGridStep * static_cast<float>(block.iSize);
+        const float x1 = vSeaCenterPos.x + static_cast<float>(block.iTX) * size;
+        const float z1 = vSeaCenterPos.z + static_cast<float>(block.iTY) * size;
+        const float dx = std::clamp(vCamPos.x, x1, x1 + size) - vCamPos.x;
+        const float dz = std::clamp(vCamPos.z, z1, z1 + size) - vCamPos.z;
+        return dx * dx + dz * dz;
+    };
+    std::sort(aBlocks.begin(), aBlocks.end(), [&distance2](const SeaBlock &a, const SeaBlock &b) {
+        return a.iLOD != b.iLOD ? a.iLOD > b.iLOD : distance2(a) > distance2(b);
+    });
+
+    int32_t points = 0;
+    auto first = aBlocks.size(); // the farthest block that is kept
+    while (first > 0)
+    {
+        const int32_t side = aBlocks[first - 1].iSize0 + 1;
+        if (points + side * side > NUM_VERTEXS)
+            break;
+        points += side * side;
+        --first;
+    }
+    if (first == 0)
+        return;
+
+    if (dwFramesCut++ == 0)
+        spdlog::warn("sea: the {} visible blocks need more than the {} vertices of the sea's buffer; the farthest {} "
+                     "are not drawn (the frames are counted when the sea goes)",
+                     aBlocks.size(), NUM_VERTEXS, first);
+    dwMostBlocksCut = std::max(dwMostBlocksCut, static_cast<uint32_t>(first));
+    aBlocks.erase(aBlocks.begin(), aBlocks.begin() + static_cast<std::ptrdiff_t>(first));
+}
+
 void SEA::PrepareIndicesForBlock(uint32_t dwBlockIndex)
 {
     SeaBlock *pB = &aBlocks[dwBlockIndex];
 
     const float fStep = fGridStep * static_cast<float>(1 << pB->iLOD);
-    float fSize = fGridStep * pB->iSize;
     int32_t x, y, size0 = pB->iSize >> pB->iLOD;
+    // FitBlocksToBuffer keeps these within the buffers; past them the 16-bit indices and the buffers would overflow.
+    if (iIStart + (size0 + 1) * (size0 + 1) > NUM_VERTEXS || iTStart + 2 * size0 * size0 > NUM_INDICES)
+        throw std::runtime_error(fmt::format("sea: block {} ({} cells a side) does not fit the buffers: {} of {} grid "
+                                             "points, {} of {} triangles taken",
+                                             dwBlockIndex, size0, iIStart, NUM_VERTEXS, iTStart, NUM_INDICES));
 
     pB->iIStart = iIStart;
 
@@ -1344,20 +1396,9 @@ void SEA::Realize(uint32_t dwDeltaTime)
 
     aBlocks.clear();
     BuildTree(0, 0, 0);
-    // aBlocks.QSort(SeaBlock::QSort);
-    std::sort(aBlocks.begin(), aBlocks.end(), SeaBlock::QSort);
+    FitBlocksToBuffer();
 
     uint32_t i;
-    int32_t iNumVPoints = 0;
-    for (i = 0; i < aBlocks.size(); i++)
-    {
-        iNumVPoints += aBlocks[i].iSize0 * aBlocks[i].iSize0;
-        if (iNumVPoints >= NUM_VERTEXS)
-        {
-            aBlocks.erase(aBlocks.begin() + i, aBlocks.end());
-            break;
-        }
-    }
 
     auto *pVSea2 = static_cast<SeaVertex *>(rs->LockVertexBuffer(iVSeaBuffer, D3DLOCK_DISCARD | D3DLOCK_NOSYSLOCK));
     pTriangles = static_cast<uint16_t *>(rs->LockIndexBuffer(iISeaBuffer, D3DLOCK_DISCARD | D3DLOCK_NOSYSLOCK));

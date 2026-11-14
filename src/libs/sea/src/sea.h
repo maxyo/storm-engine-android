@@ -40,16 +40,6 @@ class SEA : public SEA_BASE
         int32_t iIFirst, iILast;
 
         bool bInProgress, bDone;
-
-        static bool QSort(const SeaBlock &b1, const SeaBlock &b2)
-        {
-            return (b1.iLOD > b2.iLOD);
-        }
-
-        inline bool operator<(const SeaBlock &B) const
-        {
-            return (B.iLOD < iLOD);
-        };
     };
 
     struct SeaTrash
@@ -106,6 +96,8 @@ class SEA : public SEA_BASE
     uint16_t *pTriangles;
     uint32_t *pIndices;
     int32_t iVStart, iTStart, iIStart;
+    // frames whose farthest blocks did not fit the vertex buffer (FitBlocksToBuffer), reported at the end
+    uint32_t dwFramesCut = 0, dwMostBlocksCut = 0;
 
     PLANE *pFrustumPlanes;
     uint32_t dwNumFrustumPlanes;
@@ -174,6 +166,7 @@ class SEA : public SEA_BASE
     [[deprecated]] void WaveXZBlock(SeaBlock &pB);
     void SSE_WaveXZBlock(SeaBlock &pB);
     SeaBlock *GetUndoneBlock();
+    void FitBlocksToBuffer();
     void PrepareIndicesForBlock(uint32_t dwBlockIndex);
 
     int32_t VisCode(const glm::vec3 &vP);
