@@ -135,10 +135,11 @@ Occluders::Occluders(std::span<const Vec3> positions, std::span<const uint32_t> 
     while (cells_for(cell_) > static_cast<double>(kMaxOccluderCells))
         cell_ *= 1.25f;
     if (cell_ != asked)
-        Log(LogLevel::Error,
+        Log(cell_ > kOccluderQuietCell ? LogLevel::Error : LogLevel::Info,
             "occluders: %zu triangles over %.0f x %.0f x %.0f m would take %.0f cells of %.2f m, more than the cap of "
-            "%zu: cells of %.2f m instead (the same hits, slower rays)",
-            triangles_, hi_[0] - lo_[0], hi_[1] - lo_[1], hi_[2] - lo_[2], asked_cells, asked, kMaxOccluderCells, cell_);
+            "%zu: cells of %.2f m instead (the same hits, slower rays)%s",
+            triangles_, hi_[0] - lo_[0], hi_[1] - lo_[1], hi_[2] - lo_[2], asked_cells, asked, kMaxOccluderCells, cell_,
+            cell_ > kOccluderQuietCell ? "; larger than any town with the sun's reach around it needs" : "");
     for (int k = 0; k < 3; ++k)
     {
         lo_[k] -= cell_;

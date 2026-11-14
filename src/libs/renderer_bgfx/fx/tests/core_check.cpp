@@ -2011,6 +2011,21 @@ void CheckOccluderCap()
     CHECK(errors == 1 && near_hit && far_hit && !between);
 }
 
+void CheckOccluderLargeTown()
+{
+    // Charles_town's box with the sun's reach around it, 814 x 268 x 792 m: larger cells than 2 m (logged), no error.
+    const std::vector<Vec3> positions = {{0.0f, 0.0f, 0.0f},     {0.0f, 0.0f, 1.0f},     {1.0f, 0.0f, 0.0f},
+                                         {814.0f, 268.0f, 792.0f}, {813.0f, 268.0f, 792.0f}, {814.0f, 268.0f, 791.0f}};
+    const std::vector<uint32_t> indices = {0, 1, 2, 3, 4, 5};
+    static int errors = 0, infos = 0;
+    errors = infos = 0;
+    SetLogSink([](LogLevel level, const char *) { ++(level == LogLevel::Error ? errors : infos); });
+    const Occluders occluders(positions, indices);
+    SetLogSink(nullptr);
+    std::printf("occluder large town: %d error(s), %d info line(s)\n", errors, infos);
+    CHECK(errors == 0 && infos == 1);
+}
+
 void CheckBounce()
 {
     // A 40 x 40 m red ground and a grey wall 10 m high along z at x 5..5.3; the sun 60° up from -x lights the ground
@@ -2215,6 +2230,7 @@ int main()
     CheckBakeCancel();
     CheckBakeLoads();
     CheckOccluderCap();
+    CheckOccluderLargeTown();
     CheckOccluderBackdrop();
     CheckBounce();
     CheckSeaWaves();

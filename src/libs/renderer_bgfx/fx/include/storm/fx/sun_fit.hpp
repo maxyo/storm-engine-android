@@ -27,9 +27,12 @@
 namespace storm::fx
 {
 
-// The most cells an Occluders grid takes (16 MB kept, 48 MB while it is built): a larger box gets larger cells,
-// logged as an error so that a location of that size is seen (its rays get slower).
+// The most cells an Occluders grid takes (16 MB kept, 48 MB while it is built): a larger box gets larger cells (the
+// same hits, slower rays). A large town with the sun's reach around it (Charles_town: 814 x 268 x 792 m) takes cells
+// of up to kOccluderQuietCell, logged; a box that needs larger ones is logged as an error, so that it is seen.
 inline constexpr size_t kMaxOccluderCells = size_t(1) << 22;
+inline constexpr float kOccluderCell = 2.0f;      // metres
+inline constexpr float kOccluderQuietCell = 4.0f; // metres
 
 // The farthest any ray over an Occluders runs towards the sun (the town light's sun and walls, the bounce's sun).
 inline constexpr float kSunRayReach = 300.0f;
@@ -92,7 +95,7 @@ class Occluders
     std::vector<uint32_t> indices_;
     size_t triangles_ = 0;
     Vec3 lo_{}, hi_{};
-    float cell_ = 2.0f;
+    float cell_ = kOccluderCell;
     size_t excluded_ = 0;
     Box excluded_bounds_{};
     int n_[3] = {0, 0, 0};
