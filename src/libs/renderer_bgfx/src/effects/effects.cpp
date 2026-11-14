@@ -5,6 +5,7 @@
 #include "effects/casters.hpp"
 #include "effects/texture_pixels.hpp"
 #include "shim/device.hpp"
+#include "storm/fx/bakes.hpp"
 #include "storm/fx/capabilities.hpp"
 #include "storm/fx/cutout.hpp"
 #include "storm/fx/color_lut.hpp"
@@ -278,6 +279,7 @@ void Host::shutdown()
     bounce_.shutdown();
     visibility_.shutdown();
     lighting_.set_visibility(nullptr);
+    fx::ShutdownBakes(); // the bakes above were let go of: cancelled, the bake thread joined (at once, also while hot)
     device_ready_ = false;
 }
 
@@ -618,6 +620,9 @@ void Host::end_frame(bool scene_frame, uint32_t frame)
     lighting_.set_ao_volume(ao_bound_);
     {
         // The visibility volume and the bounce in its second block, for the next frame's draws.
+        // Read by the lit draws only (and through them by the bounce and the town walls, which need per-pixel
+        // lighting): Низкая has none, so it bakes none.
+        visibility_.set_enabled((settings_.lighting_flags & (fx::kLightingPerPixel | fx::kLightingPoint)) != 0);
         const Visibility::Bound *volume = visibility_.update();
         TownLight &town = lighting_.town_light();
         town.set_bounce_scene(settings_.bounce ? bounce_.scene() : nullptr);

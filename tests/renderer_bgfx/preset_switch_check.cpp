@@ -28,6 +28,8 @@
 
 #include <bgfx/bgfx.h>
 
+#include <array>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -432,6 +434,39 @@ int main()
             ok &= expect(render::GamePictureHeld(), "... the next 3D frame is kept");
         }
         render::HoldGamePicture(false);
+        {
+            // A location's visibility bake runs only while something reads it: none on «Низкая» (no lit draw reads
+            // the volume), the bake on «Высокая».
+            const std::vector<std::array<float, 3>> points = {{-4.0f, 0.0f, -4.0f}, {4.0f, 0.0f, -4.0f}, {4.0f, 0.0f, 4.0f},
+                                                              {-4.0f, 0.0f, 4.0f},  {-4.0f, 3.0f, -4.0f}, {4.0f, 3.0f, -4.0f},
+                                                              {4.0f, 3.0f, 4.0f},   {-4.0f, 3.0f, 4.0f}};
+            const std::vector<uint32_t> triangles = {0, 1, 2, 0, 2, 3, 4, 6, 5, 4, 7, 6}; // a floor and a roof
+            render::EffectsLocationGeometry geometry;
+            geometry.name = "preset_switch_check";
+            geometry.collision_positions = points;
+            geometry.collision_indices = triangles;
+            Frames frames(*device);
+            render::ConfigureEffects(0, {});
+            for (int i = 0; i < kMaxSwitchFrames && render::CurrentEffects().pending; ++i)
+                frames.render();
+            render::SetEffectsLocationGeometry(geometry);
+            const effects::Visibility &visibility = effects::Host::instance().visibility();
+            auto frames_until_ready = [&](std::chrono::milliseconds limit) {
+                const auto until = std::chrono::steady_clock::now() + limit;
+                while (visibility.state() != effects::Visibility::State::Ready && std::chrono::steady_clock::now() < until)
+                    frames.render();
+                return visibility.state();
+            };
+            ok &= expect(frames_until_ready(std::chrono::milliseconds(1500)) == effects::Visibility::State::Building,
+                         "«Низкая»: the location's visibility is not baked (nothing reads it)");
+            render::ConfigureEffects(2, {});
+            ok &= expect(frames_until_ready(std::chrono::seconds(20)) == effects::Visibility::State::Ready,
+                         "«Высокая»: the location's visibility is baked");
+            render::SetEffectsLocationGeometry({});
+            render::ConfigureEffects(0, {});
+            for (int i = 0; i < kMaxSwitchFrames && render::CurrentEffects().pending; ++i)
+                frames.render();
+        }
         device->Release();
     }
     SDL_DestroyWindow(window);

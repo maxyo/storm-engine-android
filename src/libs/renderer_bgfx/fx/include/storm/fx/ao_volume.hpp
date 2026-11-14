@@ -84,8 +84,8 @@ uint64_t AoBakeKey(const AoGeometry &geometry, const AoBakeParams &params);
 
 // Bakes the volume over the bounding box of `geometry` (limited to the bounds) grown by one cell on every side.
 // Empty volume for empty geometry or geometry outside the bounds. Measured on the (heavily loaded) development host
-// with 8 threads: Tavern01 (43 k vertices, 272 k cells) 0.65 s, StoreSmall 1.3 s; the renderer bakes on a texture
-// worker and caches the result.
+// with 8 threads: Tavern01 (43 k vertices, 272 k cells) 0.65 s, StoreSmall 1.3 s; the renderer bakes on its bake thread
+// (bakes.hpp) and caches the result.
 AoVolume BakeAoVolume(const AoGeometry &geometry, const AoBakeParams &params);
 
 // Disk cache format (little endian): "SAOV", version, key, size, origin, cell, cells. Decode returns nothing and

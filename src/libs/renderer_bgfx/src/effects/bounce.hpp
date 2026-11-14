@@ -3,7 +3,7 @@
 // The place's drawn still geometry (render::SetEffectsLocationGeometry: its triangles, texture coordinates and textures)
 // and the visibility volume's grid make the scene: surfels with their textures' colours and the rays of a lattice over
 // the cells, read from the texture cache directory (the app's cache: an entry that is gone is baked again, and said)
-// or baked on a texture worker. Then, on a worker:
+// or baked on the bake thread (fx::PostBake). Then, there too:
 //   * the sun's light on the surfels whenever the hour's sun has moved by kSunStepDegrees (in a town our own town
 //     light bakes it with its lightmaps' sun, TownLight::sun_bounce, so both step together), for a white sun: the
 //     weather's colour scales it when it is written;
@@ -15,6 +15,7 @@
 
 #include "effects/visibility.hpp"
 
+#include "storm/fx/bakes.hpp"
 #include "storm/fx/bounce.hpp"
 #include "storm/render/effects.hpp"
 
@@ -86,10 +87,10 @@ class Bounce
     std::vector<fx::Occluders::Cut> cut_;
     uint32_t unreadable_textures_ = 0;
     fx::BounceGrid grid_{};
-    std::shared_ptr<SceneJob> scene_job_;
+    fx::Bake<SceneJob> scene_job_;
     std::shared_ptr<const Scene> scene_;
     bool failed_ = false;
-    std::shared_ptr<LightJob> light_job_;
+    fx::Bake<LightJob> light_job_;
     std::shared_ptr<const fx::BounceField> sun_field_, lamp_field_;
     std::array<float, 3> sun_baked_{0.0f, 0.0f, 0.0f}; // the direction sun_field_ is for (0: none)
     std::array<float, 3> color_written_{-1.0f, -1.0f, -1.0f};

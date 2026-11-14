@@ -4,18 +4,8 @@
 
 #include <algorithm>
 #include <cmath>
-#include <atomic>
-#include <chrono>
-#include <mutex>
 #include <optional>
-#include <thread>
 #include <utility>
-
-#if defined(__linux__)
-#include <sys/resource.h>
-#include <sys/syscall.h>
-#include <unistd.h>
-#endif
 
 namespace storm::fx
 {
@@ -46,88 +36,6 @@ Vec3 Direction(float azimuth_deg, float elevation_deg)
 
 } // namespace
 
-namespace
-{
-std::atomic<bool (*)()> g_hot{nullptr};
-std::mutex g_pause;
-bool g_paused = false;
-std::chrono::steady_clock::time_point g_paused_at;
-std::atomic<int> g_pause_ms{5000};
-
-// Between two pieces of a bake: while the device is hot every bake thread waits, the pause logged once.
-void ThermalGate()
-{
-    bool (*hot)() = g_hot.load();
-    if (!hot || !hot())
-        return;
-    for (;;)
-    {
-        {
-            std::lock_guard lock(g_pause);
-            if (!hot())
-            {
-                if (g_paused)
-                {
-                    g_paused = false;
-                    Log(LogLevel::Info, "ray bakes resumed after %.1f s: the device cooled down",
-                        std::chrono::duration<double>(std::chrono::steady_clock::now() - g_paused_at).count());
-                }
-                return;
-            }
-            if (!g_paused)
-            {
-                g_paused = true;
-                g_paused_at = std::chrono::steady_clock::now();
-                Log(LogLevel::Info, "ray bakes paused: the device is hot (thermal status MODERATE or higher)");
-            }
-        }
-        std::this_thread::sleep_for(std::chrono::milliseconds(g_pause_ms.load()));
-    }
-}
-} // namespace
-
-void SetBakeThermal(bool (*hot)(), int pause_ms)
-{
-    g_hot = hot;
-    g_pause_ms = pause_ms;
-}
-
-void ParallelRanges(size_t count, unsigned threads, const std::function<void(size_t, size_t)> &work, size_t min_piece)
-{
-    min_piece = std::max<size_t>(1, min_piece);
-    threads = std::max(1u, std::min<unsigned>(threads, static_cast<unsigned>(std::max<size_t>(1, count / min_piece))));
-    // Pieces of at least min_piece items, about 16 per thread, taken in turn: the thermal gate sits between them.
-    const size_t piece = std::max<size_t>(min_piece, (count + threads * 16 - 1) / (threads * 16));
-    std::atomic<size_t> next{0};
-    auto run = [&] {
-        for (;;)
-        {
-            const size_t first = next.fetch_add(piece);
-            if (first >= count)
-                return;
-            ThermalGate();
-            work(first, std::min(count, first + piece));
-        }
-    };
-    std::vector<std::thread> pool;
-    for (unsigned t = 1; t < threads; ++t)
-        pool.emplace_back([&] {
-#if defined(__linux__)
-            setpriority(PRIO_PROCESS, static_cast<id_t>(syscall(SYS_gettid)), 10);
-#endif
-            run();
-        });
-    run();
-    for (std::thread &th : pool)
-        th.join();
-}
-
-unsigned BakeThreads()
-{
-    const unsigned cores = std::thread::hardware_concurrency();
-    return cores > 2 ? cores - 2 : 1;
-}
-
 Occluders::Occluders(std::span<const Vec3> positions, std::span<const uint32_t> indices,
                      std::span<const std::array<float, 2>> uvs, std::vector<Cut> cut, float cell)
     : Occluders(positions, indices, cell)
@@ -153,6 +61,23 @@ Occluders::Occluders(std::span<const Vec3> positions, std::span<const uint32_t> 
             lo_[k] = std::min(lo_[k], positions_[i][k]);
             hi_[k] = std::max(hi_[k], positions_[i][k]);
         }
+    // The grid's cells over the box with a cell of margin: grown while there are more than kMaxOccluderCells (each
+    // costs 12 bytes while it is built), which only changes how many triangles a ray step tests, not what it hits.
+    auto cells_for = [&](float cell) {
+        double total = 1.0;
+        for (int k = 0; k < 3; ++k)
+            total *= std::floor((hi_[k] - lo_[k]) / cell + 2.0) + 1.0;
+        return total;
+    };
+    const float asked = cell_;
+    const double asked_cells = cells_for(asked);
+    while (cells_for(cell_) > static_cast<double>(kMaxOccluderCells))
+        cell_ *= 1.25f;
+    if (cell_ != asked)
+        Log(LogLevel::Error,
+            "occluders: %zu triangles over %.0f x %.0f x %.0f m would take %.0f cells of %.2f m, more than the cap of "
+            "%zu: cells of %.2f m instead (the same hits, slower rays)",
+            triangles_, hi_[0] - lo_[0], hi_[1] - lo_[1], hi_[2] - lo_[2], asked_cells, asked, kMaxOccluderCells, cell_);
     for (int k = 0; k < 3; ++k)
     {
         lo_[k] -= cell_;

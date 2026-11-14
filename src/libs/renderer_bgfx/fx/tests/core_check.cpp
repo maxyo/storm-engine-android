@@ -32,6 +32,7 @@
 #include <cmath>
 #include <cstdio>
 #include <map>
+#include <thread>
 #include <vector>
 
 using namespace storm::fx;
@@ -1823,6 +1824,91 @@ void CheckBakeThermal()
     CHECK(pieces.load() == 8);
 }
 
+bool AlwaysHot()
+{
+    return true;
+}
+
+template <class Done> bool WaitFor(Done done)
+{
+    const auto until = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+    while (!done() && std::chrono::steady_clock::now() < until)
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    return done();
+}
+
+double MsSince(std::chrono::steady_clock::time_point t)
+{
+    return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t).count();
+}
+
+void CheckBakeCancel()
+{
+    // The bakes run on their own thread: a bake in the thermal pause (the device stays hot, the pause a minute) is
+    // woken and stopped when its owner lets go of it, a bake queued behind it and let go of never runs, the next one
+    // runs at once; ShutdownBakes stops a paused bake and returns at once; a bake posted after it runs again.
+    SetBakeThermal(&AlwaysHot, 60000);
+    std::atomic<bool> started{false}, finished{false}, queued_ran{false}, marker{false};
+    std::atomic<int> pieces{0};
+    auto paused_bake = [&] {
+        started = true;
+        ParallelRanges(1000, 2, [&](size_t, size_t) { ++pieces; }, 1);
+        finished = true; // not reached: ParallelRanges throws BakeCancelled
+    };
+    BakeTicket paused = PostBake("check: paused", paused_bake);
+    BakeTicket queued = PostBake("check: queued", [&] { queued_ran = true; });
+    CHECK(WaitFor([&] { return started.load(); }));
+    std::this_thread::sleep_for(std::chrono::milliseconds(50)); // in the pause by now
+    queued.reset();
+    auto t = std::chrono::steady_clock::now();
+    paused.reset();
+    BakeTicket next = PostBake("check: next", [&] { marker = true; });
+    CHECK(WaitFor([&] { return marker.load(); }));
+    const double cancel_ms = MsSince(t);
+    std::printf("bake cancel: the paused bake let go of, the next one ran after %.0f ms; %d pieces, queued ran %d\n",
+                cancel_ms, pieces.load(), queued_ran.load() ? 1 : 0);
+    CHECK(!finished && pieces == 0 && !queued_ran && cancel_ms < 2000.0);
+
+    started = false;
+    BakeTicket again = PostBake("check: paused at shutdown", paused_bake);
+    CHECK(WaitFor([&] { return started.load(); }));
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    t = std::chrono::steady_clock::now();
+    ShutdownBakes();
+    const double shutdown_ms = MsSince(t);
+    std::printf("bake shutdown with a bake in the thermal pause: %.0f ms\n", shutdown_ms);
+    CHECK(!finished && pieces == 0 && shutdown_ms < 2000.0);
+    SetBakeThermal(nullptr);
+
+    marker = false;
+    next = PostBake("check: after the shutdown", [&] { marker = true; });
+    CHECK(WaitFor([&] { return marker.load(); }));
+    ShutdownBakes();
+}
+
+void CheckOccluderCap()
+{
+    // Two triangles 20 km apart (and 500 m up): 2 m cells would be 2.5e10; the grid is capped at kMaxOccluderCells
+    // with larger cells (logged), and the rays hit what they hit with the asked cells.
+    const std::vector<Vec3> positions = {{0.0f, 0.0f, 0.0f},         {0.0f, 0.0f, 1.0f},         {1.0f, 0.0f, 0.0f},
+                                         {20000.0f, 500.0f, 20000.0f}, {20000.0f, 500.0f, 20001.0f}, {20001.0f, 500.0f, 20000.0f}};
+    const std::vector<uint32_t> indices = {0, 1, 2, 3, 4, 5};
+    int errors = 0;
+    static int *g_errors = nullptr;
+    g_errors = &errors;
+    SetLogSink([](LogLevel level, const char *) { *g_errors += level == LogLevel::Error ? 1 : 0; });
+    const Occluders occluders(positions, indices);
+    SetLogSink(nullptr);
+    Occluders::Scratch scratch;
+    const Vec3 down{0.0f, -1.0f, 0.0f};
+    const bool near_hit = occluders.Occluded({0.2f, 5.0f, 0.2f}, down, 10.0f, scratch);
+    const bool far_hit = occluders.Occluded({20000.2f, 505.0f, 20000.2f}, down, 10.0f, scratch);
+    const bool between = occluders.Occluded({5000.0f, 505.0f, 5000.0f}, down, 600.0f, scratch);
+    std::printf("occluder cap: %d error line(s), hits %d %d, between %d\n", errors, near_hit ? 1 : 0, far_hit ? 1 : 0,
+                between ? 1 : 0);
+    CHECK(errors == 1 && near_hit && far_hit && !between);
+}
+
 void CheckBounce()
 {
     // A 40 x 40 m red ground and a grey wall 10 m high along z at x 5..5.3; the sun 60° up from -x lights the ground
@@ -2024,6 +2110,8 @@ int main()
     CheckTownLight();
     CheckVisibility();
     CheckBakeThermal();
+    CheckBakeCancel();
+    CheckOccluderCap();
     CheckBounce();
     CheckSeaWaves();
     CheckGlossMaps();

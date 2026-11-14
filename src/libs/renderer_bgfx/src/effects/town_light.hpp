@@ -1,13 +1,14 @@
 // Our own lightmaps for the towns (fx/town_light.hpp), in place of the game's on Средняя / Высокая.
 //
 // When an outdoor place is loaded the location reports its lightmapped triangles and lightmaps
-// (render::SetEffectsLightmaps) and its still geometry (render::SetEffectsLocationGeometry). On a worker, once per
-// place (cached on disk): each lightmap's texels, the sky's visibility on them, the direction the game's lightmaps
+// (render::SetEffectsLightmaps) and its still geometry (render::SetEffectsLocationGeometry). On the bake thread
+// (fx::PostBake), once per place (cached on disk): each lightmap's texels, the sky's visibility on them, the direction the game's lightmaps
 // were baked with (fx::FitBakedSun) and their tone (fx::CalibrateTownLight). Then, whenever the sun of the hour has
-// moved by kSunStepDegrees, its visibility on the texels for the new direction, again on a worker; the lightmap
+// moved by kSunStepDegrees, its visibility on the texels for the new direction, again there; the lightmap
 // blends from the last direction to the new one over kBlendSeconds and is uploaded to our own texture. A draw that
 // samples one of the game's lightmaps samples ours instead at the same stage (Lighting::prepare / submit): one texture
-// fetch as before. Until the first bake of a place is done, and on Низкая, the game's lightmaps stay.
+// fetch as before. Until the first bake of a place is done, and on Низкая, the game's lightmaps stay; nothing is baked
+// while fx_town_light is off (Низкая), and switching it off cancels the bakes still running.
 //
 // With the bounce (set_bounce_scene, effects/bounce.hpp) each sun bake also gathers the sun's bounce field for the same
 // direction and reads it on the texels: the light the lit surfaces around reflect adds to the sun's on our lightmap,
@@ -40,7 +41,8 @@ namespace storm::effects
 class TownLight
 {
   public:
-    void set_enabled(bool enabled) { enabled_ = enabled; }
+    // Off: the bakes still running are cancelled and no new one starts; on: the place's bake starts if it is missing.
+    void set_enabled(bool enabled);
     // Debug view (option fx_town_light_debug): our lightmap shows the sun's visibility it holds (grey) in place of
     // the relit paint, to prove where the hour's sun reaches.
     void set_debug(bool debug);
@@ -85,7 +87,7 @@ class TownLight
     struct Map
     {
         const shim::TexStore *store = nullptr; // the game's lightmap (its texture) this one replaces
-        std::shared_ptr<const fx::LightmapTexels> texels; // shared with the sun jobs on the worker
+        std::shared_ptr<const fx::LightmapTexels> texels; // shared with the sun jobs on the bake thread
         std::vector<uint8_t> game;   // its RGBA8 texels at texels' size
         std::vector<uint8_t> sky;    // per texel
         std::vector<uint8_t> baked;  // per texel: the sun's visibility along the direction the game's was baked with
@@ -101,6 +103,7 @@ class TownLight
         std::vector<Map> maps;
         fx::SunFit bake;
         std::string how;
+        std::shared_ptr<const fx::Occluders> occluders; // the place's still geometry, built once for all its bakes
     };
     struct SunJob
     {
@@ -131,8 +134,8 @@ class TownLight
     std::vector<uint32_t> occluder_indices_;
     std::vector<std::array<float, 2>> occluder_uvs_;
     std::vector<fx::Occluders::Cut> occluder_cut_;
-    std::shared_ptr<PlaceJob> place_job_;
-    std::shared_ptr<SunJob> sun_job_;
+    fx::Bake<PlaceJob> place_job_;
+    fx::Bake<SunJob> sun_job_;
     std::vector<Map> maps_;
     std::array<float, 3> sun_baked_{0.0f, 0.0f, 0.0f}; // the direction sun_to was baked for
     std::shared_ptr<const Bounce::Scene> bounce_scene_;
@@ -143,7 +146,7 @@ class TownLight
         fx::TownWallTone wall;
         double ms = 0.0;
     };
-    std::shared_ptr<WallJob> wall_job_;
+    fx::Bake<WallJob> wall_job_;
     std::shared_ptr<const fx::VisibilityVolume> wall_volume_; // a copy of the volume the walls are calibrated with
     fx::TownWallTone wall_;
     fx::TownLightTone wall_light_; // the tone of the first relit lightmap

@@ -112,9 +112,9 @@ void Bounce::restart()
 void Bounce::start_scene(const fx::BounceGrid &grid)
 {
     auto job = std::make_shared<SceneJob>();
-    scene_job_ = job;
     texture::Service &service = texture::Service::instance();
-    service.post([job, name = name_, positions = positions_, uvs = uvs_, indices = indices_, triangle_texture = triangle_texture_,
+    scene_job_.start("bounce scene of " + name_, job,
+                 [job, name = name_, positions = positions_, uvs = uvs_, indices = indices_, triangle_texture = triangle_texture_,
                   textures = textures_, cut = cut_, grid, directory = service.cache_directory()]() mutable {
         const auto started = std::chrono::steady_clock::now();
         auto scene = std::make_shared<Scene>();
@@ -244,7 +244,6 @@ void Bounce::update(Visibility &visibility, const Visibility::Bound *bound, cons
     if (light.town_sun && !given && !sun_field_)
         return; // the town light's first field is on its way
     auto job = std::make_shared<LightJob>();
-    light_job_ = job;
     std::vector<fx::Lamp> lamps = light.lamps ? *light.lamps : std::vector<fx::Lamp>{};
     std::vector<float> holders = light.holders ? *light.holders : std::vector<float>{};
     if (new_sun && !light.town_sun)
@@ -253,7 +252,8 @@ void Bounce::update(Visibility &visibility, const Visibility::Bound *bound, cons
         lamps_baked_ = light.lamp_layout;
     color_written_ = light.sun_color;
     const bool bake_sun = new_sun && !light.town_sun;
-    texture::Service::instance().post([job, scene = scene_, sun_field = new_sun && light.town_sun ? given : sun_field_,
+    light_job_.start("bounce light of " + name_, job,
+                                      [job, scene = scene_, sun_field = new_sun && light.town_sun ? given : sun_field_,
                                        lamp_field = lamp_field_, bake_sun, sun, new_lamps, lamps = std::move(lamps),
                                        holders = std::move(holders), color = light.sun_color] {
         const unsigned threads = Threads();

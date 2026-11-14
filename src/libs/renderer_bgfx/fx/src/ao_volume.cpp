@@ -1,9 +1,10 @@
 #include "storm/fx/ao_volume.hpp"
 
+#include "storm/fx/bakes.hpp"
+
 #include <algorithm>
 #include <cmath>
 #include <cstring>
-#include <thread>
 
 // voxelizer.h's triangle/box overlap test (src/voxelizer_impl.c).
 extern "C" int storm_vx_triangle_box_overlap(const float centre[3], const float half[3], const float a[3], const float b[3],
@@ -346,18 +347,9 @@ AoVolume BakeAoVolume(const AoGeometry &geometry, const AoBakeParams &params)
                     }
                 }
     };
-    const unsigned threads = std::clamp(params.threads, 1u, static_cast<unsigned>(std::max(1, cells.size[2])));
-    if (threads == 1)
-        bake_slices(0, cells.size[2]);
-    else
-    {
-        std::vector<std::thread> workers;
-        for (unsigned i = 0; i < threads; ++i)
-            workers.emplace_back(bake_slices, static_cast<int>(cells.size[2] * i / threads),
-                                 static_cast<int>(cells.size[2] * (i + 1) / threads));
-        for (auto &worker : workers)
-            worker.join();
-    }
+    // Slices in pieces over the bake threads: the thermal pause and the cancel of a bake sit between them.
+    ParallelRanges(static_cast<size_t>(std::max(0, cells.size[2])), std::max(1u, params.threads),
+                   [&](size_t first, size_t last) { bake_slices(static_cast<int>(first), static_cast<int>(last)); }, 1);
 
     // What the volume adds is local: under a table, behind a barrel, in a corner. Where the whole place is narrow or
     // low (a ship's corridor and crew quarters, a hold between its ribs, a hut) the floor one walks on has walls

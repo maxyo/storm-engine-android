@@ -2,12 +2,13 @@
 //
 // The location reports the static geometry of an interior once it is loaded (render::SetEffectsLocationGeometry, from
 // Location's first frame). While the settings ask for the volume, it is read from the texture cache directory or
-// baked on a texture worker (fx::BakeAoVolume, about a second for an interior, the time logged) and
+// baked on the bake thread (fx::PostBake, fx::BakeAoVolume, about a second for an interior, the time logged) and
 // uploaded as an RGBA8 3D texture (four cosine lobes); the lit and baked fixed-function variants sample it. Outdoors, or before the volume is
 // ready, there is none and nothing darkens. A failed bake or upload is logged once per location.
 #pragma once
 
 #include "storm/fx/ao_volume.hpp"
+#include "storm/fx/bakes.hpp"
 
 #include <bgfx/bgfx.h>
 
@@ -52,7 +53,7 @@ class AoVolumes
         };
         std::atomic<int> state{Pending};
         std::string name;
-        fx::AoVolume volume;       // written by the worker before `state` becomes Ready
+        fx::AoVolume volume;       // written by the bake before `state` becomes Ready
         std::string how;           // "cache" or "baked in ... ms": for the log
     };
     void start();
@@ -63,7 +64,7 @@ class AoVolumes
     std::vector<uint32_t> indices_;
     fx::Vec3 bounds_lo_{1.0f, 1.0f, 1.0f}, bounds_hi_{-1.0f, -1.0f, -1.0f};
     std::vector<fx::Vec3> walk_; // points on the floor where one walks (fx::AoBakeParams::walk)
-    std::shared_ptr<Job> job_;
+    fx::Bake<Job> job_;
     bool failure_reported_ = false;
     Bound bound_{};
 };

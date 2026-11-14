@@ -121,9 +121,9 @@ void TownLight::set_lightmaps(std::string_view name, std::span<const std::array<
         return;
     }
     if (!enabled_)
-        shim::logf("effects: town light of %s: baked, but shown only with fx_town_light on (the preset or the option "
-                   "has it off)", name_.c_str());
-    if (occluders_name_ == name_ && !occluder_indices_.empty())
+        shim::logf("effects: town light of %s: not baked while fx_town_light is off (the preset or the option): baked "
+                   "when it is switched on", name_.c_str());
+    else if (occluders_name_ == name_ && !occluder_indices_.empty())
         start_place();
     else
         shim::logf("effects: town light of %s: waiting for the place's still geometry (%s reported)", name_.c_str(),
@@ -140,6 +140,28 @@ void TownLight::set_occluders(std::string_view name, std::span<const std::array<
     occluder_indices_.assign(indices.begin(), indices.end());
     occluder_uvs_.assign(uvs.begin(), uvs.end());
     occluder_cut_ = std::move(cut);
+    if (enabled_ && !indices_.empty() && occluders_name_ == name_ && !occluder_indices_.empty() && !place_job_ && maps_.empty())
+        start_place();
+}
+
+void TownLight::set_enabled(bool enabled)
+{
+    if (enabled == enabled_)
+        return;
+    enabled_ = enabled;
+    if (!enabled_)
+    {
+        // Nothing shows our lightmaps now: the bakes still running are cancelled (what is done stays for the next
+        // switch on); the walls are calibrated again then.
+        place_job_.reset();
+        sun_job_.reset();
+        if (wall_job_)
+        {
+            wall_job_.reset();
+            wall_volume_.reset();
+        }
+        return;
+    }
     if (!indices_.empty() && occluders_name_ == name_ && !occluder_indices_.empty() && !place_job_ && maps_.empty())
         start_place();
 }
@@ -147,13 +169,13 @@ void TownLight::set_occluders(std::string_view name, std::span<const std::array<
 void TownLight::start_place()
 {
     auto job = std::make_shared<PlaceJob>();
-    place_job_ = job;
     // The game's lightmaps' textures, looked up here (main thread): the draws are matched by them.
     std::vector<const shim::TexStore *> stores;
     for (const render::EffectsLightmap &m : lightmaps_)
         stores.push_back(shim::store_of(m.texture));
     texture::Service &service = texture::Service::instance();
-    service.post([job, stores, positions = positions_, uvs = uvs_, indices = indices_, triangle_lightmap = triangle_lightmap_,
+    place_job_.start("town light of " + name_, job,
+                 [job, stores, positions = positions_, uvs = uvs_, indices = indices_, triangle_lightmap = triangle_lightmap_,
                   lightmaps = lightmaps_, occ_positions = occluder_positions_, occ_indices = occluder_indices_,
                   occ_uvs = occluder_uvs_, occ_cut = occluder_cut_,
                   directory = service.cache_directory()] {
@@ -186,7 +208,8 @@ void TownLight::start_place()
         }
         bool sky_cached = sky_entry.blob.has_value(), set_cached = set_entry.blob.has_value();
         double sky_ms = 0.0, fit_ms = 0.0, sun_ms = 0.0;
-        const fx::Occluders occluders(occ_positions, occ_indices, occ_uvs, occ_cut);
+        job->occluders = std::make_shared<const fx::Occluders>(occ_positions, occ_indices, occ_uvs, occ_cut);
+        const fx::Occluders &occluders = *job->occluders;
         const unsigned threads = Threads();
         std::vector<fx::SunFitSample> samples;
         for (size_t m = 0; m < lightmaps.size(); ++m)
@@ -306,7 +329,6 @@ void TownLight::start_sun(const std::array<float, 3> &sun)
     job->sun = sun;
     shim::logf("effects: town light of %s: baking the sun's visibility for (%.3f, %.3f, %.3f), %.1f° up", name_.c_str(),
                sun[0], sun[1], sun[2], std::asin(std::clamp(sun[1], -1.0f, 1.0f)) * 57.29578f);
-    sun_job_ = job;
     std::shared_ptr<const fx::Occluders> occluders = occluders_;
     std::vector<std::shared_ptr<const fx::LightmapTexels>> texels;
     for (const Map &m : maps_)
@@ -315,7 +337,8 @@ void TownLight::start_sun(const std::array<float, 3> &sun)
     for (const Map &m : maps_)
         texel_metres.push_back(0.3f);
     job->baked_bounce = bounce_scene_ && !maps_.empty() && maps_.front().bounce_baked.empty();
-    texture::Service::instance().post([job, occluders, texels, texel_metres, scene = bounce_scene_, bake = bake_dir_] {
+    sun_job_.start("town sun of " + name_, job,
+                   [job, occluders, texels, texel_metres, scene = bounce_scene_, bake = bake_dir_] {
         const auto started = std::chrono::steady_clock::now();
         const fx::Vec3 dir{job->sun[0], job->sun[1], job->sun[2]};
         for (size_t m = 0; m < texels.size(); ++m)
@@ -348,16 +371,16 @@ void TownLight::start_sun(const std::array<float, 3> &sun)
 
 void TownLight::set_volume(const fx::VisibilityVolume *volume)
 {
-    if (!volume || volume->Empty() || wall_volume_ || maps_.empty() || !occluders_ ||
+    if (!enabled_ || !volume || volume->Empty() || wall_volume_ || maps_.empty() || !occluders_ ||
         occluder_colors_.size() != occluder_positions_.size())
         return;
     wall_volume_ = std::make_shared<const fx::VisibilityVolume>(*volume);
     // The walls are the still geometry's triangles that are not under a lightmap (those are relit as texels):
     // matched by their centroids, to the centimetre.
     auto job = std::make_shared<WallJob>();
-    wall_job_ = job;
     wall_light_ = maps_.front().tone;
-    texture::Service::instance().post([job, volume = wall_volume_, occluders = occluders_, positions = occluder_positions_,
+    wall_job_.start("town walls of " + name_, job,
+                                      [job, volume = wall_volume_, occluders = occluders_, positions = occluder_positions_,
                                        indices = occluder_indices_, colors = occluder_colors_, lm_positions = positions_,
                                        lm_indices = indices_, tone = maps_.front().tone, bake = bake_dir_] {
         const auto started = std::chrono::steady_clock::now();
@@ -385,6 +408,8 @@ void TownLight::update(const std::array<float, 3> &sun, const std::array<float, 
     sun_present_ = present;
     live_sun_ = sun;
     live_sun_luminance_ = std::max(0.299f * sun_color[0] + 0.587f * sun_color[1] + 0.114f * sun_color[2], 1e-3f);
+    if (!enabled_)
+        return; // no bake runs (set_enabled)
     if (wall_job_ && wall_job_->state.load() == 1)
     {
         wall_ = wall_job_->wall;
@@ -403,7 +428,7 @@ void TownLight::update(const std::array<float, 3> &sun, const std::array<float, 
     if (place_job_ && place_job_->state.load() == 1)
     {
         maps_ = std::move(place_job_->maps);
-        occluders_ = std::make_shared<const fx::Occluders>(occluder_positions_, occluder_indices_, occluder_uvs_, occluder_cut_);
+        occluders_ = std::move(place_job_->occluders);
         size_t texels = 0, valid = 0;
         for (const Map &m : maps_)
         {

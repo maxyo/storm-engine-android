@@ -77,7 +77,8 @@ class Service
     void release(std::shared_ptr<Job> &job);
     bool has_room() const;
     // Main thread. Other CPU work for the workers (normal maps derived from height textures,
-    // src/effects/normal_maps.cpp): runs when no transcode is queued. Dropped unrun at shutdown.
+    // src/effects/normal_maps.cpp): runs when no transcode is queued. Dropped unrun at shutdown. (The ray bakes
+    // have a thread of their own: fx::PostBake.)
     void post(std::function<void()> task);
     // The on-disk cache directory (empty: no disk cache). Fixed between configure() calls.
     const std::filesystem::path &cache_directory() const { return config_.directory; }

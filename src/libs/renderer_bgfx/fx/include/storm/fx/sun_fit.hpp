@@ -11,6 +11,7 @@
 // at the fit, 0.23 along the live sun; SentJons_town at noon 0.65 (the live noon sun 5° off).
 #pragma once
 
+#include "storm/fx/bakes.hpp"
 #include "storm/fx/cutout.hpp"
 #include "storm/fx/sky_model.hpp"
 
@@ -26,20 +27,11 @@
 namespace storm::fx
 {
 
-// Runs `work(first, last)` over [0, count) on `threads` threads, in pieces of at least `min_piece` items (about 16 per
-// thread); returns when all are done. The bakes over an Occluders (one Scratch per piece). The threads it starts run at
-// nice 10 (Linux, Android): the game's main and render threads go first. Between pieces every thread waits while the
-// device is hot (SetBakeThermal), the pause and the resume logged.
-void ParallelRanges(size_t count, unsigned threads, const std::function<void(size_t, size_t)> &work,
-                    size_t min_piece = 256);
-// The device's thermal status for ParallelRanges (true: hot; asked between pieces, so cheap), null: never pauses.
-// While hot it is asked again every `pause_ms`.
-void SetBakeThermal(bool (*hot)(), int pause_ms = 5000);
-// The threads of a background bake: all cores but the game's main and render threads (at least one), as the relief
-// generation takes them.
-unsigned BakeThreads();
+// The most cells an Occluders grid takes (16 MB kept, 48 MB while it is built): a larger box gets larger cells,
+// logged as an error so that a location of that size is seen (its rays get slower).
+inline constexpr size_t kMaxOccluderCells = size_t(1) << 22;
 
-// Triangles on a uniform grid for any-hit rays (3D DDA).
+// Triangles on a uniform grid for any-hit rays (3D DDA); `cell` in metres, grown under kMaxOccluderCells.
 class Occluders
 {
   public:

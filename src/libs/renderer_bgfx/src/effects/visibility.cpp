@@ -88,9 +88,9 @@ void Visibility::restart()
 void Visibility::start()
 {
     auto job = std::make_shared<Job>();
-    job_ = job;
     texture::Service &service = texture::Service::instance();
-    service.post([job, name = name_, positions = positions_, indices = indices_, params = params_,
+    job_.start("visibility of " + name_, job,
+                 [job, name = name_, positions = positions_, indices = indices_, params = params_,
                   directory = service.cache_directory()]() mutable {
         params.threads = fx::BakeThreads();
         const uint64_t key = fx::VisibilityKey(positions, indices, params);
@@ -133,9 +133,23 @@ void Visibility::start()
     });
 }
 
+void Visibility::set_enabled(bool enabled)
+{
+    if (enabled == enabled_)
+        return;
+    enabled_ = enabled;
+    if (!enabled_ && state_ != State::None)
+    {
+        shim::logf("effects: visibility of %s: dropped, nothing reads it with these settings (no per-pixel or point "
+                   "lighting): made again when they do",
+                   name_.c_str());
+        restart();
+    }
+}
+
 const Visibility::Bound *Visibility::update()
 {
-    if (state_ == State::None || state_ == State::Failed)
+    if (!enabled_ || state_ == State::None || state_ == State::Failed)
         return nullptr;
     if (state_ == State::Ready && reupload_)
     {
@@ -186,7 +200,7 @@ const Visibility::Bound *Visibility::update()
         state_ = State::Failed;
         return nullptr;
     default:
-        return nullptr; // on the worker
+        return nullptr; // on the bake thread
     }
 }
 

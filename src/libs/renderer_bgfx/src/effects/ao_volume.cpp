@@ -42,9 +42,9 @@ void AoVolumes::start()
 {
     auto job = std::make_shared<Job>();
     job->name = name_;
-    job_ = job;
     texture::Service &service = texture::Service::instance();
-    service.post([job, positions = positions_, indices = indices_, lo = bounds_lo_, hi = bounds_hi_, walk = walk_,
+    job_.start("AO volume of " + name_, job,
+                 [job, positions = positions_, indices = indices_, lo = bounds_lo_, hi = bounds_hi_, walk = walk_,
                   directory = service.cache_directory()] {
         fx::AoBakeParams params;
         params.bounds_lo = lo;
@@ -93,7 +93,11 @@ void AoVolumes::start()
 const AoVolumes::Bound *AoVolumes::update(bool wanted)
 {
     if (!wanted || positions_.empty())
+    {
+        if (job_ && job_->state.load() == Job::Pending)
+            job_.reset(); // nothing reads it now: the bake is cancelled (started again when it is wanted)
         return nullptr;
+    }
     if (!job_)
         start();
     switch (job_->state.load())
@@ -137,7 +141,7 @@ const AoVolumes::Bound *AoVolumes::update(bool wanted)
         failure_reported_ = true;
         return nullptr;
     default:
-        return nullptr; // on the worker: appears a few frames later, behind the loading fader
+        return nullptr; // on the bake thread: appears a few frames later, behind the loading fader
     }
 }
 

@@ -3,7 +3,7 @@
 //
 // render::SetEffectsLocationGeometry hands over the still models' collision data. The volume is
 // read from the texture cache directory (the app's cache: an entry that is gone is baked again, and said) or baked on
-// a texture worker, then uploaded as an RGBA8 3D texture: R sky, G open (fx::VisibilityVolume). Every lit and baked
+// the bake thread (fx::PostBake), then uploaded as an RGBA8 3D texture: R sky, G open (fx::VisibilityVolume). Every lit and baked
 // fixed-function draw binds it at fx::kVisibilityStage (ff_fragment.sh: ffVisibility); a draw before the volume is
 // ready, or where there is none, binds a 1x1x1 open volume (sky 1, open 1) and u_fxVisibilityParams.x = 0.
 //
@@ -12,6 +12,7 @@
 // bounce (fx::EncodeBounceBlocks). u_fxVisibilityParams.z is block 2's offset in v (0: one block, no bounce).
 #pragma once
 
+#include "storm/fx/bakes.hpp"
 #include "storm/fx/visibility.hpp"
 
 #include <bgfx/bgfx.h>
@@ -32,7 +33,7 @@ class Visibility
     enum class State
     {
         None,     // no location geometry
-        Building, // on a texture worker
+        Building, // on the bake thread
         Ready,
         Failed, // logged once per location
     };
@@ -54,7 +55,11 @@ class Visibility
     // Main thread. A town's lightmapped ground (render::SetEffectsLightmaps: absolute world box): outdoors the cells
     // cover it (and the air above it) instead of the whole island, so they come out finer under the same budget.
     void set_focus(std::string_view name, const std::array<float, 3> &lo, const std::array<float, 3> &hi);
-    // Main thread, once per frame: starts the load or bake, uploads a finished one. The volume to bind, or nullptr.
+    // Main thread: whether anything reads the volume (lit draws: per-pixel or point lighting; Низкая has none). Off:
+    // the volume and a bake still running go and nothing is baked; on: made again (from the cache when it is there).
+    void set_enabled(bool enabled);
+    // Main thread, once per frame: starts the load or bake, uploads a finished one. The volume to bind, or nullptr
+    // (also while it is disabled).
     const Bound *update();
     State state() const { return state_; }
     // The volume (CPU copy, its B / A the bounce's direction), null until it is ready.
@@ -91,13 +96,14 @@ class Visibility
     std::array<float, 3> room_lo_{}, room_hi_{};
     std::string focus_name_;
     std::array<float, 3> focus_lo_{}, focus_hi_{};
-    std::shared_ptr<Job> job_;
+    fx::Bake<Job> job_;
     State state_ = State::None;
     Bound bound_{};
     fx::VisibilityVolume volume_; // kept: the bounce rewrites the texture
     bool stacked_ = false;
     bool too_tall_logged_ = false;
     bool reupload_ = false;       // the device was lost
+    bool enabled_ = false;
     std::vector<uint8_t> bounce_; // block 2, empty: zeros
 };
 
