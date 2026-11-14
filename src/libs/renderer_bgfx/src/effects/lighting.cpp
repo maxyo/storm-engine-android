@@ -870,12 +870,15 @@ void Lighting::bind_ao_volume(const FfDraw &draw)
         bgfx::setTexture(fx::kAoVolumeStage, s_ao_volume_, ao_open_);
         return;
     }
-    if (draw.world_view != ao_view_)
+    // A new room (or a rebake with different bounds) can arrive while the camera is still. The volume's
+    // transform is part of this cache key too, even when AoVolumes reuses the same Bound object.
+    if (draw.world_view != ao_view_ || ao_volume_->world_to_uvw != ao_world_to_uvw_)
     {
         float inverse_view[16];
         bx::mtxInverse(inverse_view, draw.world_view.data());
         bx::mtxMul(ao_view_to_uvw_.data(), inverse_view, ao_volume_->world_to_uvw.data());
         ao_view_ = draw.world_view;
+        ao_world_to_uvw_ = ao_volume_->world_to_uvw;
     }
     const fx::AoVolumeLevel &level = fx::kAoVolumeLevel[std::min<uint8_t>(settings_.ao_volume, fx::kAoVolumeLevels)];
     const float params[4] = {level.strength, level.contrast, 0.5f * ao_volume_->cell, 1.0f / fx::kAoOpenSurface};
