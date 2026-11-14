@@ -130,7 +130,7 @@ Character::ActionCharacter::ActionCharacter()
 void Character::ActionCharacter::SetName(const char *_name)
 {
     if (name)
-        delete name;
+        delete[] name;
     name = nullptr;
     if (_name && _name[0])
     {
@@ -150,7 +150,7 @@ void Character::ActionCharacter::ChangeName(const char *_name)
 Character::ActionCharacter::~ActionCharacter()
 {
     if (name)
-        delete name;
+        delete[] name;
     name = nullptr;
 }
 
@@ -664,7 +664,7 @@ Character::~Character()
     core.EraseEntity(mdl);
     core.EraseEntity(blade);
     core.EraseEntity(sign);
-    delete characterID;
+    delete[] characterID;
 }
 
 // Initialization
@@ -858,7 +858,7 @@ uint32_t Character::AttributeChanged(ATTRIBUTES *apnt)
         const char *id = apnt->GetThisAttr();
         if (!id)
             id = "<none>";
-        delete characterID;
+        delete[] characterID;
         const int32_t len = strlen(id) + 1;
         characterID = new char[len];
         strcpy_s(characterID, len, id);

@@ -90,7 +90,7 @@ Location::~Location()
 
     for (int32_t i = 0; i < numLocators; i++)
         delete locators[i];
-    delete sphereVertex;
+    delete[] sphereVertex;
 }
 
 // The share of the place one walks in that lies under a roof, 0..1: from the triangles of the walk patch (by their

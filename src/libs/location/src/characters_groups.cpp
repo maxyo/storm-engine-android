@@ -43,7 +43,7 @@ CharactersGroups::~CharactersGroups()
         if (groups[i])
         {
             if (groups[i]->relations)
-                delete groups[i]->relations;
+                delete[] groups[i]->relations;
             delete groups[i];
         }
     }
@@ -69,7 +69,7 @@ CharactersGroups::String::String(const char *str)
 CharactersGroups::String::~String()
 {
     if (name)
-        delete name;
+        delete[] name;
 }
 
 void CharactersGroups::String::operator=(const char *str)
@@ -86,7 +86,7 @@ void CharactersGroups::String::operator=(const char *str)
         if (len + 1 > max)
         {
             if (name)
-                delete name;
+                delete[] name;
             max = (len + 16) & ~15;
             name = new char[max];
         }
@@ -807,7 +807,7 @@ void CharactersGroups::ReleaseGroup(const char *groupName)
     groups[numGroups - 1] = nullptr;
 
     if (oldGroup->relations)
-        delete oldGroup->relations;
+        delete[] oldGroup->relations;
     delete oldGroup;
 
     for (int32_t othergrp = idxgrp + 1; othergrp < numGroups - 1;

@@ -58,8 +58,8 @@ PtcData::~PtcData()
 {
     delete[] data;
     delete ctriangle;
-    delete dbgTriangles;
-    delete dbgEdges;
+    delete[] dbgTriangles;
+    delete[] dbgEdges;
 }
 
 bool PtcData::Load(const char *path)
@@ -78,20 +78,20 @@ bool PtcData::Load(const char *path)
     if (!buf || size < sizeof(PtcHeader))
     {
         core.Trace("Ptc(\"%s\") -> invalide file size", path);
-        delete buf;
+        delete[] buf;
         return false;
     }
     auto &hdr = *(PtcHeader *)buf;
     if (hdr.id != PTC_ID)
     {
         core.Trace("Ptc(\"%s\") -> invalide file ID", path);
-        delete buf;
+        delete[] buf;
         return false;
     }
     if (hdr.ver != PTC_VERSION && hdr.ver != PTC_PREVERSION1)
     {
         core.Trace("Ptc(\"%s\") -> invalide file version", path);
-        delete buf;
+        delete[] buf;
         return false;
     }
     uint32_t tsize = sizeof(PtcHeader);
@@ -106,14 +106,14 @@ bool PtcData::Load(const char *path)
     if (tsize != size)
     {
         core.Trace("Ptc(\"%s\") -> invalide file size", path);
-        delete buf;
+        delete[] buf;
         return false;
     }
     if (hdr.numTriangles < 1 || hdr.numVerteces < 3 || hdr.numNormals < 1 || hdr.mapL < 1 || hdr.mapW < 1 ||
         hdr.numIndeces < 1 || hdr.lineSize < 1 || hdr.minX >= hdr.maxX || hdr.minY > hdr.maxY || hdr.minZ >= hdr.maxZ)
     {
         core.Trace("Ptc(\"%s\") -> invalide file header", path);
-        delete buf;
+        delete[] buf;
         return false;
     }
     // form data structures

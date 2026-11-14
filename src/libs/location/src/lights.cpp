@@ -47,7 +47,7 @@ Lights::~Lights()
     {
         if (types[i].corona >= 0 && rs)
             rs->TextureRelease(types[i].corona);
-        delete types[i].name;
+        delete[] types[i].name;
     }
     if (rs)
         for (int32_t i = 1; i < 8; i++)

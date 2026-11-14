@@ -73,8 +73,8 @@ Grass::Grass()
 
 Grass::~Grass()
 {
-    delete miniMap;
-    delete block;
+    delete[] miniMap;
+    delete[] block;
     if (rs)
     {
         if (texture >= 0)
@@ -147,9 +147,9 @@ bool Grass::LoadData(const char *patchName)
     // Grass texture
     texture = rs->TextureCreate(textureName);
     // Delete old
-    delete miniMap;
+    delete[] miniMap;
     miniMap = nullptr;
-    delete block;
+    delete[] block;
     block = nullptr;
     // Load the data file
     uint8_t *load = nullptr;
@@ -242,12 +242,12 @@ bool Grass::LoadData(const char *patchName)
     {
         core.Trace("Grass: incorrect grs file %s (%s)", patchName, e.what());
         numElements = 0;
-        delete miniMap;
+        delete[] miniMap;
         miniMap = nullptr;
-        delete block;
+        delete[] block;
         block = nullptr;
     }
-    delete load;
+    delete[] load;
     PrepareHeights();
     return true;
 }

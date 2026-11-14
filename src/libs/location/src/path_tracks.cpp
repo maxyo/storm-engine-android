@@ -24,7 +24,7 @@ PathTracks::PathTracks()
 
 PathTracks::~PathTracks()
 {
-    delete point;
+    delete[] point;
     point = nullptr;
     numPoints = 0;
 }
@@ -37,7 +37,7 @@ bool PathTracks::Load(const char *fileName)
     // Loading the file into memory
     Assert(sizeof(AntFileTrackElement) == sizeof(Point));
 
-    delete point;
+    delete[] point;
     point = nullptr;
     numPoints = 0;
 
@@ -52,13 +52,13 @@ bool PathTracks::Load(const char *fileName)
     if (((AntFileHeader *)data)->id != ANTFILE_ID)
     {
         core.Trace("Camera tracks file %s is invalidate...", fileName);
-        delete data;
+        delete[] data;
         return false;
     }
     if (((AntFileHeader *)data)->ver != ANTFILE_VER)
     {
         core.Trace("Camera tracks file %s have incorrect version...", fileName);
-        delete data;
+        delete[] data;
         return false;
     }
     const int32_t nPoints = ((AntFileHeader *)data)->framesCount;
@@ -69,7 +69,7 @@ bool PathTracks::Load(const char *fileName)
                    sizeof(AntFileTrackElement) * nPoints)
     {
         core.Trace("Camera tracks file %s is invalidate...", fileName);
-        delete data;
+        delete[] data;
         return false;
     }
     // save the data
