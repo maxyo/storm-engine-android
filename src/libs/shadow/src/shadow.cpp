@@ -210,17 +210,14 @@ bool AddPoly(const glm::vec3 *vr, int32_t nverts)
 
 namespace
 {
-// The polygons of a fan being recorded (Shadow::rebuildFan) and the most of them kept.
+// The polygons of a fan being recorded (Shadow::rebuildFan).
 std::vector<glm::vec3> *recordVerts = nullptr;
 std::vector<uint8_t> *recordCounts = nullptr;
 std::vector<uint64_t> *recordKeys = nullptr;
-constexpr size_t kFanMaxVerts = 16384;
 
 // Collision clip callback: keeps the polygon instead of drawing it.
 bool recordPoly(const glm::vec3 *vr, int32_t nverts)
 {
-    if (recordVerts->size() + nverts > kFanMaxVerts)
-        return false;
     recordVerts->insert(recordVerts->end(), vr, vr + nverts);
     recordCounts->push_back(static_cast<uint8_t>(nverts));
     recordKeys->push_back(storm::geometry::clipFaceKey(storm::geometry::clipVisit.owner, storm::geometry::clipVisit.face));
@@ -624,8 +621,18 @@ void Shadow::project()
             continue;
         std::copy(from, from + count, poly);
         const int32_t n = storm::shadow::clipPolygon(planes, 5, poly, count);
-        if (n >= 3 && !AddPoly(poly, n))
-            break;
+        if (n < 3)
+            continue;
+        if (!AddPoly(poly, n))
+        {
+            // The buffer is full: draw what it holds and go on in a fresh one, so no polygon is dropped.
+            rs->UnLockVertexBuffer(vbuff);
+            rs->DrawPrimitive(D3DPT_TRIANGLELIST, vbuff, sizeof(SHADOW_VERTEX), 0, tot_verts / 3, "shadow_draw");
+            tot_verts = 0;
+            shadvert = static_cast<SHADOW_VERTEX *>(rs->LockVertexBuffer(vbuff, D3DLOCK_DISCARD | D3DLOCK_NOSYSLOCK));
+            if (!shadvert || !AddPoly(poly, n))
+                throw std::runtime_error("Shadow: a polygon does not fit an empty shadow vertex buffer");
+        }
     }
 
     rs->UnLockVertexBuffer(vbuff);
