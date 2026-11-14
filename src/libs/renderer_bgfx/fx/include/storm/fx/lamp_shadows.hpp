@@ -47,7 +47,8 @@ LightShape ShapeOf(const Lamp &lamp);
 // of its flames: a shape that does not follow their flicker).
 std::vector<Lamp> ClusterLamps(std::span<const Lamp> lamps, float radius);
 
-// A lamp's own fixture: the pieces of the still geometry (triangles joined by shared vertices) that hold its flames
+// A lamp's own fixture: the pieces of the still geometry (triangles joined by shared vertices or vertices at the same
+// place) that hold its flames
 // (a candlestick, a torch, a lantern's frame and glass, a chandelier, a sconce's arm) and what carries them from below
 // or above (a lantern's post, a chandelier's chain). They cast no shadow of that lamp: a flame sits inside its own
 // fixture, whose real light fills in the shadows of its bars. A piece holds a flame when

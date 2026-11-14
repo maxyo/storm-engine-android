@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstdint>
 #include <initializer_list>
+#include <unordered_map>
 #include <utility>
 
 namespace storm::fx
@@ -118,6 +119,24 @@ std::vector<Fixture> FindFixtures(std::span<const Vec3> positions, std::span<con
                 if (a != b)
                     parent[b] = a;
             }
+    // The game's meshes repeat a vertex for each of its normals and texture coordinates: vertices at the same place
+    // (to half a millimetre) join too.
+    {
+        std::unordered_map<uint64_t, uint32_t> at;
+        at.reserve(positions.size());
+        for (uint32_t v = 0; v < positions.size(); ++v)
+        {
+            uint64_t key = 1469598103934665603ull;
+            for (int k = 0; k < 3; ++k)
+                key = (key ^ static_cast<uint64_t>(static_cast<int64_t>(std::lround(positions[v][k] * 2000.0f)))) * 1099511628211ull;
+            const auto [it, inserted] = at.try_emplace(key, v);
+            if (inserted)
+                continue;
+            const uint32_t a = Root(parent, it->second), b = Root(parent, v);
+            if (a != b)
+                parent[b] = a;
+        }
+    }
     std::vector<uint32_t> piece_of(positions.size(), UINT32_MAX);
     std::vector<Piece> pieces;
     for (size_t t = 0; t < triangles; ++t)

@@ -39,6 +39,7 @@
 #include <optional>
 #include <map>
 #include <thread>
+#include <set>
 #include <vector>
 
 using namespace storm::fx;
@@ -1373,6 +1374,62 @@ void AddBox(std::vector<Vec3> &p, std::vector<uint32_t> &i, Vec3 lo, Vec3 hi)
             i.push_back(base + t);
 }
 
+void CheckFixtures()
+{
+    // A tavern table with a candlestick, a street lantern on its post by a house wall, a sconce's arm on that wall; the
+    // ground under all of them.
+    std::vector<Vec3> p;
+    std::vector<uint32_t> idx;
+    AddBox(p, idx, {-20.0f, -0.1f, -20.0f}, {20.0f, 0.0f, 20.0f});   // 0: the ground
+    AddBox(p, idx, {0.0f, 0.75f, 0.0f}, {1.2f, 0.8f, 0.8f});         // 1: the table top
+    AddBox(p, idx, {0.55f, 0.8f, 0.35f}, {0.65f, 1.0f, 0.45f});      // 2: the candlestick on it
+    AddBox(p, idx, {4.9f, 0.0f, 4.9f}, {5.1f, 2.3f, 5.1f});          // 3: the lantern's post
+    AddBox(p, idx, {4.8f, 2.3f, 4.8f}, {5.2f, 2.8f, 5.2f});          // 4: the lantern on it
+    AddBox(p, idx, {6.0f, 0.0f, 0.0f}, {6.3f, 4.0f, 10.0f});         // 5: a house wall
+    AddBox(p, idx, {5.7f, 2.0f, 2.95f}, {6.0f, 2.1f, 3.05f});        // 6: a sconce's arm on it
+    // The same mesh as the game stores it: every triangle with vertices of its own (normals, texture coordinates).
+    std::vector<Vec3> loose;
+    std::vector<uint32_t> loose_idx;
+    for (const uint32_t v : idx)
+    {
+        loose_idx.push_back(static_cast<uint32_t>(loose.size()));
+        loose.push_back(p[v]);
+    }
+    const std::vector<std::vector<Vec3>> flames = {
+        {{0.6f, 1.15f, 0.4f}}, {{5.0f, 2.55f, 5.0f}}, {{5.75f, 2.25f, 3.0f}}, {{-10.0f, 3.0f, -10.0f}}};
+    for (const bool welded : {true, false})
+    {
+        const std::vector<Fixture> f = welded ? FindFixtures(p, idx, flames) : FindFixtures(loose, loose_idx, flames);
+        const auto box_of = [](uint32_t triangle) { return triangle / 12; };
+        CHECK(f.size() == 4);
+        // The candlestick, not the table under it or the ground.
+        CHECK(f[0].pieces == 1 && f[0].triangles.size() == 12 && box_of(f[0].triangles.front()) == 2);
+        // The lantern and its post, not the ground or the wall.
+        CHECK(f[1].pieces == 2 && f[1].triangles.size() == 24 && box_of(f[1].triangles.front()) == 3 && box_of(f[1].triangles.back()) == 4);
+        // The sconce's arm, not the wall.
+        CHECK(f[2].pieces == 1 && box_of(f[2].triangles.front()) == 6);
+        // A flame with nothing around it: no fixture (the caller falls back to the sphere around the flame).
+        CHECK(f[3].pieces == 0 && f[3].triangles.empty());
+        CHECK(std::is_sorted(f[1].triangles.begin(), f[1].triangles.end()));
+    }
+    // Left out of the lamp's casters: TrianglesInSphere skips them.
+    const TriangleGrid grid = BuildTriangleGrid(p, idx, 4.0f);
+    std::vector<uint32_t> near, seen;
+    const std::vector<Fixture> f = FindFixtures(p, idx, flames);
+    TrianglesInSphere(grid, idx, {5.0f, 2.55f, 5.0f}, 3.0f, near, seen, f[1].triangles);
+    // (vertex v belongs to box v / 8)
+    const auto boxes = [](const std::vector<uint32_t> &list) {
+        std::set<uint32_t> in;
+        for (const uint32_t v : list)
+            in.insert(v / 8);
+        return in;
+    };
+    CHECK(boxes(near) == std::set<uint32_t>({0, 5, 6})); // the ground, the wall, the sconce's arm
+    std::vector<uint32_t> all;
+    TrianglesInSphere(grid, idx, {5.0f, 2.55f, 5.0f}, 3.0f, all, seen);
+    CHECK(boxes(all) == std::set<uint32_t>({0, 3, 4, 5, 6})); // without the skip: the lantern and its post too
+}
+
 void CheckLampShadows()
 {
     // Three candles of one candlestick become one lamp; the fireplace stays apart.
@@ -2558,6 +2615,7 @@ int main()
     CheckReliefMaterial();
     CheckReliefRules();
     CheckAoVolume();
+    CheckFixtures();
     CheckLampShadows();
     CheckCutout();
     CheckSunFit();
