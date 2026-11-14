@@ -13,6 +13,11 @@ int main()
     assert(!state.canRun());
     state.consume(SDL_APP_DIDENTERFOREGROUND);
     assert(state.canRun());
+    // Will + did enter the background count once.
+    assert(storm::android::backgroundEntries.load() == 1);
+    state.consume(SDL_APP_DIDENTERBACKGROUND);
+    state.consume(SDL_APP_DIDENTERFOREGROUND);
+    assert(storm::android::backgroundEntries.load() == 2);
     state.consume(SDL_APP_TERMINATING);
     state.consume(SDL_APP_DIDENTERFOREGROUND);
     assert(state.terminating() && !state.canRun());

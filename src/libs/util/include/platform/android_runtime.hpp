@@ -1,5 +1,7 @@
 #pragma once
 
+#include <atomic>
+#include <cstdint>
 #include <filesystem>
 #include <stdexcept>
 #include <SDL2/SDL.h>
@@ -11,6 +13,10 @@
 
 namespace storm::android
 {
+// How often the app went to the background (Lifecycle::consume), for code that must notice it without seeing the
+// event queue (the automatic graphics preset's measurement, renderer auto_preset.hpp). Game thread.
+inline std::atomic<uint32_t> backgroundEntries{0};
+
 // Only mutate on the game thread while consuming SDL's event queue.
 class Lifecycle
 {
@@ -20,7 +26,11 @@ public:
         switch (type)
         {
         case SDL_APP_WILLENTERBACKGROUND:
-        case SDL_APP_DIDENTERBACKGROUND: background_ = true; break;
+        case SDL_APP_DIDENTERBACKGROUND:
+            if (!background_)
+                backgroundEntries.fetch_add(1);
+            background_ = true;
+            break;
         case SDL_APP_DIDENTERFOREGROUND: background_ = false; break;
         case SDL_APP_TERMINATING:
         case SDL_QUIT: terminating_ = true; break;

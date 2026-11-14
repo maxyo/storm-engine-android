@@ -102,7 +102,7 @@ void ExpectChoice(const std::vector<float> &work, const Gpu &gpu, int chosen, st
     // The last thing the machine asks for is the choice; nothing more follows.
     assert(run.applied.back() == chosen);
     assert(run.benchmark.phase() == AutoPresetBenchmark::Phase::Done);
-    assert(!run.benchmark.frame({run.now + 0.016, true, true, false, {}, -1.0, 0}).finished);
+    assert(!run.benchmark.frame({run.now + 0.016, true, true, false, false, {}, -1.0, 0}).finished);
 }
 } // namespace
 
@@ -151,7 +151,7 @@ int main()
         assert(!result.passes && result.frames == 3);
         Run run;
         const auto step = run.drive([](int, size_t) { return 900.0f; }, 120.0);
-        assert(step.aborted || (step.finished && run.benchmark.chosen() == 0));
+        assert(step.finished && run.benchmark.chosen() == 0);
     }
 
     // The measurement waits for kAutoPresetTitleSeconds of a steady title; a flicker of another screen restarts it.
@@ -183,18 +183,27 @@ int main()
         const auto step = run.drive(Device({8, 8, 8, 8}), 60.0, [](double now) { return now < 6.0; });
         assert(step.aborted && run.benchmark.reason() == "the title screen was left");
         assert(run.benchmark.phase() == AutoPresetBenchmark::Phase::Aborted && run.benchmark.results().empty());
-        assert(run.benchmark.frame({run.now + 0.02, true, true, false, {}, -1.0, 0}).apply_rung == -1);
+        assert(run.benchmark.frame({run.now + 0.02, true, true, false, false, {}, -1.0, 0}).apply_rung == -1);
         assert(!run.benchmark.holds_background(true));
     }
 
-    // A gap between frames (the app in the background) aborts it.
+    // The app going to the background aborts it; a slow frame does not (SwiftShader on a Test Lab virtual device
+    // takes about a second per frame).
     {
         Run run;
         run.drive(Device({8, 8, 8, 8}), 4.0);
         assert(run.benchmark.running());
+        const float slow[] = {1080.0f};
+        assert(!run.benchmark.frame({run.now + 1.08, true, true, false, false, slow, -1.0, 0}).aborted);
         const float gap[] = {16.7f};
-        const auto step = run.benchmark.frame({run.now + 1.5, true, true, false, gap, -1.0, 0});
-        assert(step.aborted && run.benchmark.reason().find("gap") != std::string::npos);
+        const auto step = run.benchmark.frame({run.now + 3.0, true, true, false, true, gap, -1.0, 0});
+        assert(step.aborted && run.benchmark.reason() == "the game went to the background");
+    }
+    // A GPU at about 1 fps finishes the measurement: too few frames on every rung, the lowest kept.
+    {
+        Run run;
+        const auto step = run.drive([](int, size_t) { return 1080.0f; }, 300.0);
+        assert(step.finished && run.benchmark.chosen() == 0 && run.benchmark.results().size() == 2);
     }
 
     // The player applies settings: aborted from outside, and only once.
@@ -206,7 +215,7 @@ int main()
         assert(!run.benchmark.abort("again").aborted && run.benchmark.reason() == "the player applied settings");
         AutoPresetBenchmark idle;
         assert(idle.abort("nothing runs yet").aborted); // armed but not started: it does not start any more
-        assert(idle.frame({10.0, true, true, false, {}, -1.0, 0}).apply_rung == -1);
+        assert(idle.frame({10.0, true, true, false, false, {}, -1.0, 0}).apply_rung == -1);
     }
 
     // The settle frames of a switch are not counted; GPU times are averaged; the report has every number.

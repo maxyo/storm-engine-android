@@ -1,5 +1,6 @@
 #include "renderer_impl.h"
 #include <platform/android_ui.hpp>
+#include <platform/android_runtime.hpp>
 #include <platform/android_interface_presentation.hpp>
 #include <platform/android_hud_presenter.hpp>
 #ifdef __ANDROID__
@@ -549,6 +550,7 @@ void ConfigureFrameRate()
 // reports it to the app, which stores it (GraphicsSettings.java).
 std::optional<storm::render::AutoPresetBenchmark> autoPreset;
 storm::render::PerfCounters autoPresetPerf;
+uint32_t autoPresetBackgroundEntries = 0; // storm::android::backgroundEntries the measurement saw last
 
 void ArmAutoPreset()
 {
@@ -585,6 +587,7 @@ void ArmAutoPreset()
                  storm::render::AutoPresetLimitMs(), storm::render::AutoPresetHeadroomLimitMs(),
                  storm::render::kAutoPresetPacingFps, effectsPreset,
                  effectsOptions.empty() ? "" : "; developer fx_* overrides stay on during the measurement");
+    autoPresetBackgroundEntries = storm::android::backgroundEntries.load();
     autoPreset.emplace();
 }
 
@@ -638,6 +641,9 @@ void AutoPresetFrame()
     frame.now_s = static_cast<double>(SDL_GetTicks64()) / 1000.0;
     frame.title = storm::android::mobileScreen == "mainmenu";
     frame.effects_ready = frame.title && !storm::render::CurrentEffects().pending;
+    const uint32_t backgroundEntries = storm::android::backgroundEntries.load();
+    frame.backgrounded = backgroundEntries != autoPresetBackgroundEntries;
+    autoPresetBackgroundEntries = backgroundEntries;
     // Held while the measurement waits on the title or runs; a relief map already in progress finishes first.
     storm::render::HoldBackgroundWork(autoPreset->holds_background(frame.title)
                                           ? "the automatic graphics preset measures the GPU on the title screen"

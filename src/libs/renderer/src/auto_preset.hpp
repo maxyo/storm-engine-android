@@ -26,8 +26,9 @@
 // kAutoPresetTitleSeconds of the title screen with settled effects and no background work in progress (a relief map
 // already started finishes first). Each rung then settles kAutoPresetSettleSeconds (the switch rebuilds render
 // targets and links programs; those frames are not counted) and is measured kAutoPresetMeasureSeconds, at least
-// kAutoPresetMinFrames frames. Leaving the title, a frame gap longer than kAutoPresetMaxGapSeconds (the app was in
-// the background) or new settings from the player abort it; nothing is stored then and the next start measures again.
+// kAutoPresetMinFrames frames. Leaving the title, the app going to the background (the lifecycle's own signal, not a
+// frame gap: a slow GPU may take a second per frame) or new settings from the player abort it; nothing is stored then
+// and the next start measures again.
 //
 // Header-only and free of the engine, so the host check tests/android_auto_preset runs it as it is.
 #pragma once
@@ -58,7 +59,6 @@ constexpr double kAutoPresetMeasureSeconds = 3.0;
 constexpr double kAutoPresetMaxMeasureSeconds = 8.0; // a very slow rung ends with fewer frames
 constexpr size_t kAutoPresetMinFrames = 30;
 constexpr size_t kAutoPresetLeastFrames = 8; // fewer than this after the longest measurement: not measured
-constexpr double kAutoPresetMaxGapSeconds = 1.0;
 
 // A rung of the measurement: a preset (0 Низкая, 1 Средняя, 2 Высокая) and the scene's internal height (0: the
 // preset's own).
@@ -183,6 +183,7 @@ class AutoPresetBenchmark
         bool title = false;          // the title screen is shown
         bool effects_ready = false;  // no preset switch pending (EffectsReport::pending is false)
         bool background_busy = false; // held background work is still finishing (a relief map in progress)
+        bool backgrounded = false;    // the app went to the background since the last frame
         std::span<const float> intervals_ms; // present intervals since the last frame
         double gpu_ms = -1.0;        // GPU time of the frames since the last one, < 0: none
         size_t gpu_frames = 0;
@@ -206,13 +207,10 @@ class AutoPresetBenchmark
     Step frame(const Frame &frame)
     {
         Step step;
-        const double gap = have_last_ ? frame.now_s - last_now_ : 0.0;
-        have_last_ = true;
-        last_now_ = frame.now_s;
         switch (phase_)
         {
         case Phase::WaitingForTitle:
-            if (!frame.title || !frame.effects_ready || frame.background_busy || gap > kAutoPresetMaxGapSeconds)
+            if (!frame.title || !frame.effects_ready || frame.background_busy || frame.backgrounded)
             {
                 title_since_ = -1.0;
                 break;
@@ -226,12 +224,8 @@ class AutoPresetBenchmark
         case Phase::Measuring:
             if (!frame.title)
                 return abort("the title screen was left");
-            if (gap > kAutoPresetMaxGapSeconds)
-            {
-                char text[96];
-                snprintf(text, sizeof(text), "a %.2f s gap between frames (the game was in the background)", gap);
-                return abort(text);
-            }
+            if (frame.backgrounded)
+                return abort("the game went to the background");
             if (phase_ == Phase::Settling)
             {
                 if (frame.effects_ready && frame.now_s - phase_since_ >= kAutoPresetSettleSeconds)
@@ -340,8 +334,6 @@ class AutoPresetBenchmark
     int chosen_ = kAutoPresetFirstRung;
     double title_since_ = -1.0;
     double phase_since_ = 0.0;
-    double last_now_ = 0.0;
-    bool have_last_ = false;
     std::vector<float> intervals_;
     double gpu_sum_ = 0.0;
     size_t gpu_frames_ = 0;
