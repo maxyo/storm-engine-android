@@ -1155,6 +1155,12 @@ class ColumnsBehavior final : public Behavior
     {
         if (attempts_ <= 0)
             return;
+        // A vertical scrollbar narrows only the body. Match the header's layout width
+        // to that viewport so its columns retain the same horizontal positions.
+        Rml::Element *head = self.QuerySelector("[data-columns-head]");
+        Rml::Element *body = self.QuerySelector("[data-columns-body]");
+        if (head && body && body->GetClientWidth() > 0)
+            head->SetProperty(Rml::PropertyId::Width, Rml::Property(float(body->GetClientWidth()), Rml::Unit::PX));
         Rml::ElementList cells;
         self.QuerySelectorAll(cells, "[data-col]");
         std::unordered_map<int, float> widest;
