@@ -672,7 +672,7 @@ class TransferScreen final : public Screen
             return Json{{"name", name}, {"morale", Trim(admitted.Label(morale))}, {"facts", facts}};
         };
         return Json{{"label", bindings.Text("transfer.crew")},
-                    {"cols", Json::array({Json{{"label", ours}}, Json{{"label", theirs}}})},
+                    {"cols", Json::array({Json{{"label", ours}, {"icon", "hero"}}, Json{{"label", theirs}, {"icon", "exchange"}}})},
                     {"rows", Json::array({row})},
                     {"sides", Json::array({side(ours, "TABLE_CREW", "CREW_MORALE_TEXT"), side(theirs, "TABLE_CREW2", "CREW_MORALE_TEXT2")})}};
     }

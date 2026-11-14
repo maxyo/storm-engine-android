@@ -81,6 +81,10 @@ static fs::path MakePack(const fs::path &base, const fs::path &font)
         "tag": "s-game-menu",
         "props": {"line": {"type": "json", "default": {}}, "resume": {"type": "json", "default": {}}, "buttons": {"type": "json", "default": []}, "confirm": {"type": "json", "default": {}}, "extras": {"type": "json", "default": []}},
         "template": "<div style=\"font-family: LatoLatin;\"><c-row id=\"resume\" style=\"display: block; position: absolute; left: 0; top: 0; width: 200dp; height: 48dp;\" title=\"Resume\"/></div>"})"));
+    // Icon-only table headers: tap sorts, long press explains without sorting.
+    components["components"].push_back(Json::parse(R"({
+        "tag": "c-head", "behaviors": ["press", "columns", "reveal"], "constants": {"pressRoot": false},
+        "template": "<div data-action=\"sort\" data-value=\"2\" data-tip=\"Buy price\" style=\"width: 60dp; height: 40dp;\">icon</div><div data-action=\"\" data-tip=\"Our stock\" style=\"width: 60dp; height: 40dp;\">icon</div>"})"));
     Write(pack / "components.json", components.dump());
     Write(pack / "overlay.rml", "<rml><head><style>body { font-family: LatoLatin; width: 100%; height: 100%; pointer-events: none; z-index: 1000; } #tooltip { display: none; } #tooltip.open { display: block; position: absolute; }"
                                 " #toasts { position: absolute; left: 0; right: 0; top: 0; display: flex; flex-direction: column; }"
@@ -90,6 +94,7 @@ static fs::path MakePack(const fs::path &base, const fs::path &font)
     Write(pack / "rows.rml", "<rml><head><style>body { font-family: LatoLatin; font-size: 16dp; width: 800dp; height: 400dp; }"
                              " c-row { display: block; position: absolute; left: 0; width: 200dp; height: 48dp; }"
                              " c-fit { display: block; position: absolute; left: 0; width: 72dp; height: 40dp; }</style></head><body>"
+                             "<c-head id=\"headers\" style=\"display: flex; position: absolute; left: 220dp; top: 0; width: 120dp; height: 40dp;\"/>"
                              "<c-row id=\"short\" style=\"top: 0;\" hold=\"1\" title=\"Short\"/>"
                              "<c-row id=\"long\" style=\"top: 100dp;\" hold=\"1\" title=\"A reply far too long to fit in two lines of a narrow column, so it is cut and ends in an ellipsis\"/>"
                              "<c-fit id=\"fit\" style=\"top: 200dp;\" hold=\"1\" least=\"11\" title=\"Mannschaft\"/>"
@@ -282,6 +287,14 @@ int main(int argc, char **argv)
         host->Touch(TouchPhase::Up, 1, x, y);
         frames(0.05);
     };
+    hold(20, 240);
+    Expect(clicks.empty(), "holding a sortable icon header explains it without sorting");
+    tap(240, 20);
+    Expect(clicks.size() == 1 && clicks[0] == "headers sort 2", "a short tap still sorts the icon header");
+    hold(20, 300);
+    Expect(clicks.empty(), "holding a non-sortable icon header sends no action");
+    tap(300, 20);
+    Expect(clicks.empty(), "a tooltip-only header has no tap action");
     tap(500, 300);
     Expect(clicks.size() == 1 && clicks[0] == "pz point 250.0,250.0", "a tap reports the picture point under it");
     tap(780, 220); // the zoom-in part: ×1.6 around the centre, nothing sent

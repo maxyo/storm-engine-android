@@ -713,7 +713,7 @@ class ShipScreen final : public Screen
             shown.push_back(nullptr);
         }
         view["list"] = Json{{"label", bindings.Text("ship.goods")},
-                            {"cols", Json::array({Json{{"label", header(1)}, {"w", 88}}, Json{{"label", header(2)}, {"w", 80}}})},
+                            {"cols", Json::array({Json{{"label", header(1)}, {"icon", "capacity"}, {"w", 88}}, Json{{"label", header(2)}, {"icon", "weight"}, {"w", 80}}})},
                             {"rows", rows}};
         view["empty"] = goods.empty() && !quantity ? bindings.Text("ship.no_cargo") : "";
 

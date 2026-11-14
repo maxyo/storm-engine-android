@@ -258,10 +258,10 @@ class PressBehavior final : public Behavior
         {
             tooltip_pending_ = false;
             tooltip_open_ = true;
-            std::string text = ToText(self.Prop("tip"));
+            std::string text = part_ != &self ? Attr(part_, "data-tip") : ToText(self.Prop("tip"));
             if (text.empty())
                 text = ToText(self.Prop("title"));
-            self.Host().Tooltip(&self, text, ToText(self.Prop("tipPlace")) == "below");
+            self.Host().Tooltip(part_, text, ToText(self.Prop("tipPlace")) == "below");
         }
     }
 
@@ -298,7 +298,7 @@ class PressBehavior final : public Behavior
     Hold HoldMode(ComponentElement &self) const
     {
         if (part_ != &self)
-            return part_->HasAttribute("data-hold") ? Hold::Confirm : Hold::None;
+            return !Attr(part_, "data-tip").empty() ? Hold::Tooltip : part_->HasAttribute("data-hold") ? Hold::Confirm : Hold::None;
         if (!self.Flag("hold"))
             return Hold::None;
         if (self.Spec().constants.value("holdMode", std::string("confirm")) != "tooltip")
@@ -363,6 +363,8 @@ class PressBehavior final : public Behavior
             return;
         }
         const std::string verb = Attr(part, "data-action", "click");
+        if (verb.empty()) // a tooltip-only part has no tap action
+            return;
         std::string value = Attr(part, "data-value");
         const std::string prop = Attr(part, "data-prop", "value");
         if (part->HasAttribute("data-step") || part->HasAttribute("data-set"))
@@ -1180,7 +1182,8 @@ class ColumnsBehavior final : public Behavior
         }
         else
             --attempts_;
-        if (attempts_ <= 0)
+        // Press shares these ticks for a header tooltip; its release will stop them.
+        if (attempts_ <= 0 && !self.QuerySelector("[data-action].pressed"))
             self.Host().RequestTicks(self, false);
     }
 
@@ -1217,13 +1220,16 @@ class RevealBehavior final : public Behavior
 
     void Tick(ComponentElement &self, double) override
     {
+        if (pending_.empty()) // another behavior may be ticking for a held header
+            return;
         std::vector<Rml::Element *> parts;
         AllWith(&self, "data-reveal", parts);
         for (Rml::Element *part : parts)
             if (pending_.erase(Attr(part, "data-reveal")))
                 Reveal(part);
         pending_.clear();
-        self.Host().RequestTicks(self, false);
+        if (!self.QuerySelector("[data-action].pressed"))
+            self.Host().RequestTicks(self, false);
     }
 
   private:

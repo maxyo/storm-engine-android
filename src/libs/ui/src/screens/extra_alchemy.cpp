@@ -156,7 +156,7 @@ class AlchemyScreen final : public Screen
                                                         row->CellText(3)})}});
         }
         view["parts"] = Json{{"label", bindings.Text("alchemy.component")},
-                             {"cols", Json::array({Json{{"label", bindings.Text("alchemy.have")}}, Json{{"label", bindings.Text("alchemy.per_batch")}}})},
+                             {"cols", Json::array({Json{{"label", bindings.Text("alchemy.have")}, {"icon", "chest"}}, Json{{"label", bindings.Text("alchemy.per_batch")}, {"icon", "potion"}}})},
                              {"rows", parts}};
         bindings.Ignore("parts", "row");
 

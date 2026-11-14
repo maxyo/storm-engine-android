@@ -127,7 +127,7 @@ class GoodsOrderScreen final : public Screen
         view["primary"] = std::move(primary);
         view["actions"] = std::move(actions);
         view["list"] = Json{{"label", bindings.Text("goods.good")},
-                            {"cols", Json::array({Json{{"label", bindings.Text("goods.hold")}}, Json{{"label", bindings.Text("goods.order")}}})},
+                            {"cols", Json::array({Json{{"label", bindings.Text("goods.hold")}, {"icon", "capacity"}}, Json{{"label", bindings.Text("goods.order")}, {"icon", "scroll"}}})},
                             {"rows", rows}};
 
         // The ship the list is for, with the game's arrows; the script skips ships it may not use.

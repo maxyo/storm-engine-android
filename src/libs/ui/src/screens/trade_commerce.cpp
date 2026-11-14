@@ -351,7 +351,10 @@ class CommerceScreen final : public Screen
         // The two amount columns: ours where the layout has them («В трюме», «В магазине»), else the game's
         // captions; «У вас» / «Здесь» where the game names both sides alike (a store at sea: two holds).
         std::string own_caption = header(columns.own), other_caption = header(columns.other);
-        std::string own_icon, other_icon;
+        // Personal stock, a merchant/store or a container/other ship are distinct at a glance.
+        std::string own_icon = columns.small ? "hero" : "capacity";
+        std::string other_icon = &columns == &kItemsBox ? "chest" : &columns == &kTransfer ? "ship" :
+                                 &columns == &kStorage ? "chest" : "store";
         if (own_caption.empty() || own_caption == other_caption)
         {
             own_caption = bindings.Text("trade.yours");
@@ -736,12 +739,12 @@ class CommerceScreen final : public Screen
         }
         view["stats"] = stats;
 
-        // Price columns are identified by their buy/sell icons; keep the numeric values without redundant captions.
+        // The component shows column icons and keeps captions as long-press explanations.
         std::vector<std::pair<std::string, std::string>> captions{{own_caption, own_icon}, {other_caption, other_icon}};
         if (money)
         {
-            captions.emplace_back("", "price-buy");
-            captions.emplace_back("", "price-sell");
+            captions.emplace_back(bindings.Text("trade.buy"), "price-buy");
+            captions.emplace_back(bindings.Text("trade.sell"), "price-sell");
         }
         Json cols = Json::array();
         for (size_t i = 0; i < captions.size(); ++i)

@@ -208,8 +208,8 @@ class CrewScreen final : public Screen
         }
         view["stats"] = stats;
         view["list"] = Json{{"label", ""},
-                            {"cols", Json::array({Json{{"label", bindings.Text("crew.on_ship")}}, Json{{"label", bindings.Text("crew.in_tavern")}},
-                                                  Json{{"label", bindings.Text("trade.price")}}})},
+                            {"cols", Json::array({Json{{"label", bindings.Text("crew.on_ship")}, {"icon", "ship"}}, Json{{"label", bindings.Text("crew.in_tavern")}, {"icon", "tavern"}},
+                                                  Json{{"label", bindings.Text("trade.price")}, {"icon", "money"}}})},
                             {"rows", Json::array({row})}};
         view["shipLabel"] = bindings.Text("crew.on_ship");
         view["tavernLabel"] = bindings.Text("crew.in_tavern");

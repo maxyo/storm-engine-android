@@ -827,7 +827,7 @@ static void Commerce(const std::string &models)
     {
         // Buy and sell are columns of their own; a caption's tap orders the rows by it (largest, smallest, the game's order).
         const Json &cols = surface.props["list"]["cols"];
-        Expect(cols.size() == 4 && cols[2]["label"] == "" && cols[3]["label"] == "" &&
+        Expect(cols.size() == 4 && cols[2]["label"] == "<trade.buy>" && cols[3]["label"] == "<trade.sell>" &&
                    cols[2]["icon"] == "price-buy" && cols[3]["icon"] == "price-sell" && cols[2]["sortable"] == true,
                "store: hold, store, icon-only buy and sell columns");
         const std::string first = surface.props["list"]["rows"][0]["id"];
