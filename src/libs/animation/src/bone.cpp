@@ -30,15 +30,15 @@ Bone::Bone()
 
 Bone::~Bone()
 {
-    delete ang;
-    delete pos;
+    delete[] ang;
+    delete[] pos;
 }
 
 // how many frames of animation there will be
 void Bone::SetNumFrames(int32_t num, glm::vec3 &sPos, bool isRoot)
 {
-    delete ang;
-    delete pos;
+    delete[] ang;
+    delete[] pos;
     ang = nullptr;
     pos = nullptr;
     numFrames = num;

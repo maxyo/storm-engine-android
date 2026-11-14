@@ -100,7 +100,7 @@ class MemFile
     {
         if (DataIsMy)
         {
-            delete Data;
+            delete[] Data;
             Data = nullptr;
         }
     }

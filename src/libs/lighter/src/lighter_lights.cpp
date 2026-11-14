@@ -41,7 +41,7 @@ LighterLights::LighterLights()
 LighterLights::~LighterLights()
 {
     for (int32_t i = 0; i < numLights; i++)
-        delete light[i].group;
+        delete[] light[i].group;
 }
 
 void LighterLights::AddAmbient(const glm::vec3 &color)

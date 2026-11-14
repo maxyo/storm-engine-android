@@ -200,7 +200,8 @@ class AIFlowGraph
 
     ~AIFlowGraph()
     {
-        STORM_DELETE(pTable);
+        delete[] pTable;
+        pTable = nullptr;
     }
 
     // save/load/release section
@@ -384,7 +385,8 @@ inline void AIFlowGraph::BuildTable()
     uint32_t i, j, k, x, y;
     const auto dwNumPoints = aPoints.size();
 
-    STORM_DELETE(pTable);
+    delete[] pTable;
+    pTable = nullptr;
     pTable = new table_t[SQR(dwNumPoints)];
     for (i = 0; i < SQR(dwNumPoints); i++)
     {

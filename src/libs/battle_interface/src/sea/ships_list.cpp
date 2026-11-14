@@ -67,7 +67,7 @@ void TMP_LONG_STACK::Push(int32_t data)
         if (pold != nullptr)
         {
             memcpy(ldat, pold, sizeof(int32_t) * datsize);
-            delete pold;
+            delete[] pold;
         }
         datsize += sizeIncr;
     }
@@ -85,7 +85,7 @@ int32_t TMP_LONG_STACK::GetFore()
     curidx--;
     if (curidx == 0)
     {
-        delete ldat;
+        delete[] ldat;
         ldat = nullptr;
         datsize = 0;
     }
@@ -105,7 +105,7 @@ int32_t TMP_LONG_STACK::Pop()
     const auto retVal = ldat[--curidx];
     if (curidx == 0)
     {
-        delete ldat;
+        delete[] ldat;
         ldat = nullptr;
         datsize = 0;
     }

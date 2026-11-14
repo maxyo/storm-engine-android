@@ -128,7 +128,8 @@ void ILogAndActions::Execute(uint32_t delta_time)
                     m_sRoot = sd->next;
                 else
                     prev_sd->next = sd->next;
-                STORM_DELETE(sd->str);
+                delete[] sd->str;
+                sd->str = nullptr;
                 STORM_DELETE(sd);
                 sd = m_sRoot;
                 continue;
@@ -170,7 +171,8 @@ uint64_t ILogAndActions::ProcessMessage(MESSAGE &message)
                 SetString(param.c_str(), true);
             else
             {
-                STORM_DELETE(last->str);
+                delete[] last->str;
+                last->str = nullptr;
                 if (param[0] != 0)
                 {
                     const auto len = param.size() + 1;
@@ -228,7 +230,8 @@ uint64_t ILogAndActions::ProcessMessage(MESSAGE &message)
         {
             auto *const p = m_sRoot;
             m_sRoot = p->next;
-            STORM_DELETE(p->str);
+            delete[] p->str;
+            p->str = nullptr;
             delete p;
         }
         break;
@@ -504,7 +507,8 @@ void ILogAndActions::Release()
     {
         STRING_DESCR *p = m_sRoot;
         m_sRoot = p->next;
-        STORM_DELETE(p->str);
+        delete[] p->str;
+        p->str = nullptr;
         delete p;
     }
     m_ActionHint1.Release();
@@ -578,7 +582,8 @@ void ILogAndActions::SetString(const char *str, bool immortal)
                 if ((tmpDescr->offset -= offsetDelta) < 0)
                 {
                     m_sRoot = tmpDescr->next;
-                    STORM_DELETE(tmpDescr->str);
+                    delete[] tmpDescr->str;
+                    tmpDescr->str = nullptr;
                     delete tmpDescr;
                     tmpDescr = m_sRoot;
                     continue;

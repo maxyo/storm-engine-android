@@ -156,8 +156,8 @@ void ActivePerkShower::RefreshShowPlaces(ATTRIBUTES *pAPlacesRoot)
 {
     ATTRIBUTES *pAttr;
 
-    if (m_pShowPlaces)
-        STORM_DELETE(m_pShowPlaces);
+    delete[] m_pShowPlaces;
+    m_pShowPlaces = nullptr;
 
     m_nIconWidth = 64;
     m_nIconHeight = 64;
@@ -277,7 +277,7 @@ void ActivePerkShower::AddIconToList(ATTRIBUTES *pAItemDescr)
         {
             memcpy(m_pIconsList, old_pIconsList, sizeof(_PICTURE_DESCR) * (m_nIShowQ - 1));
         }
-        delete old_pIconsList;
+        delete[] old_pIconsList;
     }
     if (m_pIconsList == nullptr)
     {
@@ -421,12 +421,15 @@ void ActivePerkShower::ReleaseAll()
 
     for (i = 0; i < m_nTextureQ; i++)
         TEXTURE_RELEASE(rs, m_pTexDescr[i].m_idTexture);
-    STORM_DELETE(m_pTexDescr);
+    delete[] m_pTexDescr;
+    m_pTexDescr = nullptr;
     m_nTextureQ = 0;
 
-    STORM_DELETE(m_pShowPlaces);
+    delete[] m_pShowPlaces;
+    m_pShowPlaces = nullptr;
     m_nShowPlaceQ = 0;
 
-    STORM_DELETE(m_pIconsList);
+    delete[] m_pIconsList;
+    m_pIconsList = nullptr;
     m_nIShowQ = 0;
 }

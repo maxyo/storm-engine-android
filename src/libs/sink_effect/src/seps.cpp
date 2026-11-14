@@ -127,11 +127,11 @@ SEPS_PS::~SEPS_PS()
     for (n = 0; n < TexturesNum; n++)
         RenderService->TextureRelease(TextureID[n]);
     // core.FreeService("renderer");
-    delete Particle;
+    delete[] Particle;
     Particle = nullptr;
     delete pFlowTrack;
     pFlowTrack = nullptr;
-    delete TechniqueName;
+    delete[] TechniqueName;
     TechniqueName = nullptr;
 }
 
@@ -306,7 +306,7 @@ bool SEPS_PS::Init(INIFILE *ini, char *psname)
     float ChaosVal;
     ChaosVal = 0.0001f;
 
-    Particle = (sink_effect::PARTICLE *)new char[ParticlesNum * sizeof(sink_effect::PARTICLE)];
+    Particle = new sink_effect::PARTICLE[ParticlesNum];
     if (Particle == nullptr)
         throw std::runtime_error("mem error");
 

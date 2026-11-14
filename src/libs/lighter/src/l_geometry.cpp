@@ -41,11 +41,11 @@ LGeometry::~LGeometry()
 {
     for (int32_t i = 0; i < numObjects; i++)
     {
-        delete object[i].name;
-        delete object[i].nameReal;
+        delete[] object[i].name;
+        delete[] object[i].nameReal;
     }
-    delete shadows;
-    delete drawbuf;
+    delete[] shadows;
+    delete[] drawbuf;
 }
 
 // Set path to models

@@ -248,7 +248,8 @@ bool SEA::Init()
                 pFB += sizeof(uint32_t);
             }
 
-        STORM_DELETE(pFBuffer);
+        delete[] pFBuffer;
+        pFBuffer = nullptr;
     }
 
     for (i = 0; i < FRAMES; i++)
@@ -272,8 +273,8 @@ bool SEA::Init()
             }
     }
 
-    for (i = 0; i < aTmpBumps.size(); i++)
-        STORM_DELETE(aTmpBumps[i]);
+    for (const auto *bump : aTmpBumps)
+        delete[] bump;
 
     BuildVolumeTexture();
 

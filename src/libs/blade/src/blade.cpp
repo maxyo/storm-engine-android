@@ -602,7 +602,7 @@ void BLADE::TIEITEM_INFO::Release()
     {
         nItemIndex = -1;
         core.EraseEntity(eid);
-        delete locatorName;
+        delete[] locatorName;
         locatorName = nullptr;
     }
 }
@@ -660,7 +660,7 @@ void BLADE::TIEITEM_INFO::DrawItem(VRenderer *rs, unsigned int blendValue, MODEL
 bool BLADE::TIEITEM_INFO::LoadItemModel(const char *mdlName, const char *locName)
 {
     core.EraseEntity(eid);
-    delete locatorName;
+    delete[] locatorName;
     locatorName = nullptr;
 
     if (!locName || !mdlName)

@@ -31,7 +31,8 @@ bool AIHelper::Uninit()
     aCharacters.clear();
     aMainCharacters.clear();
     dwRelationSize = 0;
-    STORM_DELETE(pRelations);
+    delete[] pRelations;
+    pRelations = nullptr;
     scriptRelations_.reset();
     return true;
 }
@@ -85,7 +86,8 @@ void AIHelper::CalculateRelations()
 {
     uint32_t x, y;
 
-    STORM_DELETE(pRelations);
+    delete[] pRelations;
+    pRelations = nullptr;
     dwRelationSize = aCharacters.size();
     pRelations = new uint32_t[SQR(dwRelationSize)];
     for (y = 0; y < dwRelationSize; y++)

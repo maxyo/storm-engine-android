@@ -68,11 +68,11 @@ SEAFOAM_PS::~SEAFOAM_PS()
             RenderService->TextureRelease(TextureID[n]);
         // core.FreeService("renderer");
     }
-    delete Particle;
+    delete[] Particle;
     Particle = nullptr;
     delete pFlowTrack;
     pFlowTrack = nullptr;
-    delete TechniqueName;
+    delete[] TechniqueName;
     TechniqueName = nullptr;
 }
 
@@ -246,7 +246,7 @@ bool SEAFOAM_PS::Init(INIFILE *ini, const char *psname)
     float ChaosVal;
     ChaosVal = 0.0001f;
 
-    Particle = (PARTICLE *)new char[ParticlesNum * sizeof(PARTICLE)];
+    Particle = new PARTICLE[ParticlesNum];
     if (Particle == nullptr)
         throw std::runtime_error("mem error");
 

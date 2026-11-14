@@ -126,7 +126,7 @@ bool OctTree::AddVertex(OTNode *node, Vertex *v)
             }
             Assert(c < 8);
         }
-        delete node->vrt;
+        delete[] node->vrt;
         node->vrt = nullptr;
         node->num = 0;
     }

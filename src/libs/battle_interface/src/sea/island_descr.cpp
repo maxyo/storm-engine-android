@@ -21,7 +21,8 @@ ISLAND_DESCRIBER::~ISLAND_DESCRIBER()
 
 void ISLAND_DESCRIBER::ReleaseAll()
 {
-    STORM_DELETE(m_pLocators);
+    delete[] m_pLocators;
+    m_pLocators = nullptr;
     m_nLocators = 0;
     m_pIslandAttributes = nullptr;
     m_bYesIsland = false;

@@ -75,8 +75,8 @@ Window::~Window()
     if (list)
     {
         for (int32_t i = 0; i < numElements; i++)
-            delete list[i].name;
-        delete list;
+            delete[] list[i].name;
+        delete[] list;
     }
 }
 

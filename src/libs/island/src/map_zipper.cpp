@@ -28,7 +28,8 @@ MapZipper::~MapZipper()
 
 void MapZipper::UnInit()
 {
-    STORM_DELETE(pWordTable);
+    delete[] pWordTable;
+    pWordTable = nullptr;
     free(pRealData);
 }
 

@@ -18,7 +18,8 @@ SeaLocatorShow::SeaLocatorShow()
 
 SeaLocatorShow::~SeaLocatorShow()
 {
-    STORM_DELETE(sphereVertex);
+    delete[] sphereVertex;
+    sphereVertex = nullptr;
 }
 
 bool SeaLocatorShow::Init()

@@ -48,8 +48,10 @@ void ISLAND::Uninit()
     for (uint32_t i = 0; i < aSpheres.size(); i++)
         core.EraseEntity(aSpheres[i]);
     aSpheres.clear();
-    STORM_DELETE(pDepthMap);
-    STORM_DELETE(pShadowMap);
+    delete[] pDepthMap;
+    pDepthMap = nullptr;
+    delete[] pShadowMap;
+    pShadowMap = nullptr;
 
     if (!bForeignModels)
     {
@@ -489,7 +491,8 @@ bool ISLAND::CreateShadowMap(char *pDir, char *pName)
 
         mzShadow.DoZip(pShadowMap, dwSize);
         mzShadow.Save(fileName + ".zap");
-        STORM_DELETE(pShadowMap);
+        delete[] pShadowMap;
+        pShadowMap = nullptr;
         return true;
     }
 
@@ -536,7 +539,8 @@ bool ISLAND::CreateShadowMap(char *pDir, char *pName)
     mzShadow.DoZip(pShadowMap, DMAP_SIZE);
     mzShadow.Save(fileName + ".zap");
 
-    STORM_DELETE(pShadowMap);
+    delete[] pShadowMap;
+    pShadowMap = nullptr;
 
     return true;
 }
@@ -564,7 +568,7 @@ void ISLAND::Blur8(uint8_t **pBuffer, uint32_t dwSize)
             pNewBuffer[z * dwSize + x] = static_cast<uint8_t>(dwRes);
         }
 
-    STORM_DELETE(*pBuffer);
+    delete[] *pBuffer;
     *pBuffer = pNewBuffer;
 }
 
@@ -601,7 +605,8 @@ bool ISLAND::CreateHeightMap(const std::string_view &pDir, const std::string_vie
 
             mzDepth.DoZip(pDepthMap, iDMapSize);
             mzDepth.Save(fileName + ".zap");
-            STORM_DELETE(pDepthMap);
+            delete[] pDepthMap;
+            pDepthMap = nullptr;
             bLoad = true;
         }
     }
@@ -719,7 +724,8 @@ bool ISLAND::CreateHeightMap(const std::string_view &pDir, const std::string_vie
 
     mzDepth.DoZip(pDepthMap, iDMapSize);
     mzDepth.Save(fileName + ".zap");
-    STORM_DELETE(pDepthMap);
+    delete[] pDepthMap;
+    pDepthMap = nullptr;
 
     auto pI = fio->OpenIniFile(iniName.c_str());
     if (!pI)

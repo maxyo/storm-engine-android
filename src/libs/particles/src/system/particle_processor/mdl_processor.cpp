@@ -32,7 +32,7 @@ ModelProcessor::ModelProcessor(ParticleManager *pManager)
 
 ModelProcessor::~ModelProcessor()
 {
-    delete pMemArray;
+    delete[] pMemArray;
 }
 
 MDL_ParticleData *ModelProcessor::AllocParticle() const

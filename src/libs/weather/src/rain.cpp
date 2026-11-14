@@ -46,7 +46,8 @@ RAIN::~RAIN()
 
 void RAIN::Release()
 {
-    STORM_DELETE(pRainBlocks);
+    delete[] pRainBlocks;
+    pRainBlocks = nullptr;
     if (iVertexBuffer >= 0)
         rs->ReleaseVertexBuffer(iVertexBuffer);
     if (iRainbowTex >= 0)

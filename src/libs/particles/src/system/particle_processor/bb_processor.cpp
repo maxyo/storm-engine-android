@@ -69,7 +69,7 @@ BillBoardProcessor::BillBoardProcessor()
 
 BillBoardProcessor::~BillBoardProcessor()
 {
-    delete pMemArray;
+    delete[] pMemArray;
 
     pRS = static_cast<VRenderer *>(core.GetService("renderer"));
     if (pRS != nullptr)

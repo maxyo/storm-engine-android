@@ -22,8 +22,10 @@ WATERFLARE::WATERFLARE()
 WATERFLARE::~WATERFLARE()
 {
     // GUARD(WATERFLARE::~WATERFLARE())
-    STORM_DELETE(pRSRect);
-    STORM_DELETE(pfAlpha);
+    delete[] pRSRect;
+    pRSRect = nullptr;
+    delete[] pfAlpha;
+    pfAlpha = nullptr;
     // UNGUARD
 }
 
@@ -90,8 +92,8 @@ void WATERFLARE::Execute(uint32_t Delta_Time)
 void WATERFLARE::GenerateFlares()
 {
     iFlaresNum = 1024 + (rand() % 64);
-    pRSRect = static_cast<RS_RECT *>(new RS_RECT[iFlaresNum]);
-    pfAlpha = static_cast<float *>(new float[iFlaresNum]);
+    pRSRect = new RS_RECT[iFlaresNum];
+    pfAlpha = new float[iFlaresNum];
     for (int32_t i = 0; i < iFlaresNum; i++)
     {
         pfAlpha[i] = FRAND(-40.0f);
