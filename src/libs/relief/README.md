@@ -57,9 +57,11 @@ made. The build makes that directory (below); its path is in `<build>/relief_mod
   device is measured once per game: a probe tile on both (`ChooseDevice`), the faster taken, logged with both numbers
   (`relief device: GPU (measured now on <GPU>, driver <v>: ... GPU x ms ..., CPU y ms ...)`) and kept in the relief
   directory's `relief-device.txt` for that GPU, driver, model and thread count; «Очистить кэш» measures again. Without
-  a Vulkan compute device the CPU is taken and the reason logged. On the GPU the image runs in tiles of 128 texels with
-  the networks' 24-texel reach around each (no seams), each tile one GPU submission, made smaller while one takes
-  longer than 6 ms, so the game's frames do not wait on a long one. ncnn's fp16 output against the CPU's int8 models:
+  a Vulkan compute device the CPU is taken and the reason logged. On the GPU the image runs in tiles with the networks'
+  24-texel reach around each (no seams), each tile one GPU submission of at most 6 ms of GPU work, so the game's frames
+  do not wait on a long one: the tile size is calibrated per network graph on the device (a submission's wall time is
+  a fixed part, ~2.5–5 ms of recording, transfers and fence, plus the GPU's work per texel; logged as `relief GPU
+  tiles: ...`), 224 texels on an RTX 5070 Ti. ncnn's fp16 output against the CPU's int8 models:
   PSNR 40–48 dB on a brick pattern (relief_check); against the float models 58 dB. Neither XNNPACK (slower than MLAS
   on a Galaxy S23) nor NNAPI (deprecated) is used.
 - Maps: the models run on the texture downscaled to 512 px (`fx::kReliefMapSize`, the owner's choice); the GPU's

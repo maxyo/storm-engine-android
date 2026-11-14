@@ -157,10 +157,19 @@ class OrtRuntime final : public CpuRuntime
     int threads_ = 1;
 };
 
-// The GPU: tiles of kTile texels of the inner area at first, halved while one takes longer than kSubmitMs (a frame
-// of the game waits at most that long for a submission of ours), down to kMinTile.
-constexpr int kTile = 128, kMinTile = 32;
+// The GPU: one submission per tile of the inner area, each at most kSubmitMs of GPU work (a frame of the game waits
+// at most that long for a submission of ours). The tile size comes from a calibration of the network on this GPU
+// (Calibrate): a submission's wall time is a fixed part (the CPU's recording, the upload and download, the fence
+// wait: ~5 ms on a loaded host, whatever the size) plus the GPU's work, proportional to the texels. Only the second
+// part holds the game's frames, so the tiles are as large as it allows, from kMinTile to kMaxTile.
+constexpr int kMinTile = 32, kMaxTile = 512, kProbeSmall = 64, kProbeLarge = 256;
 constexpr double kSubmitMs = 6.0;
+
+struct Calibration
+{
+    double fixed_ms = 0.0, ms_per_texel = 0.0;
+    int tile = kMinTile;
+};
 
 class GpuNetwork final : public Network
 {
@@ -181,17 +190,64 @@ class GpuNetwork final : public Network
             error = "ncnn could not load the network";
             return false;
         }
-        // One tile untimed: the GPU's allocations are made then, not in the first texture's first tile (which would
-        // make the tiles smaller for nothing).
-        const int size = kTile + 2 * halo_;
-        ncnn::Mat in(size, size, 3), out;
-        in.fill(0.5f);
-        ncnn::Extractor ex = net_.create_extractor();
-        if (ex.input("in0", in) != 0 || ex.extract("out0", out) != 0)
+        return Calibrate(error);
+    }
+
+    // The tile size for this network on this GPU, measured once per graph (the relief's three networks share one):
+    // two tile sizes, each the faster of two runs after a warm-up (the GPU's allocations), fitted to fixed + per texel.
+    bool Calibrate(std::string &error)
+    {
+        static std::mutex mutex;
+        static std::vector<std::pair<std::string, Calibration>> known;
+        const std::string key = param_ + "|" + std::to_string(halo_) + "|" + std::to_string(scale_);
         {
-            error = "ncnn could not run the network";
-            return false;
+            std::lock_guard lock(mutex);
+            for (const auto &[graph, calibration] : known)
+                if (graph == key)
+                {
+                    calibration_ = calibration;
+                    tile_ = calibration.tile;
+                    return true;
+                }
         }
+        const auto run = [&](int inner, double &best) {
+            const int size = inner + 2 * halo_;
+            ncnn::Mat in(size, size, 3);
+            in.fill(0.5f);
+            best = 1e30;
+            for (int i = 0; i < 3; ++i)
+            {
+                const Clock::time_point start = Clock::now();
+                ncnn::Mat out;
+                ncnn::Extractor ex = net_.create_extractor();
+                if (ex.input("in0", in) != 0 || ex.extract("out0", out) != 0)
+                {
+                    error = "ncnn could not run the network";
+                    return false;
+                }
+                if (i > 0)
+                    best = std::min(best, Ms(start));
+            }
+            return true;
+        };
+        double small = 0.0, large = 0.0;
+        if (!run(kProbeSmall, small) || !run(kProbeLarge, large))
+            return false;
+        const auto texels = [&](int inner) { return static_cast<double>(inner + 2 * halo_) * (inner + 2 * halo_); };
+        Calibration c;
+        c.ms_per_texel = std::max((large - small) / (texels(kProbeLarge) - texels(kProbeSmall)), 1e-9);
+        c.fixed_ms = std::max(small - c.ms_per_texel * texels(kProbeSmall), 0.0);
+        c.tile = kMinTile;
+        for (int tile = kMinTile; tile <= kMaxTile; tile += 32)
+            if (c.ms_per_texel * texels(tile) <= kSubmitMs)
+                c.tile = tile;
+        Log("relief GPU tiles: %d + %d texels (%.1f ms of GPU work a tile, %.1f ms fixed a submission; measured: %d px "
+            "%.1f ms, %d px %.1f ms)",
+            c.tile, halo_, c.ms_per_texel * texels(c.tile), c.fixed_ms, kProbeSmall, small, kProbeLarge, large);
+        calibration_ = c;
+        tile_ = c.tile;
+        std::lock_guard lock(mutex);
+        known.emplace_back(key, c);
         return true;
     }
 
@@ -242,8 +298,10 @@ class GpuNetwork final : public Network
                                         static_cast<size_t>((x0 + halo_) * scale_),
                                     out.channel(c).row(sh + y) + sh, static_cast<size_t>(tw * scale_) * sizeof(float));
                 x0 += tw;
-                if (ms > kSubmitMs && tile_ > kMinTile)
-                    tile_ /= 2; // the next tiles shorter (this row continues at the new size)
+                // The GPU slower than calibrated (another app, the GPU's clock down): the next tiles smaller (this
+                // row continues at the new size).
+                if (ms - calibration_.fixed_ms > 1.5 * kSubmitMs && tile_ > kMinTile)
+                    tile_ = std::max(kMinTile, tile_ / 2 / 32 * 32);
             }
             y0 += th;
         }
@@ -260,7 +318,8 @@ class GpuNetwork final : public Network
 
   private:
     int halo_, scale_;
-    int tile_ = kTile;
+    int tile_ = kMinTile;
+    Calibration calibration_;
     std::string param_;
     ncnn::Net net_;
     std::atomic<bool> cancelled_{false};
@@ -422,9 +481,9 @@ Device ChooseDevice(const std::filesystem::path &cache, Network &cpu, std::span<
             return choice == "GPU" ? Device::Gpu : Device::Cpu;
         }
     }
-    // A probe: one GPU tile's worth (kTile + the halo), the same deterministic pattern on both, after a warm-up run
-    // (the GPU's pipelines are made then).
-    const int size = kTile + 2 * halo;
+    // A probe: a 128-texel tile and its halo, the same deterministic pattern on both, after a warm-up run (the GPU's
+    // pipelines are made then).
+    const int size = 128 + 2 * halo;
     std::vector<float> image(static_cast<size_t>(size) * size * 3), planes(image.size());
     for (size_t i = 0; i < image.size(); ++i)
         image[i] = static_cast<float>((i * 2654435761u) % 1000u) / 1000.0f;
