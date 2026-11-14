@@ -44,7 +44,6 @@ struct Counters
     uint64_t drawn_triangles[kPasses] = {};
     uint64_t composes = 0;      // composed index lists (a cluster's level changed)
     uint64_t compose_bytes = 0;
-    uint64_t conflicts = 0;     // objects drawn whole: their composed indices were already used this frame
     uint64_t island_slices = 0; // ISLAND::Realize depth slices
 };
 inline Counters counters;

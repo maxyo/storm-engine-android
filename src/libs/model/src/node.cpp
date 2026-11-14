@@ -417,7 +417,8 @@ void NODER::Draw()
             }
 
             // draw geos
-            SetFarLodView();
+            if (geo->HasFarLods())
+                SetFarLodView();
             geo->Draw(&TViewPlane[0], 4, geoMaterialFunc);
             storm::render::far_lod::view.valid = false;
         }
@@ -441,13 +442,13 @@ void NODER::SetFarLodView() const
     D3DVIEWPORT9 viewport;
     if (rs->GetViewport(&viewport) != D3D_OK || viewport.Height == 0)
         return;
-    glm::vec3 camera, angles;
-    float perspective;
-    rs->GetCamera(camera, angles, perspective);
+    // The eye and the view direction of the view being drawn (the sea's reflection and cube faces set their own
+    // views, not the camera): view space looks along +z.
+    const glm::mat4 from_view = glm::inverse(rs->GetView());
+    const glm::vec3 camera = glm::vec3(from_view * glm::vec4(0.f, 0.f, 0.f, 1.f));
     const glm::mat4 to_node = glm::inverse(glob_mtx);
     const glm::vec3 local = glm::vec3(to_node * glm::vec4(camera, 1.f));
-    // The view direction: view space looks along +z.
-    const glm::vec3 forward = glm::normalize(glm::vec3(glm::inverse(rs->GetView()) * glm::vec4(0.f, 0.f, 1.f, 0.f)));
+    const glm::vec3 forward = glm::normalize(glm::vec3(from_view * glm::vec4(0.f, 0.f, 1.f, 0.f)));
     const glm::vec3 local_forward = glm::vec3(to_node * glm::vec4(forward, 0.f));
     view.scale = glm::length(glm::vec3(glob_mtx[0]));
     if (view.scale <= 0.f)

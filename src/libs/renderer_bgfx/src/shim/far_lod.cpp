@@ -19,9 +19,9 @@ std::string Take(uint64_t frames)
                           counters.drawn_triangles[p] / n / 1000.0, kPassName[p], counters.full_triangles[p] / n / 1000.0);
             line += item;
         }
-        std::snprintf(item, sizeof(item), " far_lod_composes=%.2f far_lod_compose_kb=%.1f far_lod_conflicts=%.2f "
+        std::snprintf(item, sizeof(item), " far_lod_composes=%.2f far_lod_compose_kb=%.1f "
                                           "island_slices=%.2f far_lod_pending=%d far_lod_px=%.1f",
-                      counters.composes / n, counters.compose_bytes / n / 1024.0, counters.conflicts / n,
+                      counters.composes / n, counters.compose_bytes / n / 1024.0,
                       counters.island_slices / n, pending, pixels);
         line += item;
     }

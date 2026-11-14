@@ -72,6 +72,10 @@ class GEOM : public GEOS
     virtual ~GEOM();
 
     virtual int32_t FindName(const char *name) const;
+    bool HasFarLods() const override
+    {
+        return far_lod_ != nullptr;
+    }
 
     virtual int32_t FindLabelN(int32_t start_index, int32_t name_id);
     virtual int32_t FindLabelG(int32_t start_index, int32_t group_name_id);

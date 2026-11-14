@@ -266,23 +266,31 @@ void ParallelRanges(size_t count, unsigned threads, const std::function<void(siz
             work(first, std::min(count, first + piece));
         }
     };
+    // The first exception of any thread (`work` failing, or a nested ParallelRanges of a cancelled bake) stops the
+    // others' next pieces and is thrown here once all are joined: an exception must not end a pool thread (that
+    // would end the program).
+    std::mutex failure_mutex;
+    std::exception_ptr failure;
+    const auto guarded = [&] {
+        try
+        {
+            run();
+        }
+        catch (...)
+        {
+            std::lock_guard lock(failure_mutex);
+            if (!failure)
+                failure = std::current_exception();
+            next = count;
+        }
+    };
     std::vector<std::thread> pool;
     for (unsigned t = 1; t < threads; ++t)
         pool.emplace_back([&] {
             LowerThreadPriority();
-            run();
+            guarded();
         });
-    // A ParallelRanges inside `work` on this thread throws when the bake is cancelled: the threads are joined first.
-    std::exception_ptr failure;
-    try
-    {
-        run();
-    }
-    catch (...)
-    {
-        failure = std::current_exception();
-        next = count;
-    }
+    guarded();
     for (std::thread &th : pool)
         th.join();
     if (failure)

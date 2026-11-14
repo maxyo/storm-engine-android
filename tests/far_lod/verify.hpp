@@ -150,6 +150,14 @@ inline Totals check(const Model &model)
             }
         }
 
+    // Triangles that tie with another object's (a decal of its own): kept exact at every level.
+    std::vector<std::set<std::array<uint32_t, 3>>> exact(model.objects.size());
+    for (const auto &[a, b] : far_lod::ModelDepthTies(model.objects, views, model.triangles))
+        if (a.object != b.object)
+            for (const far_lod::TriangleRef &r : {a, b})
+                exact[r.object].insert(
+                    canonical(&model.triangles[3 * size_t(model.objects[r.object].first_triangle + r.triangle)]));
+
     for (size_t o = 0; o < model.objects.size(); ++o)
     {
         const MeshObject &object = model.objects[o];
@@ -214,6 +222,16 @@ inline Totals check(const Model &model)
                                  " uses a vertex outside its cluster");
                     for (int k = 0; k < 3; ++k)
                         ++open[edge(position(model, object, i[k]), position(model, object, i[(k + 1) % 3]))];
+                }
+                // Ties with other objects: still there.
+                {
+                    std::multiset<std::array<uint32_t, 3>> here;
+                    for (uint32_t t = 0; t < cluster.count[l]; ++t)
+                        here.insert(canonical(&lods.indices[3 * (cluster.first[l] + t)]));
+                    for (const auto &triangle : exact[o])
+                        if (cluster0.contains(triangle) && !here.contains(triangle))
+                            fail("object " + std::to_string(o) + " level " + std::to_string(l) +
+                                 " lost a triangle that ties with another object's");
                 }
                 // Ties: the last triangles, unchanged, in the file's order.
                 if (tie_tail.size() > cluster.count[l])

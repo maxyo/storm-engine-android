@@ -171,11 +171,6 @@ GEOM::GEOM(const char *fname, const char *lightname, GEOM_SERVICE &_srv, int32_t
         throw std::runtime_error(fmt::format("cannot create the index buffer of {} ({} triangles)", fname,
                                              rhead.ntriangles));
     srv.ReadFile(file, trg, sizeof(RDF_TRIANGLE) * rhead.ntriangles);
-    GeomFarLod::Source lod_source;
-    lod_source.name = fname;
-    if (rhead.ntriangles > 0)
-        lod_source.triangles.assign(reinterpret_cast<const uint16_t *>(trg),
-                                    reinterpret_cast<const uint16_t *>(trg) + 3 * size_t(rhead.ntriangles));
     srv.UnlockIndexBuffer(idx_buff);
 
     auto nvertices = 0;
@@ -198,8 +193,16 @@ GEOM::GEOM(const char *fname, const char *lightname, GEOM_SERVICE &_srv, int32_t
     for (v = 0; v < rhead.nvrtbuffs; v++)
         animated = animated || (vbuff[v].type & 4) != 0;
     const bool lods = GeomFarLod::Wanted(fname, rhead.radius, animated) && rhead.ntriangles > 0;
-    if (!lods)
-        lod_source.triangles = {};
+    GeomFarLod::Source lod_source;
+    if (lods)
+    {
+        lod_source.name = fname;
+        const auto *triangles = static_cast<const uint16_t *>(srv.ReadIndexBuffer(idx_buff));
+        if (triangles == nullptr)
+            throw std::runtime_error(fmt::format("cannot read back the index buffer of {}", fname));
+        lod_source.triangles.assign(triangles, triangles + 3 * size_t(rhead.ntriangles));
+        srv.UnlockIndexBuffer(idx_buff);
+    }
     // The game has no baked lighting of this model for this light set (weather): the model's own vertex colours are
     // drawn, as in the original engine. Reported for models with vertices (locator models have none).
     if (colMissing && nvertices > 0)
@@ -244,9 +247,16 @@ GEOM::GEOM(const char *fname, const char *lightname, GEOM_SERVICE &_srv, int32_t
         }
         if (lods)
         {
+            // What the LODs are made from: position and normal (24 bytes), uv0 at 28 (GeomFarLod::kSourceStride).
             const auto *bytes = reinterpret_cast<const uint8_t *>(vrt);
-            lod_source.buffers.emplace_back(bytes, bytes + size_t(vbuff[v].nverts) * vbuff[v].stride);
-            lod_source.strides.push_back(static_cast<uint32_t>(vbuff[v].stride));
+            auto &copy = lod_source.buffers.emplace_back(size_t(vbuff[v].nverts) * GeomFarLod::kSourceStride);
+            for (int32_t vr = 0; vr < vbuff[v].nverts; vr++)
+            {
+                std::memcpy(&copy[size_t(vr) * GeomFarLod::kSourceStride], bytes + size_t(vbuff[v].stride) * vr, 24);
+                std::memcpy(&copy[size_t(vr) * GeomFarLod::kSourceStride + 28],
+                            bytes + size_t(vbuff[v].stride) * vr + 28, 8);
+            }
+            lod_source.strides.push_back(GeomFarLod::kSourceStride);
         }
 
         srv.UnlockVertexBuffer(vbuff[v].dev_buff);

@@ -22,7 +22,9 @@ struct View;
 class GeomFarLod
 {
   public:
-    // The model's data as GEOM read it from the file (vertex bytes and the triangles), for the background job.
+    // The model's data as GEOM read it from the file, for the background job: of every vertex its position and normal
+    // (bytes 0..23) and uv0 (28..35), and the triangles.
+    static constexpr uint32_t kSourceStride = 36;
     struct Source
     {
         std::string name; // the model, for the log
@@ -40,15 +42,18 @@ class GeomFarLod
     GeomFarLod(const GeomFarLod &) = delete;
     GeomFarLod &operator=(const GeomFarLod &) = delete;
 
-    // Main thread, at draw: true once the LODs are in place (the first call after the job finished installs them).
+    // Main thread, at draw: true once the LODs are in place. The first call with far LODs on queues the background
+    // work, a later one installs its result (or queues it again when the bakes were shut down before it finished).
     bool Ready();
     // Draws object `o` (vertex buffer already set) at its levels for the current far_lod::View and pass; false when
-    // the object must be drawn whole from the model's own index buffer (far LODs off, or a pass that already used the
-    // object's composed indices with another choice this frame).
+    // the object must be drawn whole from the model's own index buffer (far LODs off, no view, or no index buffer
+    // for its list: logged).
     bool Draw(int32_t o, const GEOS::OBJECT &object, int32_t stride);
 
+    struct Job; // the background work (geom_far_lod.cpp)
+
   private:
-    struct Job;
+    void post();
     // Per object, per pass: the clusters' current levels (hysteresis), and for objects of more than one cluster the
     // indices composed for that choice in a buffer of their own.
     struct Slot
@@ -59,8 +64,8 @@ class GeomFarLod
         std::vector<uint32_t> order;      // clusters in the composed buffer (nearest first)
         std::vector<uint32_t> offset;     // first triangle of each of them in the buffer
         uint32_t triangles = 0;
-        uint64_t frame = UINT64_MAX;      // last frame it was composed in
         bool composed = false;
+        bool failed = false;              // no index buffer for it (logged): the object is drawn whole
     };
 
     void install();
@@ -74,4 +79,5 @@ class GeomFarLod
     std::optional<storm::geometry::far_lod::Lods> lods_;
     GEOS::ID static_buffer_ = -1;
     std::vector<std::array<Slot, 3>> slots_; // per object, per far_lod::Pass
+    bool posted_ = false;
 };

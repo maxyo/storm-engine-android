@@ -19,7 +19,7 @@ namespace storm::geometry::far_lod
 {
 
 // Bump when Build changes its result or Encode its format (the cache keeps them).
-inline constexpr uint32_t kVersion = 1;
+inline constexpr uint32_t kVersion = 2;
 
 // Level 0 is the object's own triangles; levels 1.. are simplified within kLevelError metres (model units) each.
 inline constexpr int kLevels = 6;
@@ -87,13 +87,23 @@ inline constexpr double kTieDistance = 0.01; // model units (metres)
 std::vector<std::pair<uint32_t, uint32_t>> DepthTiePairs(const MeshObject &object, const MeshBuffer &buffer,
                                                          std::span<const uint16_t> triangles);
 
+// DepthTiePairs over the whole model: also a decal in an object of its own over another object's surface. Pairs of
+// (object, triangle as numbered inside the object), the earlier first.
+struct TriangleRef
+{
+    uint32_t object = 0, triangle = 0;
+};
+std::vector<std::pair<TriangleRef, TriangleRef>> ModelDepthTies(std::span<const MeshObject> objects,
+                                                                std::span<const MeshBuffer> buffers,
+                                                                std::span<const uint16_t> triangles);
+
 // The clusters and levels of every object. The layout must pass CheckMeshLayout.
 // - Clusters: the object's triangles in meshoptimizer's spatial order, cut every kClusterTriangles; triangles that tie
-//   in depth (DepthTiePairs) go to one cluster.
+//   in depth inside the object go to one cluster.
 // - Level l > 0: meshopt_simplifyWithAttributes (normal, uv0) of the cluster within kLevelError[l], with Permissive
 //   then the parts smaller than the level's error that touch no seam dropped. Vertices whose position is also used by another cluster or another object of the model are locked, so
-//   neighbours at different levels meet without cracks. Depth-tie triangles are never simplified and stay last in
-//   every level, in the file's order. Each level is ordered for the post-transform vertex cache.
+//   neighbours at different levels meet without cracks. Depth-tie triangles (ModelDepthTies) are never simplified; those
+//   tying inside their object stay last in every level, in the file's order (objects keep their draw order). Each level is ordered for the post-transform vertex cache.
 // `parallel(count, work)` runs work(first, last) over [0, count) in pieces, on any threads (the engine passes the
 // background bakes' ParallelRanges: their threads, thermal pause and cancellation); empty: on this thread.
 using Parallel = std::function<void(size_t, const std::function<void(size_t, size_t)> &)>;

@@ -60,6 +60,19 @@ struct Builder
         object.triangle_count = static_cast<uint32_t>(model.triangles.size() / 3) - object.first_triangle;
         model.objects.push_back(object);
     }
+    // A decal object of its own: a quad 2 mm above height `y` (over another object's flat surface).
+    void decal(float x, float z, float y)
+    {
+        MeshObject object;
+        object.first_vertex = static_cast<uint32_t>(vertices.size() / 36);
+        object.first_triangle = static_cast<uint32_t>(model.triangles.size() / 3);
+        vertex(x, y + 0.002f, z, 0, 0), vertex(x + 3, y + 0.002f, z, 1, 0), vertex(x, y + 0.002f, z + 3, 0, 1),
+            vertex(x + 3, y + 0.002f, z + 3, 1, 1);
+        model.triangles.insert(model.triangles.end(), {0, 2, 1, 1, 2, 3});
+        object.vertex_count = 4;
+        object.triangle_count = 2;
+        model.objects.push_back(object);
+    }
     Model done()
     {
         model.buffers = {vertices};
@@ -93,10 +106,17 @@ void synthetic()
         std::printf(", %zu bytes encoded\n", t.encoded);
     }
     {
-        // A flat grid: every level beyond 0 collapses it to the locked outline at most.
+        // A flat grid: every level beyond 0 collapses it to the locked outline at most; with a decal object over it
+        // the grid's triangles under the decal stay (verify.hpp checks them at every level).
         Builder b;
         b.grid(0, 0, 30, 1.f, 0.f);
-        const Totals t = check(b.done());
+        b.decal(10.5f, 10.5f, -0.002f);
+        const Model model = b.done();
+        const auto views = model.views();
+        const auto ties = far_lod::ModelDepthTies(model.objects, views, model.triangles);
+        if (std::ranges::none_of(ties, [](const auto &pair) { return pair.first.object != pair.second.object; }))
+            fail("the decal object does not tie with the grid under it");
+        const Totals t = check(model);
         if (t.kept[1] >= t.kept[0])
             fail("a flat grid kept all its triangles at level 1");
     }

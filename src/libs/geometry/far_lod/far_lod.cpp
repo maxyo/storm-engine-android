@@ -70,14 +70,16 @@ struct Split
     std::vector<bool> tied;
 };
 
-Split split(const MeshObject &object, const MeshBuffer &buffer, std::span<const uint16_t> triangles)
+// `ties`: the object's own depth-tie pairs.
+Split split(const MeshObject &object, const MeshBuffer &buffer, std::span<const uint16_t> triangles,
+            std::span<const std::pair<uint32_t, uint32_t>> ties)
 {
     Split result;
     const uint32_t count = object.triangle_count;
     const uint16_t *indices = triangles.data() + 3 * size_t(object.first_triangle);
     result.tied.assign(count, false);
     Groups groups(count);
-    for (const auto &[a, b] : DepthTiePairs(object, buffer, triangles))
+    for (const auto &[a, b] : ties)
     {
         groups.join(a, b);
         result.tied[a] = result.tied[b] = true;
@@ -252,12 +254,23 @@ Lods Build(std::span<const MeshObject> objects, std::span<const MeshBuffer> buff
         else if (count > 0)
             work(0, count);
     };
-    // 1. Clusters of every object.
+    // 1. Depth ties over the whole model: inside an object (kept in order, in one cluster) and between objects (a
+    // decal of its own over another object's surface: both kept exact). Then the clusters of every object.
+    std::vector<std::vector<std::pair<uint32_t, uint32_t>>> own_ties(objects.size());
+    std::vector<std::vector<uint32_t>> exact(objects.size()); // per object: triangles never simplified (other ties)
+    for (const auto &[a, b] : ModelDepthTies(objects, buffers, triangles))
+        if (a.object == b.object)
+            own_ties[a.object].push_back({a.triangle, b.triangle});
+        else
+        {
+            exact[a.object].push_back(a.triangle);
+            exact[b.object].push_back(b.triangle);
+        }
     std::vector<Split> splits(objects.size());
     run(objects.size(), [&](size_t first, size_t last) {
         for (size_t o = first; o < last; ++o)
             if (objects[o].triangle_count > 0)
-                splits[o] = split(objects[o], buffers[objects[o].vertex_buffer], triangles);
+                splits[o] = split(objects[o], buffers[objects[o].vertex_buffer], triangles, own_ties[o]);
     });
 
     // 2. Owner of every position: the one (object, cluster) using it, or kShared when two use it.
@@ -326,6 +339,9 @@ Lods Build(std::span<const MeshObject> objects, std::span<const MeshBuffer> buff
                 if (splits[o].tied[t])
                     for (int k = 0; k < 3; ++k)
                         p.locks[indices[3 * t + k]] = 1;
+            for (const uint32_t t : exact[o])
+                for (int k = 0; k < 3; ++k)
+                    p.locks[indices[3 * t + k]] = 1;
         }
     });
 
@@ -528,9 +544,16 @@ std::vector<uint8_t> Encode(const Lods &lods)
 std::optional<Lods> Decode(std::span<const uint8_t> data, std::span<const MeshObject> objects)
 {
     Header header;
+    // Sizes the model can have at most: no level exceeds level 0, which is the model's triangles; no cluster is empty
+    // at level 0. Checked before anything is allocated (the cache is not trusted).
+    uint64_t model_triangles = 0;
+    for (const MeshObject &object : objects)
+        model_triangles += object.triangle_count;
     if (!take(data, &header, 1) || std::memcmp(header.magic, kMagic, sizeof(kMagic)) != 0 || header.version != kVersion ||
-        header.objects != objects.size() || header.indices % 3 != 0 || data.size() != size_t(header.encoded) +
-            sizeof(ObjectLods) * header.objects + sizeof(Cluster) * size_t(header.clusters))
+        header.objects != objects.size() || header.indices % 3 != 0 ||
+        header.indices > 3 * uint64_t(kLevels) * model_triangles || header.clusters > model_triangles ||
+        data.size() != size_t(header.encoded) + sizeof(ObjectLods) * header.objects +
+                           sizeof(Cluster) * size_t(header.clusters))
         return std::nullopt;
     Lods lods;
     lods.objects.resize(header.objects);
@@ -551,7 +574,9 @@ std::optional<Lods> Decode(std::span<const uint8_t> data, std::span<const MeshOb
             for (int l = 0; l < kLevels; ++l)
             {
                 const Cluster &cluster = lods.clusters[c];
-                if (uint64_t(cluster.first[l]) + cluster.count[l] > triangle_count)
+                // A level never has more triangles than the one before (the composed lists are sized by level 0).
+                if (uint64_t(cluster.first[l]) + cluster.count[l] > triangle_count ||
+                    (l > 0 && cluster.count[l] > cluster.count[l - 1]))
                     return std::nullopt;
                 for (uint64_t i = 3 * uint64_t(cluster.first[l]); i < 3 * (uint64_t(cluster.first[l]) + cluster.count[l]); ++i)
                     if (lods.indices[i] >= objects[o].vertex_count)

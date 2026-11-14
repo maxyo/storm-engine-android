@@ -236,6 +236,12 @@ class GEOS
 
     virtual void Draw(const PLANE *pl, int32_t np, MATERIAL_FUNC mtf) const = 0;
 
+    // Whether the geometry draws far LODs (src/libs/geometry/far_lod), which need the view (storm/render/far_lod.hpp).
+    virtual bool HasFarLods() const
+    {
+        return false;
+    }
+
     //-----------------------------------------
     // collision, ray shooting
     //-----------------------------------------

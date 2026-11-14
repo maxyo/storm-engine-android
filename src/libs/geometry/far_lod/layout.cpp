@@ -162,20 +162,19 @@ std::optional<std::string> CheckMeshLayout(std::span<const MeshObject> objects,
     return std::nullopt;
 }
 
-std::vector<std::pair<uint32_t, uint32_t>> DepthTiePairs(const MeshObject &object, const MeshBuffer &buffer,
-                                                         std::span<const uint16_t> triangles)
+namespace
 {
-    std::vector<Plane> planes(object.triangle_count);
-    for (uint32_t t = 0; t < object.triangle_count; ++t)
-        planes[t] = plane(object, buffer, &triangles[3 * size_t(object.first_triangle + t)]);
+// Pairs (i < j) of `planes` that tie in the depth test.
+std::vector<std::pair<uint32_t, uint32_t>> tiePairs(const std::vector<Plane> &planes)
+{
     // Candidates share a bin of (normal, distance) with cells twice the tolerances: a triangle goes into every cell its
     // tolerance box touches, under its normal and under the reversed one, so no tying pair is missed.
     constexpr double kNormalCell = 2 * kTieNormal, kDistanceCell = 2 * kTieDistance;
     // (cell, triangle) entries sorted by cell: a run of one cell is a bin (one array and a sort, not a map of vectors:
     // a large flat model has hundreds of thousands of bins).
     std::vector<std::pair<std::array<int64_t, 4>, uint32_t>> entries;
-    entries.reserve(size_t(object.triangle_count) * 4);
-    for (uint32_t t = 0; t < object.triangle_count; ++t)
+    entries.reserve(planes.size() * 4);
+    for (uint32_t t = 0; t < planes.size(); ++t)
     {
         const Plane &p = planes[t];
         if (!p.valid)
@@ -276,6 +275,35 @@ std::vector<std::pair<uint32_t, uint32_t>> DepthTiePairs(const MeshObject &objec
     std::ranges::sort(pairs);
     pairs.erase(std::unique(pairs.begin(), pairs.end()), pairs.end());
     return pairs;
+}
+} // namespace
+
+std::vector<std::pair<uint32_t, uint32_t>> DepthTiePairs(const MeshObject &object, const MeshBuffer &buffer,
+                                                         std::span<const uint16_t> triangles)
+{
+    std::vector<Plane> planes(object.triangle_count);
+    for (uint32_t t = 0; t < object.triangle_count; ++t)
+        planes[t] = plane(object, buffer, &triangles[3 * size_t(object.first_triangle + t)]);
+    return tiePairs(planes);
+}
+
+std::vector<std::pair<TriangleRef, TriangleRef>> ModelDepthTies(std::span<const MeshObject> objects,
+                                                                std::span<const MeshBuffer> buffers,
+                                                                std::span<const uint16_t> triangles)
+{
+    std::vector<Plane> planes;
+    std::vector<TriangleRef> refs;
+    for (uint32_t o = 0; o < objects.size(); ++o)
+        for (uint32_t t = 0; t < objects[o].triangle_count; ++t)
+        {
+            planes.push_back(plane(objects[o], buffers[objects[o].vertex_buffer],
+                                   &triangles[3 * size_t(objects[o].first_triangle + t)]));
+            refs.push_back({o, t});
+        }
+    std::vector<std::pair<TriangleRef, TriangleRef>> result;
+    for (const auto &[a, b] : tiePairs(planes))
+        result.push_back({refs[a], refs[b]});
+    return result;
 }
 
 } // namespace storm::geometry::far_lod

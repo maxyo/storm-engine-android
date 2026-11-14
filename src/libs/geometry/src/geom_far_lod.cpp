@@ -72,12 +72,56 @@ std::vector<far_lod::MeshBuffer> views(const GeomFarLod::Source &source)
 struct GeomFarLod::Job
 {
     Source source;
-    std::atomic<int> state{0}; // 0 being made, 1 ready, 2 failed
+    // 0 queued or being made, 1 ready, 2 failed, 3 dropped before it finished (the bakes shut down with the device:
+    // the app went to the background): queued again at the next draw.
+    std::atomic<int> state{0};
+    std::optional<uint64_t> key; // the cache key, computed by the first stage that runs
     std::optional<far_lod::Lods> lods;
     std::string failure;
     bool from_cache = false;
     double ms = 0;
 };
+
+namespace
+{
+// Marks the job dropped when the bake queue lets go of its step without the job having finished.
+struct DropGuard
+{
+    std::shared_ptr<GeomFarLod::Job> job;
+    ~DropGuard()
+    {
+        int running = 0;
+        job->state.compare_exchange_strong(running, 3);
+    }
+};
+
+// The LODs from the cache, or nothing. A damaged entry is logged (and made again).
+bool readCache(GeomFarLod::Job &job)
+{
+    const auto started = std::chrono::steady_clock::now();
+    const auto data = storm::render::ReadDerivedData(*job.key, cacheShape(job.source), kMaxCacheBytes);
+    if (!data)
+        return false;
+    job.lods = far_lod::Decode(*data, job.source.objects);
+    if (!job.lods)
+    {
+        spdlog::error("far LOD: the cache entry of {} does not decode into its objects: made again", job.source.name);
+        return false;
+    }
+    job.from_cache = true;
+    job.ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
+    return true;
+}
+
+// Done (ready or failed): the copies of the model's data go, only the object table stays.
+void finish(GeomFarLod::Job &job, int state)
+{
+    job.source.buffers = {};
+    job.source.strides = {};
+    job.source.triangles = {};
+    job.state = state;
+}
+} // namespace
 
 bool GeomFarLod::Wanted(const char *file_name, float radius, bool animated)
 {
@@ -92,55 +136,65 @@ GeomFarLod::GeomFarLod(Source source, GEOM_SERVICE &srv) : srv_(srv), name_(sour
 {
     job_ = std::make_shared<Job>();
     job_->source = std::move(source);
+}
+
+void GeomFarLod::post()
+{
+    posted_ = true;
     ++render_lod::pending;
-    std::shared_ptr<Job> job = job_;
-    ticket_ = storm::fx::PostBake("far LOD " + name_, [job](storm::fx::BakeStage stage) {
-        const Source &source = job->source;
-        const auto shape = cacheShape(source);
-        const uint64_t key = cacheKey(source);
+    auto guard = std::make_shared<DropGuard>(DropGuard{job_});
+    ticket_ = storm::fx::PostBake("far LOD " + name_, [guard](storm::fx::BakeStage stage) {
+        Job &job = *guard->job;
+        if (!job.key)
+            job.key = cacheKey(job.source);
         if (stage == storm::fx::BakeStage::Load)
         {
-            const auto started = std::chrono::steady_clock::now();
-            const auto data = storm::render::ReadDerivedData(key, shape, kMaxCacheBytes);
-            if (!data)
-                return false;
-            job->lods = far_lod::Decode(*data, source.objects);
-            if (!job->lods)
+            try
             {
-                spdlog::error("far LOD: the cache entry of {} does not decode into its objects: made again", source.name);
+                if (!readCache(job))
+                    return false;
+            }
+            catch (const std::exception &error)
+            {
+                spdlog::error("far LOD: reading the cache entry of {} failed ({}): made again", job.source.name,
+                              error.what());
                 return false;
             }
-            job->from_cache = true;
-            job->ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
-            job->state = 1;
+            finish(job, 1);
+            return true;
+        }
+        // Another copy of the same model (ships of one class) may have made them since this one looked.
+        if (readCache(job))
+        {
+            finish(job, 1);
             return true;
         }
         const auto started = std::chrono::steady_clock::now();
         try
         {
-            const auto buffers = views(source);
-            job->lods = far_lod::Build(source.objects, buffers, source.triangles,
-                                       [](size_t count, const std::function<void(size_t, size_t)> &work) {
-                                           storm::fx::ParallelRanges(count, storm::fx::BakeThreads(), work, 1);
-                                       });
+            const auto buffers = views(job.source);
+            job.lods = far_lod::Build(job.source.objects, buffers, job.source.triangles,
+                                      [](size_t count, const std::function<void(size_t, size_t)> &work) {
+                                          storm::fx::ParallelRanges(count, storm::fx::BakeThreads(), work, 1);
+                                      });
         }
         catch (const storm::fx::BakeCancelled &)
         {
-            throw; // the owner let go: the bake thread logs it
+            throw; // the owner let go, or the bakes shut down: the bake thread logs it
         }
         catch (const std::exception &error)
         {
-            job->failure = error.what();
-            job->state = 2;
+            job.failure = error.what();
+            finish(job, 2);
             return true;
         }
-        job->ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
-        const std::vector<uint8_t> encoded = far_lod::Encode(*job->lods);
+        job.ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
+        const std::vector<uint8_t> encoded = far_lod::Encode(*job.lods);
         if (!storm::render::DerivedDataCacheEnabled())
-            spdlog::error("far LOD: no cache directory: the LODs of {} are made again on every load", source.name);
-        else if (!storm::render::WriteDerivedData(key, shape, encoded))
-            spdlog::error("far LOD: cannot write the LODs of {} into the cache", source.name);
-        job->state = 1;
+            spdlog::error("far LOD: no cache directory: the LODs of {} are made again on every load", job.source.name);
+        else if (!storm::render::WriteDerivedData(*job.key, cacheShape(job.source), encoded))
+            spdlog::error("far LOD: cannot write the LODs of {} into the cache", job.source.name);
+        finish(job, 1);
         return true;
     });
 }
@@ -148,7 +202,7 @@ GeomFarLod::GeomFarLod(Source source, GEOM_SERVICE &srv) : srv_(srv), name_(sour
 GeomFarLod::~GeomFarLod()
 {
     ticket_.reset(); // cancels the job if it is still queued or running
-    if (job_)
+    if (job_ && posted_)
         --render_lod::pending;
     if (static_buffer_ != -1)
         srv_.ReleaseIndexBuffer(static_buffer_);
@@ -162,10 +216,28 @@ bool GeomFarLod::Ready()
 {
     if (lods_)
         return true;
-    if (!job_ || job_->state == 0)
+    if (!job_ || render_lod::pixels <= 0.f)
+        return false; // failed before, or far LODs off: nothing is made while they are off
+    if (!posted_)
+    {
+        post();
         return false;
-    install();
-    return lods_.has_value();
+    }
+    switch (job_->state.load())
+    {
+    case 0:
+        return false;
+    case 3:
+        spdlog::info("far LOD: making the LODs of {} stopped with the background work (the device was let go): "
+                     "queued again", name_);
+        --render_lod::pending;
+        job_->state = 0;
+        post();
+        return false;
+    default:
+        install();
+        return lods_.has_value();
+    }
 }
 
 void GeomFarLod::install()
@@ -220,7 +292,7 @@ bool GeomFarLod::choose(Slot &slot, uint32_t first_cluster, uint32_t count, cons
                         dz = cluster.center[2] - view.camera[2];
             const float distance = (std::sqrt(dx * dx + dy * dy + dz * dz) - cluster.radius) * view.scale;
             // Not clamped to the near plane: an island's depth slices move it, and the choice must be the same in
-            // all of them (one composed list per pass and frame).
+            // all of them (one composed list serves every slice).
             per_metre /= std::max(distance, 0.01f);
         }
         const auto error = [&](int l) { return cluster.error[l] * view.scale * per_metre; };
@@ -243,6 +315,7 @@ bool GeomFarLod::compose(Slot &slot, uint32_t first_cluster, uint32_t count)
     const render_lod::View &view = render_lod::view;
     if (slot.buffer == -1)
     {
+        slot.capacity = 0;
         for (uint32_t c = 0; c < count; ++c)
             slot.capacity += lods_->clusters[first_cluster + c].count[0];
         slot.buffer = srv_.CreateIndexBuffer(static_cast<int32_t>(slot.capacity * 3 * sizeof(uint16_t)));
@@ -262,9 +335,10 @@ bool GeomFarLod::compose(Slot &slot, uint32_t first_cluster, uint32_t count)
     auto *target = static_cast<uint16_t *>(srv_.LockIndexBuffer(slot.buffer));
     if (target == nullptr)
     {
-        // The renderer logged why (out of buffers): this object is drawn whole.
-        spdlog::error("far LOD: no composed index buffer of {} triangles for {}: the object is drawn whole",
+        // Out of index buffers: this object of this pass is drawn whole from now on.
+        spdlog::error("far LOD: no index buffer of {} triangles for an object of {}: that object is drawn whole",
                       slot.capacity, name_);
+        slot.failed = true;
         return false;
     }
     slot.offset.resize(count);
@@ -306,22 +380,13 @@ bool GeomFarLod::Draw(int32_t o, const GEOS::OBJECT &object, int32_t stride)
     }
     else
     {
-        const uint64_t frame = storm::render::PerfTotals().frames;
-        const std::vector<uint8_t> before = slot.levels;
-        if (choose(slot, lod.first_cluster, lod.cluster_count, view) || !slot.composed)
-        {
-            if (slot.composed && slot.frame == frame)
-            {
-                // This pass already drew the composed indices of another choice this frame (the GPU sees one content
-                // per frame): this draw takes the whole object.
-                slot.levels = before;
-                ++render_lod::counters.conflicts;
-                return false;
-            }
-            if (!compose(slot, lod.first_cluster, lod.cluster_count))
-                return false;
-            slot.frame = frame;
-        }
+        if (slot.failed)
+            return false;
+        // A rewrite of the list mid-frame is safe: a draw from a buffer written this frame takes its indices as they
+        // are at that draw (the shim copies them into the frame's transient indices).
+        if ((choose(slot, lod.first_cluster, lod.cluster_count, view) || !slot.composed) &&
+            !compose(slot, lod.first_cluster, lod.cluster_count))
+            return false;
         buffer = slot.buffer;
         // Only the clusters that reach into the depth range drawn (the island's depth slices): one run of the
         // nearest-first order covers them all.
