@@ -6,6 +6,32 @@
 
 namespace storm::android
 {
+// A frame-local snapshot of the few controls used by combat. Copy availability
+// bits instead of hundreds of names; later script queries may replace the
+// controls table, so string_views into its descriptors must not be retained.
+class CombatControlAvailability
+{
+    static constexpr std::array names = {
+        std::string_view("ChrFightMode"), std::string_view("BOAL_UsePotion"), std::string_view("ChrAction"),
+        std::string_view("ChrCamSpecMode"), std::string_view("ChrAttackForce2"), std::string_view("ChrAttackForce"),
+        std::string_view("ChrAttackFast2"), std::string_view("ChrAttackFast"), std::string_view("ChrAttackBreak"),
+        std::string_view("ChrAttackBreak2"), std::string_view("ChrParry"), std::string_view("ChrParry2"),
+        std::string_view("ChrAttackFient"), std::string_view("ChrAttackFient2"), std::string_view("ChrAttackRound"),
+        std::string_view("ChrAttackRound2"), std::string_view("ChrFire"), std::string_view("ChrBlock"),
+        std::string_view("ChrBlock2")};
+    std::array<bool, names.size()> available_{};
+public:
+    void allow(std::string_view name)
+    {
+        const auto found = std::find(names.begin(), names.end(), name);
+        if (found != names.end()) available_[found - names.begin()] = true;
+    }
+    bool contains(std::string_view name) const
+    {
+        const auto found = std::find(names.begin(), names.end(), name);
+        return found != names.end() && available_[found - names.begin()];
+    }
+};
 // Native FindDialogCharacter returns a script index, or -1 when unavailable.
 inline bool validDialogTarget(int64_t target)
 {

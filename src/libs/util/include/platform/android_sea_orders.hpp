@@ -230,8 +230,35 @@ public:
 
 };
 inline SeaOrdersState seaOrders;
+// Closed menus need only a bounded refresh of companion names/availability. An
+// open menu keeps its live script filtering and cooldown sampling every frame.
+// Keep identities, never engine pointers, across frames.
+class SeaOrdersRefreshGate
+{
+    bool initialized_ = false, ready_ = false, active_ = false;
+    uint64_t battle_ = 0, ship_ = 0;
+    int character_ = -1;
+    uint32_t last_ = 0;
+public:
+    bool due(bool ready, uint64_t battle, uint64_t ship, int character, bool active, uint32_t tick)
+    {
+        const bool refresh = !initialized_ || ready != ready_ || battle != battle_ || ship != ship_ ||
+            character != character_ || active != active_ || (ready && (active || tick - last_ >= 100));
+        initialized_ = true;
+        ready_ = ready;
+        battle_ = battle;
+        ship_ = ship;
+        character_ = character;
+        active_ = active;
+        if (refresh) last_ = tick;
+        return refresh;
+    }
+    void force() { initialized_ = false; }
+};
+inline SeaOrdersRefreshGate seaOrdersRefresh;
 // Defined by battle_interface. All entry points run on the game thread and
 // resolve the live entity on each call; no retained pointers cross a frame.
+void pollSeaOrders(bool ready, uint32_t tick);
 void refreshSeaOrders(bool ready);
 bool executeSeaOrder(const SeaOrdersRequest &request);
 void closeSeaOrders();

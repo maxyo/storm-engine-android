@@ -524,6 +524,17 @@ void storm::android::readShipCaptions(ShipTelemetryFrame &frame, uint64_t mainSh
 #endif
 
 #ifdef __ANDROID__
+void storm::android::pollSeaOrders(bool ready, uint32_t tick)
+{
+    auto *battle = dynamic_cast<BATTLE_INTERFACE *>(core.GetEntityPointer(BIUtils::idBattleInterface));
+    auto *main = g_ShipList.GetMainCharacterShip();
+    const bool available = ready && battle && main && main->pShip && !main->isDead;
+    if (seaOrdersRefresh.due(available, battle ? battle->GetId() : 0,
+            main && main->pShip ? main->pShip->GetId() : 0, main ? main->characterIndex : -1,
+            battle && battle->AndroidCommandActive(), tick))
+        refreshSeaOrders(ready);
+}
+
 void storm::android::refreshSeaOrders(bool ready)
 {
     auto *battle = dynamic_cast<BATTLE_INTERFACE *>(core.GetEntityPointer(BIUtils::idBattleInterface));
@@ -553,12 +564,18 @@ bool storm::android::executeSeaOrder(const SeaOrdersRequest &request)
 {
     if (request.scene != seaOrders.sceneEpoch() || request.revision != seaOrders.revision() ||
         request.activity != seaOrders.activityGeneration() || !seaOrders.frame().available) return false;
+    // The closed-menu snapshot can be up to 100 ms old. Recollect recipients
+    // and command predicates now; never dispatch against an obsolete identity.
+    refreshSeaOrders(true);
+    if (request.scene != seaOrders.sceneEpoch() || request.revision != seaOrders.revision() ||
+        request.activity != seaOrders.activityGeneration() || !seaOrders.frame().available) return false;
     auto *battle = dynamic_cast<BATTLE_INTERFACE *>(core.GetEntityPointer(BIUtils::idBattleInterface));
     if (!battle) return false;
     const bool executed = battle->ExecuteAndroidOrder(request);
     // Even idempotent selection consumes this revision, preventing a duplicated
     // confirmation from running against another stage or dispatching twice.
     seaOrders.invalidate();
+    seaOrdersRefresh.force();
     return executed;
 }
 
@@ -567,5 +584,6 @@ void storm::android::closeSeaOrders()
     if (auto *battle = dynamic_cast<BATTLE_INTERFACE *>(core.GetEntityPointer(BIUtils::idBattleInterface)))
         if (battle->AndroidCommandActive()) battle->CloseAndroidOrders();
     seaOrders.update({}, {});
+    seaOrdersRefresh.force();
 }
 #endif

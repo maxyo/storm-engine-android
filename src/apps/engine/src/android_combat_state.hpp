@@ -83,18 +83,18 @@ inline void updateCombatState(const GameplayState &gameplay, CorePrivate *script
         mode = gameplay.snapshot().mode;
         scene = gameplay.snapshot().scene;
         player = std::to_string(core.GetEntityId("Player"));
-        std::vector<std::string> allowed;
+        CombatControlAvailability allowed;
         for (int32_t i=0; i<core.Controls->GetControlsNum(); ++i)
         {
             USER_CONTROL descriptor{};
             if (!core.Controls->GetControlDesc(i, descriptor) || !descriptor.name ||
                 descriptor.bLocked || descriptor.bSystemLocked) continue;
             if (descriptor.control_type != UCT_ControlTree && descriptor.system_code == UNASSIGNED_CONTROL) continue;
-            allowed.emplace_back(descriptor.name);
+            allowed.allow(descriptor.name);
         }
         const auto add = [&](const char *action, bool held, std::initializer_list<const char *> aliases) {
             for (const auto *alias : aliases)
-                if (std::find(allowed.begin(), allowed.end(), alias) != allowed.end())
+                if (allowed.contains(alias))
                 {
                     // Require a real configured native binding or script-created
                     // output node, not a name invented by the Android adapter.

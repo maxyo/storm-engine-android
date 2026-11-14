@@ -8,6 +8,21 @@ std::string packet(const CombatInput &c,unsigned seq,const char *action,const ch
 }
 int main()
 {
+ CombatControlAvailability allowed;
+ assert(!allowed.contains("ChrFire"));
+ std::string descriptorName="ChrFire";
+ allowed.allow(descriptorName);
+ descriptorName.assign(1000,'x'); // script callback may replace the controls table
+ assert(allowed.contains("ChrFire"));
+ assert(!allowed.contains(descriptorName));
+ allowed.allow("UnrelatedControl");assert(!allowed.contains("UnrelatedControl"));
+ for(const char *alias:{"ChrFightMode","BOAL_UsePotion","ChrAction","ChrCamSpecMode",
+     "ChrAttackForce2","ChrAttackForce","ChrAttackFast2","ChrAttackFast",
+     "ChrAttackBreak","ChrAttackBreak2","ChrParry","ChrParry2","ChrAttackFient",
+     "ChrAttackFient2","ChrAttackRound","ChrAttackRound2","ChrFire","ChrBlock","ChrBlock2"}) {
+     allowed.allow(alias);assert(allowed.contains(alias));
+ }
+ CombatControlAvailability nextFrame;assert(!nextFrame.contains("ChrFire"));
  CombatInput c; bool valid=true;c.guard=[&]{return valid;};c.resetActivity();
  const std::vector<CombatBinding> bindings={{"force","ChrAttackForce2",false},{"fast","ChrAttackFast2",false},{"block","ChrBlock",true},{"potion","BOAL_UsePotion",false}};
  c.update(10,"town","player1","melee",bindings);
