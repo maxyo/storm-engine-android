@@ -29,6 +29,10 @@ target_compile_definitions(perf_check PRIVATE NOMINMAX)
 target_compile_options(perf_check PRIVATE -fsigned-char)
 target_link_libraries(perf_check PRIVATE storm_bgfx storm_check_sdl)
 
+add_executable(grass_vertex_check grass_vertex_check.cpp)
+target_include_directories(grass_vertex_check PRIVATE "${CMAKE_CURRENT_LIST_DIR}/../../src/libs/renderer_bgfx/src/shim")
+target_link_libraries(grass_vertex_check PRIVATE storm_bgfx storm_check_sdl)
+
 # backend_select_check: the choice between Vulkan and OpenGL ES and the marker of a failed Vulkan start
 # (src/shim/backend_select.hpp). No GPU.
 add_executable(backend_select_check backend_select_check.cpp)

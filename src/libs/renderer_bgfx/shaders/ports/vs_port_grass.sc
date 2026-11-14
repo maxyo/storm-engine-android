@@ -31,18 +31,20 @@ $output v_color0, v_color1, v_texcoord0, v_texcoord1, v_texcoord2, v_texcoord3, 
 void main()
 {
     // ---- the vertex (Grass::CreateGpuBuffer) ----
-    float cornerX = a_position.x < 0.0 ? 1.0 : 0.0;
-    float cornerZ = a_position.y < 0.0 ? 1.0 : 0.0;
-    float xq = a_position.x + cornerX * 32768.0;
-    float zq = a_position.y + cornerZ * 32768.0;
+    // Convert the integer attribute numerically before unpacking (grass.varying.def). The bytes stay SHORT4 on the CPU.
+    vec4 packedPosition = vec4(a_position);
+    float cornerX = packedPosition.x < 0.0 ? 1.0 : 0.0;
+    float cornerZ = packedPosition.y < 0.0 ? 1.0 : 0.0;
+    float xq = packedPosition.x + cornerX * 32768.0;
+    float zq = packedPosition.y + cornerZ * 32768.0;
     float wx = floor(xq / 32.0); // the block in the window
     float wz = floor(zq / 32.0);
     float mx = wx + u_vsc[49].y; // the block on the minimap
     float mz = wz + u_vsc[49].z;
-    float hq = a_position.z + 32768.0;
+    float hq = packedPosition.z + 32768.0;
     float hs = floor(hq / 4.0);
     int maxLod = int(hq - hs * 4.0);
-    float packed = a_position.w < 0.0 ? a_position.w + 65536.0 : a_position.w;
+    float packed = packedPosition.w < 0.0 ? packedPosition.w + 65536.0 : packedPosition.w;
     float nib0 = mod(packed, 16.0);
     float nib1 = mod(floor(packed / 16.0), 16.0);
     float nib2 = mod(floor(packed / 256.0), 16.0);

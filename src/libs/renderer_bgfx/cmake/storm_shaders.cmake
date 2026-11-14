@@ -8,7 +8,8 @@
 # storm/render/shader_blob.hpp (STORM_SHADER_BLOB) picks the one of the running backend.
 # File names must start with vs_ or fs_; a variant compiles <source> again with extra
 # defines under its own <name>. Other libraries (e.g. the UI) call this with their own
-# sources and varying.def.sc; see renderer_bgfx/README.md.
+# sources and varying.def.sc; see renderer_bgfx/README.md. A source's STORM_SHADER_VARYING property can
+# override VARYING when its vertex attributes need a different type (for example packed SHORT4 grass).
 set(STORM_SHADER_PRECISION_CHECK "${CMAKE_CURRENT_LIST_DIR}/shader_precision_check.py" CACHE INTERNAL "")
 function(storm_bgfx_embed_shaders)
     if(NOT STORM_SHADERC_LAUNCHER)
@@ -58,8 +59,12 @@ function(storm_bgfx_embed_shaders)
             list(JOIN all_defines "$<SEMICOLON>" joined) # one shaderc argument
             set(define_args --define "${joined}")
         endif()
-        set(common --type ${type} --platform android -O 3 --varyingdef "${arg_VARYING}" ${include_args} ${define_args})
-        set(deps ${STORM_SHADERC_DEPENDS} "${source}" "${arg_VARYING}" ${common_deps} "${STORM_SHADERC_LAUNCHER_SCRIPT}")
+        get_source_file_property(varying "${source}" STORM_SHADER_VARYING)
+        if(NOT varying)
+            set(varying "${arg_VARYING}")
+        endif()
+        set(common --type ${type} --platform android -O 3 --varyingdef "${varying}" ${include_args} ${define_args})
+        set(deps ${STORM_SHADERC_DEPENDS} "${source}" "${varying}" ${common_deps} "${STORM_SHADERC_LAUNCHER_SCRIPT}")
         add_custom_command(OUTPUT "${output}"
             COMMAND ${STORM_SHADERC_LAUNCHER} "${STORM_SHADERC_COMMAND}" -f "${source}" -o "${output}" --bin2c "${name}"
                 -p ${STORM_BGFX_SHADER_PROFILE} ${common}

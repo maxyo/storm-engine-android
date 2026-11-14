@@ -120,6 +120,8 @@ foreach(variant ${ff_fx_variants})
     list(APPEND ff_opaque_variants "${name}_opaque|${source}|${defines},FF_OPAQUE")
 endforeach()
 list(APPEND ff_fx_variants ${ff_opaque_variants})
+set_source_files_properties("${CMAKE_CURRENT_SOURCE_DIR}/shaders/ports/vs_port_grass.sc" PROPERTIES
+    STORM_SHADER_VARYING "${CMAKE_CURRENT_SOURCE_DIR}/shaders/ports/grass.varying.def")
 storm_bgfx_embed_shaders(TARGET storm_bgfx_shaders NAMESPACE storm_shaders
     VARYING "${CMAKE_CURRENT_SOURCE_DIR}/shaders/varying.def.sc" SOURCES ${shader_sources}
     INCLUDES "${CMAKE_CURRENT_SOURCE_DIR}/fx/shaders/include" VARIANTS ${ff_fx_variants})
