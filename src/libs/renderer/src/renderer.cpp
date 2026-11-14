@@ -3383,6 +3383,20 @@ int32_t Renderer::ExtPrint(int32_t nFontNum, uint32_t foreColor, uint32_t backCo
     // UNGUARD
 }
 
+int32_t Renderer::PrintOutlined(int32_t nFontNum, uint32_t color, float scale, float outline, int32_t x, int32_t y,
+                                std::string_view text)
+{
+    if (nFontNum < 0 || nFontNum >= nFontQuantity)
+        return 0;
+    FONT *pFont = FontList[nFontNum].font;
+    if (FontList[nFontNum].ref == 0 || pFont == nullptr)
+        return 0;
+    const size_t length = std::min(text.size(), sizeof(Buff_4k) - 1);
+    std::memcpy(Buff_4k, text.data(), length);
+    Buff_4k[length] = 0;
+    return pFont->Print(x, y, Buff_4k, {.scale = scale, .color = color, .outline = outline});
+}
+
 int32_t Renderer::LoadFont(const char *fontName)
 {
     if (fontName == nullptr)

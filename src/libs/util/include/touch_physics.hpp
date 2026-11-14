@@ -1,7 +1,7 @@
 // Finger motion as Android's own views have it: velocity from the timestamped samples of a
 // pointer, and the fling that follows a release. The portable UI (lists, the map's pan:
-// src/libs/ui touch_motion.h) and the game cameras driven by touch (the world map's turn,
-// platform/android_camera_turn.hpp) share it, so every drag follows the finger and coasts alike.
+// src/libs/ui touch_motion.h) and the game cameras driven by touch (the world map's turn and pan,
+// platform/android_camera_look.hpp) share it, so every drag follows the finger and coasts alike.
 //
 // The model is the published one of android.view.VelocityTracker ("lsq2") and
 // android.widget.OverScroller (SplineOverScroller): no library carries it for C++. Its

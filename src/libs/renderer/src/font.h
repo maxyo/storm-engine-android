@@ -30,6 +30,8 @@ class FONT final
         std::optional<float> scale;
         std::optional<uint32_t> color;
         std::optional<bool> shadow;
+        // A dark outline this many px wide around every glyph (the text's colour alpha fades it too).
+        std::optional<float> outline;
     };
 
     int32_t Print(int32_t x, int32_t y, char *Text, const FONT_PRINT_OVERRIDES &overrides = {});

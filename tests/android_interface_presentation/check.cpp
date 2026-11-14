@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <platform/android_interface_presentation.hpp>
 #include <cassert>
+#include <cmath>
 #include <cstring>
 #include <optional>
 #include <thread>
@@ -37,6 +38,7 @@ struct FONT_PRINT_OVERRIDES
     std::optional<bool> shadow;
     std::optional<float> scale;
     std::optional<uint32_t> color;
+    std::optional<float> outline;
 };
 namespace utf8 { int Utf8StringLength(const char *s) { return std::strlen(s); } }
 constexpr size_t MAX_SYMBOLS = 512; // font.cpp's vertex buffer capacity; Print clamps to it
@@ -97,6 +99,9 @@ int main()
         frame();
         assert(device.draws == 5 && renderer.dwNumDrawPrimitive == 3 && font.updates == 4);
         assert(renderer.fvfSets == 2 && renderer.starts == 4);
+        // An outlined print (the world map's labels) is suppressed alike: eight outline passes update, none draws.
+        assert(font.Print(0, 0, text, {.outline = 2.0f}) == 45);
+        assert(device.draws == 5 && font.updates == 4 + 10);
         {
             NativeInterfaceDrawScope nested(false);
             assert(NativeInterfaceDrawSuppressed());
@@ -107,7 +112,10 @@ int main()
     }
     assert(!NativeInterfaceDrawSuppressed());
     frame(); // Subsequent world rendering is unaffected.
-    assert(device.draws == 10 && renderer.dwNumDrawPrimitive == 6 && font.updates == 6);
+    assert(device.draws == 10 && renderer.dwNumDrawPrimitive == 6 && font.updates == 16);
+    // Unsuppressed, the outline darkens under eight copies around the glyphs before the text itself.
+    assert(font.Print(0, 0, text, {.outline = 2.0f}) == 45);
+    assert(device.draws == 10 + 10 && font.updates == 16 + 10);
     try
     {
         NativeInterfaceDrawScope scope(true);

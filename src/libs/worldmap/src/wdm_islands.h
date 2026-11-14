@@ -13,6 +13,7 @@
 #include "ptc_data.h"
 #include "wdm_render_model.h"
 #include "geometry.h"
+#include "wdm_label_layout.hpp"
 
 class WdmIslandWaves : public WdmRenderModel
 {
@@ -44,15 +45,17 @@ class WdmIslands : public WdmRenderObject
     {
         std::string text;        // Label text
         glm::vec3 pos;             // Label position
-        float l, t, r, b;        // Rectangle describing the label in screen coordinates
-        float dl, dt, dr, db;    // Offsets to get a rectangle at a known point on the screen
+        float width, height;     // The label's size at the font's own size, px: text and picture
+        float l, t, r, b;        // Its box on the screen in this frame, px
+        bool onScreen;           // That box is on the screen
         float textX, textY;      // Relative text position
         float iconX, iconY;      // The relative position of the picture
         float alpha;             // The current state of the rectangle
         float heightView;        // Height from which the label goes out
-        int32_t font;               // Font index in font array
+        int32_t font;               // The renderer's font id
         int32_t icon;               // Image index
-        uint32_t weight;         // Offset weight
+        uint32_t weight;         // Which of two colliding labels shows (the heavier)
+        bool placed;             // Shows in this frame: no heavier label covers it (wdm_label_layout.hpp)
         std::string id;          // Label ID
         uint32_t idHash;         // Hash value of identifier
         int32_t next;               // Next label on the list
@@ -145,8 +148,10 @@ class WdmIslands : public WdmRenderObject
     std::vector<Font> fonts;
     // Images
     Icons icons;
-    // Labels registered for rendering
+    // The labels on the screen in this frame (indices into labels), their boxes, and who of them shows
     std::vector<int32_t> labelSort;
+    std::vector<storm::worldmap::LabelBox> labelBoxes;
+    storm::worldmap::LabelLayout labelLayout;
     // Merchant destinations
     std::vector<glm::vec3> merchants;
     // Destination Points of Quest Encounters

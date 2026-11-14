@@ -6,6 +6,8 @@
 
 #include <fmt/format.h>
 
+#include <cmath>
+
 namespace
 {
 
@@ -343,15 +345,26 @@ int32_t FONT::Print(int32_t x, int32_t y, char *data_PTR, const FONT_PRINT_OVERR
     const bool drawShadows = overrides.shadow.value_or(drawShadows_);
     const float scale = overrides.scale.value_or(scale_);
     const uint32_t color = overrides.color.value_or(color_);
-    if (drawShadows)
-    {
-        UpdateVertexBuffer(x + shadowOffsetX_, y + shadowOffsetY_, data_PTR, s_num, scale, color);
+    // The shadow and the outline darken what is under the glyphs by their alpha.
+    const auto darken = [&](int32_t at_x, int32_t at_y) {
+        UpdateVertexBuffer(at_x, at_y, data_PTR, s_num, scale, color);
 
         device_.SetRenderState(D3DRS_SRCBLEND, D3DBLEND_ZERO);
         device_.SetRenderState(D3DRS_DESTBLEND, D3DBLEND_INVSRCALPHA);
 
         if (!storm::android::NativeInterfaceDrawSuppressed())
             device_.DrawPrimitive(D3DPT_TRIANGLELIST, 0, s_num * 2);
+    };
+    if (drawShadows)
+        darken(x + shadowOffsetX_, y + shadowOffsetY_);
+    if (const float outline = overrides.outline.value_or(0.0f); outline > 0.0f)
+    {
+        // Eight copies around the glyphs, at the outline's width on the axes and the diagonals.
+        const float diagonal = outline * 0.70710678f;
+        const float offsets[8][2] = {{outline, 0.0f},      {-outline, 0.0f},     {0.0f, outline},      {0.0f, -outline},
+                                     {diagonal, diagonal}, {-diagonal, diagonal}, {diagonal, -diagonal}, {-diagonal, -diagonal}};
+        for (const auto &offset : offsets)
+            darken(x + static_cast<int32_t>(std::lround(offset[0])), y + static_cast<int32_t>(std::lround(offset[1])));
     }
     xoffset = UpdateVertexBuffer(x, y, data_PTR, s_num, scale, color);
     device_.SetRenderState(D3DRS_SRCBLEND, D3DBLEND_SRCALPHA);

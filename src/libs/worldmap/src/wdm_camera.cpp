@@ -11,8 +11,10 @@
 #include "wdm_camera.h"
 #include "wdm_player_ship.h"
 
+#include <algorithm>
+
 #ifdef __ANDROID__
-#include <platform/android_camera_turn.hpp>
+#include <platform/android_camera_look.hpp>
 #include <platform/android_camera_zoom.hpp>
 
 #include <time.h>
@@ -114,20 +116,21 @@ void WdmCamera::Move(float dltTime, VRenderer *rs)
     auto rotspd = 1.0f * RotLeftRight(dltTime);
     auto zoomspd = 30.0f * ZoomInOut(dltTime);
 #ifdef __ANDROID__
-    // The look finger turns the camera (platform/android_camera_turn.hpp): by its travel at
-    // this frame's time, the near ground under it following it 1:1, and coasting on after a
-    // release. It replaces the PC's mouse with the rotate key held (a speed per frame, not the
-    // finger's travel), in the free camera too.
+    // The look finger (platform/android_camera_look.hpp) moves the camera by its travel at this
+    // frame's time, 1:1 while it is down and coasting on after a release. It replaces the PC's
+    // mouse (a speed per frame, not the finger's travel): the camera that follows the ship turns
+    // with the near ground under the finger (the mouse with the rotate key held); the free camera
+    // is panned with the ground under the finger (the mouse alone, MoveLeftRight / MoveUpDown).
+    storm::android::LookStep look;
+    D3DMATRIX projection{};
     {
         timespec now{};
         clock_gettime(CLOCK_MONOTONIC, &now);
-        const float fraction = storm::android::cameraTurn.take(now.tv_sec * 1000.0 + now.tv_nsec / 1e6);
-        if (fraction != 0.0f)
-        {
-            D3DMATRIX projection{};
+        look = storm::android::cameraLook.take(now.tv_sec * 1000.0 + now.tv_nsec / 1e6);
+        if (look.moved())
             rs->GetTransform(D3DTS_PROJECTION, &projection);
-            rotspd += storm::android::turnAngle(fraction, ang.x, projection._11, projection._22);
-        }
+        if (look.moved() && !freeMode)
+            rotspd += storm::android::turnAngle(look.dx / look.width, ang.x, projection._11, projection._22);
     }
     // The pinch of the camera look (platform/android_camera_zoom.hpp) moves the height the wheel
     // moves (WMapForward / WMapBackward), along the same line of sight and within the same
@@ -146,14 +149,19 @@ void WdmCamera::Move(float dltTime, VRenderer *rs)
     {
         pos.x += moveudspd * sn - movelrspd * cs;
         pos.z += moveudspd * cs + movelrspd * sn;
-        if (pos.x < -0.5f * wdmObjects->worldSizeX - cx)
-            pos.x = -0.5f * wdmObjects->worldSizeX - cx;
-        if (pos.x > 0.5f * wdmObjects->worldSizeX + cx)
-            pos.x = 0.5f * wdmObjects->worldSizeX + cx;
-        if (pos.z < -0.5f * wdmObjects->worldSizeZ - cz)
-            pos.z = -0.5f * wdmObjects->worldSizeZ - cz;
-        if (pos.z > 0.5f * wdmObjects->worldSizeZ + cz)
-            pos.z = 0.5f * wdmObjects->worldSizeZ + cz;
+#ifdef __ANDROID__
+        // The camera as it is drawn (realHeight: the eye; ang: the angles SetCamera gets)
+        // moves along the ground by the finger's travel.
+        if (float shiftX, shiftZ; look.moved() &&
+            storm::android::panShift({realHeight, ang.x, ang.y, projection._11, projection._22}, look, shiftX, shiftZ))
+        {
+            pos.x += shiftX;
+            pos.z += shiftZ;
+        }
+#endif
+        // The point it looks at (pos + (cx, cz)) stays over the world.
+        pos.x = std::clamp(pos.x, -0.5f * wdmObjects->worldSizeX - cx, 0.5f * wdmObjects->worldSizeX - cx);
+        pos.z = std::clamp(pos.z, -0.5f * wdmObjects->worldSizeZ - cz, 0.5f * wdmObjects->worldSizeZ - cz);
     }
     else
     {
