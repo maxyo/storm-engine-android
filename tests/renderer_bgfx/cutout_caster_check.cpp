@@ -6,6 +6,9 @@
 //   * the sun cascade: the plate is drawn lit and alpha-tested under a slanting sun.
 // In each the floor behind an opaque square is in shadow and the floor behind a hole next to it is lit; with an opaque
 // texture both are in shadow. A blended plate that writes no depth (glass) casts nothing.
+// The lamp atlases keep what they cast from after the report: the plate with a texture the game releases right after
+// reporting it (the location's still geometry; a ship's still geometry under its lantern, the ship reported by a
+// number) still casts with its holes, and nothing reads the released texture (an ASan build reports a use after free).
 #include "device.hpp"
 #include "check_backend.hpp"
 
@@ -291,10 +294,16 @@ int main()
                 shim::Texture2D *texture;
                 std::array<float, 2> behind_square, behind_hole;
                 int expect;                 // 0: holes (the hole lit, the square dark), 1: whole shadow, 2: no shadow
+                bool ship = false;          // the plate is a ship's still geometry under its lantern (else the location's)
+                bool released = false;      // the game releases the texture right after reporting it
             };
             const Case cases[] = {
                 {"lamp, still geometry, checkerboard", true, true, Plate::None, checker, {-1.125f, -1.125f}, {-1.125f, -0.375f}, 0},
                 {"lamp, still geometry, opaque", true, true, Plate::None, opaque, {-1.125f, -1.125f}, {-1.125f, -0.375f}, 1},
+                {"lamp, still geometry, checkerboard released after the report", true, true, Plate::None, nullptr,
+                 {-1.125f, -1.125f}, {-1.125f, -0.375f}, 0, false, true},
+                {"ship's lantern, ship's still geometry, checkerboard released after the report", true, false, Plate::None,
+                 nullptr, {-1.125f, -1.125f}, {-1.125f, -0.375f}, 0, true, true},
                 {"lamp, character, checkerboard", true, false, Plate::Character, checker, {-1.125f, -1.125f}, {-1.125f, -0.375f}, 0},
                 {"lamp, character, opaque", true, false, Plate::Character, opaque, {-1.125f, -1.125f}, {-1.125f, -0.375f}, 1},
                 {"lamp, glass (blended, no depth)", true, false, Plate::Glass, opaque, {-1.125f, -1.125f}, {-1.125f, -0.375f}, 2},
@@ -309,17 +318,50 @@ int main()
                 scene.sun = c.lamps ? nullptr : &sun;
                 scene.plate = c.plate;
                 scene.texture = c.texture;
-                const render::EffectsLocationGeometry::Surface surface{6, 6, c.texture};
+                shim::Texture2D *texture =
+                    c.released ? make_texture(*device, true, c.ship ? "cutout_caster_check\\ship_released.tga"
+                                                                     : "cutout_caster_check\\location_released.tga")
+                               : c.texture;
+                const render::EffectsLocationGeometry::Surface surface{6, 6, texture};
                 render::SetEffectsLocationGeometry({"cutout_caster_check", positions, colors, uvs,
                                                     c.reported ? std::span<const uint32_t>(with_plate) : std::span<const uint32_t>(floor_only),
                                                     c.reported ? std::span(&surface, 1) : std::span<const render::EffectsLocationGeometry::Surface>(),
                                                     c.lamps, room_lo, room_hi});
+                if (c.released && !c.ship)
+                {
+                    texture->Release();
+                    texture = nullptr;
+                }
+                // The ship stands where the world is (its space is the world's); its lantern hangs where the lamp is.
+                constexpr uint64_t kShip = 7, kShipSignature = 1;
+                render::EffectsShip ship;
+                ship.id = kShip;
+                ship.world = {1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f};
+                ship.signature = kShipSignature;
+                const render::EffectsShipLight lantern{lamp, kShip, lamp.position};
                 render::ConfigureEffects(2, {{"fx_ao_volume", 0}, {"fx_lamp_shadows", c.lamps ? 8 : 0}, {"fx_shadows", c.lamps ? 0 : 2}});
                 std::vector<uint8_t> picture;
                 // The lamps draw their atlases over the frames after the preset is active: 20 frames past it.
                 for (int frame = 0, active = 0; frame < 400; ++frame)
                 {
-                    if (c.lamps)
+                    if (c.ship)
+                    {
+                        render::SetEffectsLamps({});
+                        render::SetEffectsShipLights(std::span(&ship, 1), std::span(&lantern, 1));
+                        if (render::EffectsShipGeometryWanted(kShip, kShipSignature))
+                        {
+                            if (!texture)
+                            {
+                                std::printf("FAIL %s: the ship's still geometry was asked for again\n", c.name);
+                                ok = false;
+                                break;
+                            }
+                            render::SetEffectsShipGeometry(kShip, kShipSignature, {positions, uvs, with_plate, std::span(&surface, 1)});
+                            texture->Release();
+                            texture = nullptr;
+                        }
+                    }
+                    else if (c.lamps)
                         render::SetEffectsLamps(std::span(&lamp, 1));
                     else
                     {
@@ -331,6 +373,12 @@ int main()
                     if (active > 20 && frame > 40)
                         break;
                     SDL_Delay(5);
+                }
+                if (c.released && texture)
+                {
+                    std::printf("FAIL %s: the ship's still geometry was never asked for\n", c.name);
+                    texture->Release();
+                    ok = false;
                 }
                 if (const char *dump = std::getenv("CUTOUT_CHECK_DUMP"))
                 {
