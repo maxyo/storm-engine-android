@@ -78,8 +78,6 @@ NPCharacter::NPCharacter() : taskstack{}
     bMusketerNoMove = false;
     fMusketerFireTime = 0.0f;
     fMusketerCheckFireTime = 5.0f;
-
-    bTryAnyTarget = false;
 }
 
 NPCharacter::~NPCharacter()
@@ -627,18 +625,12 @@ void NPCharacter::UpdateFightCharacter(float dltTime)
         // CmdStay();
     }
 
-    float kdst;
-
-    const bool bVisTarget = VisibleTest(c);
-    const bool bFarTarget = dst > NPC_FIGHT_FIRE_DIST * NPC_FIGHT_FIRE_DIST;
-    Character *target = FindGunTarget(kdst, true);
-
-    if (bVisTarget && !bFarTarget) // if the target is visible, then try to shoot it
-        bTryAnyTarget = false;
-
-    // Once every 5 seconds, check if we can shoot, if not, then move in a circle from the target
+    // Once every 6 seconds, check if we can shoot, if not, then move in a circle from the target
     if (bMusketer && bTryFire && fMusketerCheckFireTime <= 0.0f)
     {
+        float kdst;
+        const bool bVisTarget = VisibleTest(c);
+        Character *target = FindGunTarget(kdst, true);
         fMusketerCheckFireTime = 6.0f;
 
         // if the main target is not visible and there are no other visible targets, then try to bypass
@@ -670,10 +662,6 @@ void NPCharacter::UpdateFightCharacter(float dltTime)
                 if (CmdGotoPoint(task.to.x, task.to.y, task.to.z, NPC_STOP_GOTODIST * 2.0f))
                     break;
             }
-        }
-        else // if there is a target, but it is different, then try to shoot it
-        {
-            bTryAnyTarget = true;
         }
     }
 
@@ -733,7 +721,6 @@ void NPCharacter::UpdateFightCharacter(float dltTime)
                             Character *target = FindGunTarget(kdst, CheckShotOnlyEnemyTest(), true);
                             // Character * target = FindGunTarget(kdst, true);
                             ay = _ay;
-                            // if((target == c) || (target && bTryAnyTarget))
                             if (target)
                             {
                                 Turn(ang);

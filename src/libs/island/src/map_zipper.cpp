@@ -113,9 +113,19 @@ uint8_t MapZipper::Get(uint32_t dwX, uint32_t dwY)
 
 bool MapZipper::Load(std::string sFileName)
 {
-    UnInit();
-
     auto fileS = fio->_CreateFile(sFileName.c_str(), std::ios::binary | std::ios::in);
+    return Read(fileS);
+}
+
+bool MapZipper::Load(const std::filesystem::path &file)
+{
+    std::fstream fileS(file, std::ios::binary | std::ios::in);
+    return Read(fileS);
+}
+
+bool MapZipper::Read(std::fstream &fileS)
+{
+    UnInit();
     if (!fileS.is_open())
     {
         return false;
@@ -134,9 +144,11 @@ bool MapZipper::Load(std::string sFileName)
     return true;
 }
 
-bool MapZipper::Save(std::string sFileName)
+bool MapZipper::Save(const std::filesystem::path &file)
 {
-    auto fileS = fio->_CreateFile(sFileName.c_str(), std::ios::binary | std::ios::out);
+    std::error_code error;
+    std::filesystem::create_directories(file.parent_path(), error);
+    std::fstream fileS(file, std::ios::binary | std::ios::out);
     if (!fileS.is_open())
     {
         return false;

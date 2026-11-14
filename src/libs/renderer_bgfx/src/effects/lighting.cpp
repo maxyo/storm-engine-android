@@ -673,29 +673,36 @@ void Lighting::cover(const shim::TexStore &texture, fx::ReliefClass relief, uint
 {
     if (texture.name.empty())
         return; // not a game file (render targets, the renderer's own textures)
-    auto [it, added] = parallax_coverage_.try_emplace(texture.name);
+    auto [it, added] = parallax_coverage_.try_emplace(texture.serial);
     Coverage &c = it->second;
+    if (added)
+        c.name = texture.name;
     // A texture that drew with the parallax in the window counts with it (its other draws may be clamped, decals...).
     const bool parallax = status == kCoverageParallax;
     if (parallax)
         c.parallax_frame = census_frame_;
-    const uint8_t shown = !parallax && c.parallax_frame && census_frame_ - c.parallax_frame < kCoverageFrames
-                              ? kCoverageParallax
-                              : status;
-    if (added || shown != c.status)
-    {
-        if (relief == fx::ReliefClass::None)
-            c.rule = fx::ClassifyTextureName(texture.name).rule;
-        if (shown == kCoverageParallax)
-            shim::logf("effects parallax: texture %s (%s): parallax", texture.name.c_str(), fx::ReliefClassName(relief));
-        else
-            shim::logf("effects parallax: texture %s (%s): no parallax: %s%s%s", texture.name.c_str(),
-                       fx::ReliefClassName(relief), ParallaxMissName(static_cast<ParallaxMiss>(shown)),
-                       c.rule ? ", rule " : "", c.rule ? c.rule : "");
-    }
+    c.seen |= 1u << (parallax ? 31 : status);
+    if ((added || c.relief != relief) && relief == fx::ReliefClass::None)
+        c.rule = fx::ClassifyTextureName(c.name).rule;
     c.relief = relief;
-    c.status = shown;
+    c.status = !parallax && c.parallax_frame && census_frame_ - c.parallax_frame < kCoverageFrames ? kCoverageParallax
+                                                                                                   : status;
     c.frame = census_frame_;
+}
+
+// One line per texture whose set of reasons changed since its last line (a texture drawn with two reasons in a window
+// is one line, not one per draw).
+void Lighting::log_texture(Coverage &c)
+{
+    std::string reasons;
+    if (c.seen & (1u << 31))
+        reasons = "parallax";
+    for (size_t i = 0; i < kParallaxMisses; ++i)
+        if (c.seen & (1u << i))
+            reasons += std::string(reasons.empty() ? "" : ", ") + "no parallax: " + ParallaxMissName(static_cast<ParallaxMiss>(i));
+    shim::logf("effects parallax: texture %s (%s): %s%s%s", c.name.c_str(), fx::ReliefClassName(c.relief), reasons.c_str(),
+               c.rule && c.relief == fx::ReliefClass::None ? ", rule " : "", c.rule && c.relief == fx::ReliefClass::None ? c.rule : "");
+    c.logged = c.seen;
 }
 
 void Lighting::log_coverage()
@@ -709,7 +716,7 @@ void Lighting::log_coverage()
     std::array<Row, static_cast<size_t>(fx::ReliefClass::Prop) + 1> rows{};
     for (auto it = parallax_coverage_.begin(); it != parallax_coverage_.end();)
     {
-        const Coverage &c = it->second;
+        Coverage &c = it->second;
         if (census_frame_ - c.frame >= 10 * kCoverageFrames)
         {
             it = parallax_coverage_.erase(it); // not drawn for a long while (another location)
@@ -717,6 +724,8 @@ void Lighting::log_coverage()
         }
         if (census_frame_ - c.frame < kCoverageFrames)
         {
+            if (c.seen != c.logged)
+                log_texture(c);
             Row &row = rows[static_cast<size_t>(c.relief)];
             if (c.status == kCoverageParallax)
                 ++row.with;
@@ -734,6 +743,7 @@ void Lighting::log_coverage()
                     ++found->second;
             }
         }
+        c.seen = 0; // the next window's census starts empty
         ++it;
     }
     std::string table;

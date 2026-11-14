@@ -8,6 +8,10 @@
 #include "shared/messages.h"
 #include "shared/sea_ai/script_defines.h"
 #include "tga.h"
+#include "fs.h"
+#include "island_zap.hpp"
+
+#include <spdlog/spdlog.h>
 #include <cstdio>
 
 CREATE_CLASS(ISLAND)
@@ -456,6 +460,31 @@ void ISLAND::CalcBoxParameters(glm::vec3 &_vBoxCenter, glm::vec3 &_vBoxSize)
     _vBoxSize = glm::vec3(x2 - x1, 0.0f, z2 - z1);
 }
 
+std::filesystem::path ISLAND::ZapCache(const std::string &gameFile)
+{
+    return storm::island::ZapCachePath(fs::GetCachePath(), gameFile);
+}
+
+bool ISLAND::LoadZap(MapZipper &zipper, const std::string &gameFile)
+{
+    if (zipper.Load(gameFile + ".zap"))
+        return true;
+    const auto cached = ZapCache(gameFile);
+    if (!zipper.Load(cached))
+        return false;
+    spdlog::info("island: no shipped {}.zap, using the one made earlier in the cache: {}", gameFile, cached.string());
+    return true;
+}
+
+void ISLAND::SaveZap(MapZipper &zipper, const std::string &gameFile)
+{
+    const auto cached = ZapCache(gameFile);
+    if (zipper.Save(cached))
+        spdlog::info("island: no shipped {}.zap, made it into the cache: {}", gameFile, cached.string());
+    else
+        spdlog::error("island: cannot write {} (it is made again at the next load)", cached.string());
+}
+
 bool ISLAND::CreateShadowMap(char *pDir, char *pName)
 {
     auto *const pWeather =
@@ -472,7 +501,7 @@ bool ISLAND::CreateShadowMap(char *pDir, char *pName)
     fShadowMapSize = 2.0f * Max(vRealBoxSize.x, vRealBoxSize.z) + 1024.0f;
     fShadowMapStep = fShadowMapSize / DMAP_SIZE;
 
-    if (mzShadow.Load(fileName + ".zap"))
+    if (LoadZap(mzShadow, fileName))
     {
         return true;
     }
@@ -490,7 +519,7 @@ bool ISLAND::CreateShadowMap(char *pDir, char *pName)
         fio->_CloseFile(fileS);
 
         mzShadow.DoZip(pShadowMap, dwSize);
-        mzShadow.Save(fileName + ".zap");
+        SaveZap(mzShadow, fileName);
         delete[] pShadowMap;
         pShadowMap = nullptr;
         return true;
@@ -537,7 +566,7 @@ bool ISLAND::CreateShadowMap(char *pDir, char *pName)
     Blur8(&pShadowMap, DMAP_SIZE);
 
     mzShadow.DoZip(pShadowMap, DMAP_SIZE);
-    mzShadow.Save(fileName + ".zap");
+    SaveZap(mzShadow, fileName);
 
     delete[] pShadowMap;
     pShadowMap = nullptr;
@@ -590,7 +619,7 @@ bool ISLAND::CreateHeightMap(const std::string_view &pDir, const std::string_vie
     rIsland.x2 = vBoxCenter.x + vBoxSize.x / 2.0f;
     rIsland.y2 = vBoxCenter.z + vBoxSize.z / 2.0f;
 
-    bool bLoad = mzDepth.Load(fileName + ".zap");
+    bool bLoad = LoadZap(mzDepth, fileName);
 
     if (!bLoad)
     {
@@ -604,7 +633,7 @@ bool ISLAND::CreateHeightMap(const std::string_view &pDir, const std::string_vie
             fio->_CloseFile(fileS);
 
             mzDepth.DoZip(pDepthMap, iDMapSize);
-            mzDepth.Save(fileName + ".zap");
+            SaveZap(mzDepth, fileName);
             delete[] pDepthMap;
             pDepthMap = nullptr;
             bLoad = true;
@@ -723,7 +752,7 @@ bool ISLAND::CreateHeightMap(const std::string_view &pDir, const std::string_vie
     SaveTga8((char *)fileName.c_str(), pDepthMap, iDMapSize, iDMapSize);
 
     mzDepth.DoZip(pDepthMap, iDMapSize);
-    mzDepth.Save(fileName + ".zap");
+    SaveZap(mzDepth, fileName);
     delete[] pDepthMap;
     pDepthMap = nullptr;
 

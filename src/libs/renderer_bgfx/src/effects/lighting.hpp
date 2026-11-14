@@ -198,6 +198,11 @@ class Lighting
     LampShadows &lamp_shadows() { return lamps_; }
     const LampShadows &lamp_shadows() const { return lamps_; }
     void end_frame();
+    // A textured draw of `texture` for the parallax census: it drew with the parallax (kCoverageParallax) or missed it
+    // for a ParallaxMiss. census() calls it; public for tests/renderer_bgfx/relief_switch_check.cpp.
+    void cover(const shim::TexStore &texture, fx::ReliefClass relief, uint8_t status);
+    static constexpr uint8_t kCoverageParallax = 0xff;
+    static constexpr uint32_t kCoverageFrames = 300; // the census window
     // Why a textured draw drew without the parallax (census()).
     enum class ParallaxMiss : uint8_t
     {
@@ -311,21 +316,23 @@ class Lighting
     std::array<uint32_t, kParallaxMisses> logged_miss_{};
     // The parallax's coverage by texture (census()): each texture drawn, its class, whether it drew with the parallax
     // (kCoverageParallax) or why not (a ParallaxMiss), the frame it was last drawn. The "effects parallax coverage:"
-    // table counts the textures drawn in the last kCoverageFrames frames.
+    // table counts the textures drawn in the last kCoverageFrames frames. Keyed by TexStore::serial; a texture's
+    // status is logged once per window (log_coverage), with every reason it drew with in that window.
     struct Coverage
     {
+        std::string name;
+        uint32_t seen = 0;   // this window: bit per ParallaxMiss drawn with, bit 31 the parallax
+        uint32_t logged = 0; // `seen` of the last line logged for it
         fx::ReliefClass relief = fx::ReliefClass::None;
         uint8_t status = 0;
         const char *rule = nullptr; // a texture without relief: the rule that says so
         uint32_t frame = 0;
         uint32_t parallax_frame = 0; // the last frame it drew with the parallax (0: never)
     };
-    static constexpr uint8_t kCoverageParallax = 0xff;
-    static constexpr uint32_t kCoverageFrames = 300;
-    std::unordered_map<std::string, Coverage> parallax_coverage_;
+    std::unordered_map<uint64_t, Coverage> parallax_coverage_;
     uint32_t census_frame_ = 1;
     std::string logged_coverage_;
-    void cover(const shim::TexStore &texture, fx::ReliefClass relief, uint8_t status);
+    void log_texture(Coverage &c);
     void log_coverage();
 };
 

@@ -8,6 +8,7 @@
 //
 // No GPU: the textures are shim stores filled the way Renderer::TextureLoad fills them, their game files are written
 // into a temporary game; the generator has no models (no PBRify), so a requested map ends up "missing" (counted).
+#include "effects/lighting.hpp"
 #include "effects/normal_maps.hpp"
 #include "effects/relief_generator.hpp"
 #include "shim.hpp"
@@ -15,6 +16,7 @@
 #include "storm/fx/gloss_map.hpp"
 #include "storm/fx/relief_store.hpp"
 #include "storm/render/effects.hpp"
+#include "storm/render/log.hpp"
 
 #include <chrono>
 #include <cstdio>
@@ -34,6 +36,18 @@ namespace
 {
 constexpr uint32_t kSize = 128, kLevels = 8;
 int failures = 0;
+std::vector<std::string> log_lines;
+void Collect(bool, const char *line)
+{
+    log_lines.emplace_back(line);
+}
+size_t TextureLines(const char *name)
+{
+    size_t n = 0;
+    for (const std::string &line : log_lines)
+        n += line.rfind("effects parallax: texture ", 0) == 0 && line.find(name) != std::string::npos;
+    return n;
+}
 
 void expect(bool ok, const char *what)
 {
@@ -77,7 +91,9 @@ void WriteTx(const std::filesystem::path &file, const std::vector<std::vector<ui
 // The loaded texture as Renderer::TextureLoad leaves it.
 std::unique_ptr<shim::TexStore> Store(const std::vector<std::vector<uint8_t>> &levels)
 {
+    static uint64_t serial = 0;
     auto store = std::make_unique<shim::TexStore>();
+    store->serial = ++serial;
     store->kind = shim::TexKind::Tex2D;
     store->width = store->height = kSize;
     store->levels = kLevels;
@@ -211,6 +227,31 @@ int main()
     expect(std::filesystem::exists(relief / "inner") && std::filesystem::exists(root / "relief-link") &&
                static_cast<size_t>(std::distance(std::filesystem::directory_iterator(relief), {})) == maps_before + 1,
            "the relief directory in use, what holds it and what it holds are never removed as old stores");
+
+    // The parallax census logs a texture once per window, however often it is drawn and with however many reasons: a
+    // texture drawn with two reasons in every frame used to log two lines per frame.
+    {
+        storm::render::SetLogSink(Collect);
+        effects::Lighting lighting;
+        stone->name = "textures/stone_wall.tga.tx"; // the game file's name, set by TextureLoad
+        brick->name = "textures/brick_arch.tga.tx";
+        const auto miss = [](effects::Lighting::ParallaxMiss m) { return static_cast<uint8_t>(m); };
+        for (uint32_t frame = 0; frame < 3 * effects::Lighting::kCoverageFrames; ++frame)
+        {
+            lighting.cover(*stone, fx::ReliefClass::Stone, miss(effects::Lighting::ParallaxMiss::Stage1));
+            lighting.cover(*stone, fx::ReliefClass::Stone, miss(effects::Lighting::ParallaxMiss::Pretransformed));
+            lighting.cover(*brick, fx::ReliefClass::Stone, effects::Lighting::kCoverageParallax);
+            lighting.end_frame();
+        }
+        storm::render::SetLogSink(nullptr);
+        expect(TextureLines("stone_wall") == 1 && TextureLines("brick_arch") == 1,
+               "a texture drawn again and again with two reasons logs one line, not one per draw");
+        bool both = false;
+        for (const std::string &line : log_lines)
+            both |= line.find("stone_wall") != std::string::npos && line.find("pretransformed") != std::string::npos &&
+                    line.find("stage 1") != std::string::npos;
+        expect(both, "that line holds every reason seen in the window");
+    }
 
     effects::ReliefGenerator::instance().shutdown();
     std::filesystem::remove_all(root);

@@ -20,6 +20,8 @@ class MapZipper
     uint16_t *pWordTable;
     uint8_t *pRealData;
 
+    bool Read(std::fstream &fileS);
+
   public:
     MapZipper();
     ~MapZipper();
@@ -33,8 +35,11 @@ class MapZipper
     void DoZip(uint8_t *pSrc, uint32_t dwSizeX);
     uint8_t Get(uint32_t dwX, uint32_t dwY);
 
-    bool Save(std::string sFileName);
+    // Save never touches the game folder: it writes to a path of the cache (ISLAND::ZapCache).
+    bool Save(const std::filesystem::path &file);
+    // A game file (through the file service) or a path of the cache.
     bool Load(std::string sFileName);
+    bool Load(const std::filesystem::path &file);
 
     bool isLoaded()
     {
@@ -45,6 +50,12 @@ class MapZipper
 class ISLAND : public ISLAND_BASE
 {
   private:
+    // The zipped map of a game map file (<name>.tga): shipped next to it (<name>.tga.zap), else made from the tga into
+    // the cache and read from there, logged. The game folder is never written.
+    static std::filesystem::path ZapCache(const std::string &gameFile);
+    static bool LoadZap(MapZipper &zipper, const std::string &gameFile);
+    static void SaveZap(MapZipper &zipper, const std::string &gameFile);
+
     std::string sIslandName;
     std::vector<entid_t> aSpheres;
     std::vector<entid_t> aForts;

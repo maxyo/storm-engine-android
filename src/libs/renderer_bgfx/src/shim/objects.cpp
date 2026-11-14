@@ -1,3 +1,4 @@
+#include <atomic>
 #include "device.hpp"
 #include "perf.hpp"
 
@@ -62,7 +63,9 @@ uint32_t level_size(D3DFORMAT format, uint32_t width, uint32_t height)
 TexStorePtr make_store(Device *device, TexKind kind, uint32_t width, uint32_t height, uint32_t depth, uint32_t levels,
                        DWORD usage, D3DFORMAT format, D3DPOOL pool)
 {
+    static std::atomic<uint64_t> next_serial{1};
     auto store = std::make_shared<TexStore>();
+    store->serial = next_serial.fetch_add(1, std::memory_order_relaxed);
     store->device = device;
     store->kind = kind;
     store->width = std::max(1u, width);

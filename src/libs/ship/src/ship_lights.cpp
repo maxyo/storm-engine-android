@@ -486,7 +486,7 @@ void ShipLights::Execute(uint32_t dwDeltaTime)
             continue;
 
         if (!L.bOff && L.bDead && L.fTotalBrokenTime <= 0.0f && pSea &&
-            pSea->WaveXZ(L.vCurPos.x, L.vCurPos.x) > L.vCurPos.y)
+            pSea->WaveXZ(L.vCurPos.x, L.vCurPos.z) > L.vCurPos.y)
         {
             L.fTotalBrokenTime = RRnd(1.0f, 4.0f);
             L.fBrokenTime = 0.0f;

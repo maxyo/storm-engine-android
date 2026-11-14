@@ -10,6 +10,8 @@
 
 #pragma once
 
+#include <vector>
+
 //============================================================================================
 
 #include "math_inlines.h"
@@ -82,12 +84,12 @@ class Bone
     Bone *parent; // Parent bone
 
 #ifdef ANI_COMPRESS_ENABLE
-    COMP_QUATERNION *ang; // Compressed angles of animation frames
+    std::vector<COMP_QUATERNION> ang; // Compressed angles of animation frames
 #else
-    glm::quat *ang; // Animation frame angles
+    std::vector<glm::quat> ang; // Animation frame angles
 #endif
 
-    glm::vec3 *pos;   // Animation frame positions
+    std::vector<glm::vec3> pos; // Animation frame positions (root bone only)
     int32_t numFrames; // Number of animation frames
     glm::vec3 pos0;   // Bone position if there are no animation frame positions
 

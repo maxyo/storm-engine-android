@@ -127,6 +127,9 @@ struct TexStore
     // Effects: the game file's normalized path (fx::NormalizeTexturePath), for the parallax census; empty for textures
     // the game made itself (render targets, the renderer's own).
     std::string name;
+    // Effects: a number no other texture of the process has had (set by make_store): keys the parallax census, which
+    // must not mistake a new texture for a freed one at the same address.
+    uint64_t serial = 0;
     // A location lightmap (lighting\<time>\...\shadow.tga): the surfaces it lies on carry the sun's shadows already.
     bool lightmap = false;
     // Effects: the gloss map derived from this colour texture (src/effects/normal_maps.hpp), null for others.

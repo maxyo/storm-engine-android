@@ -23,24 +23,16 @@
 Bone::Bone()
 {
     parent = nullptr;
-    ang = nullptr;
-    pos = nullptr;
     numFrames = 0;
 }
 
-Bone::~Bone()
-{
-    delete[] ang;
-    delete[] pos;
-}
+Bone::~Bone() = default;
 
 // how many frames of animation there will be
 void Bone::SetNumFrames(int32_t num, glm::vec3 &sPos, bool isRoot)
 {
-    delete[] ang;
-    delete[] pos;
-    ang = nullptr;
-    pos = nullptr;
+    ang.clear();
+    pos.clear();
     numFrames = num;
     if (numFrames <= 0)
     {
@@ -48,17 +40,14 @@ void Bone::SetNumFrames(int32_t num, glm::vec3 &sPos, bool isRoot)
         return;
     }
 #ifdef ANI_COMPRESS_ENABLE
-    ang = new COMP_QUATERNION[num];
-    memset(ang, 0, numFrames * sizeof(ang[0]));
+    ang.assign(num, COMP_QUATERNION{});
 #else
-    ang = new glm::quat[num];
-    memset(ang, 0, numFrames * sizeof(ang[0]));
+    ang.assign(num, glm::quat(0.0f, 0.0f, 0.0f, 0.0f));
 #endif
 
     if (isRoot)
     {
-        pos = new glm::vec3[num];
-        memset(pos, 0, numFrames * sizeof(glm::vec3));
+        pos.assign(num, glm::vec3(0.0f));
     }
     pos0 = sPos;
 }
@@ -68,8 +57,8 @@ void Bone::SetPositions(const glm::vec3 *pArray, int32_t numPos)
 {
     Assert(numPos == numFrames);
     Assert(pArray);
-    Assert(pos);
-    memcpy(pos, pArray, numFrames * sizeof(glm::vec3));
+    Assert(!pos.empty());
+    memcpy(pos.data(), pArray, numFrames * sizeof(glm::vec3));
 }
 
 //=====================================================================================
@@ -85,7 +74,7 @@ void Bone::SetAngles(const glm::quat *aArray, int32_t numAng)
 {
     Assert(numAng == numFrames);
     Assert(aArray);
-    Assert(ang);
+    Assert(!ang.empty());
     for (int32_t i = 0; i < numAng; i++)
     {
         auto x = Clamp(aArray[i].x, "Animation is break: qt.x < -1.0f or qt.x > 1.0f !!!");
@@ -122,8 +111,8 @@ void Bone::SetAngles(const glm::quat *aArray, int32_t numAng)
 {
     Assert(numAng == numFrames);
     Assert(aArray);
-    Assert(ang);
-    memcpy(ang, aArray, numFrames * sizeof(*ang));
+    Assert(!ang.empty());
+    memcpy(ang.data(), aArray, numFrames * sizeof(ang[0]));
 }
 
 inline void Bone::GetFrame(int32_t f, glm::quat &qt)
@@ -156,7 +145,7 @@ inline float Bone::Clamp(float v, const char *str)
 // Initialize start matrix
 void Bone::BuildStartMatrix()
 {
-    if (numFrames == 0 || !ang)
+    if (numFrames == 0 || ang.empty())
         return;
     glm::quat a;
     GetFrame(0, a);
