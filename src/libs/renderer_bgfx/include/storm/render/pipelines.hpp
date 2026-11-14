@@ -5,6 +5,8 @@
 // other backends.
 #pragma once
 
+#include <bgfx/bgfx.h>
+
 namespace storm::render
 {
 
@@ -18,5 +20,12 @@ void BeginScenePipelines(const char *scene);
 // revealed (logged with what was prepared and how long the fader waited) and it returns false until the next
 // BeginScenePipelines.
 bool HoldSceneReveal();
+
+
+// Game thread: a program made outside the shim (the interface's), by the names its shaders were created with
+// (storm::render::CreateShader). Pipelines recorded for it wait for it instead of being forgotten and are created
+// ahead once it is registered. Unregister it before bgfx::destroy.
+void RegisterPipelineProgram(const char *vertex_shader, const char *fragment_shader, bgfx::ProgramHandle program);
+void UnregisterPipelineProgram(bgfx::ProgramHandle program);
 
 } // namespace storm::render

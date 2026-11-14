@@ -31,6 +31,7 @@
 #include <RmlUi/Core/DecorationTypes.h>
 #include <bgfx/bgfx.h>
 
+#include "storm/render/pipelines.hpp"
 #include "storm/render/shader_blob.hpp"
 
 // Every shader of shaders/, for OpenGL ES and for Vulkan (renderer_bgfx cmake/storm_shaders.cmake).
@@ -1144,19 +1145,26 @@ bool BgfxBackendImpl::CreateGpu()
     };
 #define STORM_UI_SHADER(name) shader(STORM_SHADER_BLOB(name), #name)
     const bgfx::ShaderHandle vs = STORM_UI_SHADER(vs_ui), vs_quad = STORM_UI_SHADER(vs_ui_quad);
-    const auto link = [&](ProgramId id, bgfx::ShaderHandle vertex, bgfx::ShaderHandle fragment) {
+    // The programs are registered with the pipeline sets by their shaders' names: Vulkan pipelines recorded for them
+    // are created ahead from here on (src/libs/renderer_bgfx/include/storm/render/pipelines.hpp).
+    const auto link = [&](ProgramId id, bgfx::ShaderHandle vertex, const char *vertex_name, bgfx::ShaderHandle fragment,
+                          const char *fragment_name) {
         programs_[size_t(id)] = bgfx::createProgram(vertex, fragment, false);
+        if (bgfx::isValid(programs_[size_t(id)]))
+            storm::render::RegisterPipelineProgram(vertex_name, fragment_name, programs_[size_t(id)]);
     };
-    link(ProgramId::Color, vs, STORM_UI_SHADER(fs_ui_color));
-    link(ProgramId::Texture, vs, STORM_UI_SHADER(fs_ui_texture));
-    link(ProgramId::TextureStraight, vs, STORM_UI_SHADER(fs_ui_texture_straight));
-    link(ProgramId::Gradient, vs, STORM_UI_SHADER(fs_ui_gradient));
-    link(ProgramId::QuadColor, vs_quad, STORM_UI_SHADER(fs_ui_color));
-    link(ProgramId::Passthrough, vs_quad, STORM_UI_SHADER(fs_ui_passthrough));
-    link(ProgramId::ColorMatrix, vs_quad, STORM_UI_SHADER(fs_ui_color_matrix));
-    link(ProgramId::BlendMask, vs_quad, STORM_UI_SHADER(fs_ui_blend_mask));
-    link(ProgramId::Blur, vs_quad, STORM_UI_SHADER(fs_ui_blur));
-    link(ProgramId::DropShadow, vs_quad, STORM_UI_SHADER(fs_ui_drop_shadow));
+#define STORM_UI_LINK(id, vertex, vertex_name, fragment) link(id, vertex, #vertex_name, STORM_UI_SHADER(fragment), #fragment)
+    STORM_UI_LINK(ProgramId::Color, vs, vs_ui, fs_ui_color);
+    STORM_UI_LINK(ProgramId::Texture, vs, vs_ui, fs_ui_texture);
+    STORM_UI_LINK(ProgramId::TextureStraight, vs, vs_ui, fs_ui_texture_straight);
+    STORM_UI_LINK(ProgramId::Gradient, vs, vs_ui, fs_ui_gradient);
+    STORM_UI_LINK(ProgramId::QuadColor, vs_quad, vs_ui_quad, fs_ui_color);
+    STORM_UI_LINK(ProgramId::Passthrough, vs_quad, vs_ui_quad, fs_ui_passthrough);
+    STORM_UI_LINK(ProgramId::ColorMatrix, vs_quad, vs_ui_quad, fs_ui_color_matrix);
+    STORM_UI_LINK(ProgramId::BlendMask, vs_quad, vs_ui_quad, fs_ui_blend_mask);
+    STORM_UI_LINK(ProgramId::Blur, vs_quad, vs_ui_quad, fs_ui_blur);
+    STORM_UI_LINK(ProgramId::DropShadow, vs_quad, vs_ui_quad, fs_ui_drop_shadow);
+#undef STORM_UI_LINK
 #undef STORM_UI_SHADER
     for (bgfx::ShaderHandle handle : shaders)
         if (bgfx::isValid(handle))
@@ -1206,7 +1214,10 @@ void BgfxBackendImpl::DestroyGpu()
     for (TargetSet &set : sets_)
         set.Destroy();
     for (bgfx::ProgramHandle &program : programs_)
+    {
+        storm::render::UnregisterPipelineProgram(program);
         DestroyIfCurrent(program, g_epoch);
+    }
     for (bgfx::UniformHandle *uniform : {&uniforms_.transform, &uniforms_.translate, &uniforms_.clip, &uniforms_.gradient, &uniforms_.gradient_pv,
                                           &uniforms_.stop_colors, &uniforms_.stop_positions, &uniforms_.factor, &uniforms_.color_matrix,
                                           &uniforms_.blur_weights, &uniforms_.texel_offset, &uniforms_.region, &uniforms_.shadow_color,

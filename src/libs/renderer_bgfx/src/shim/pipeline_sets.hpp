@@ -46,6 +46,11 @@ class PipelineSets
     // ProgramCache::cacheWrite of the pipeline cache: the sets are written with it.
     void save();
 
+    // A program made outside the shim (the interface's), by its shaders' names: recorded pipelines of it wait for it
+    // (they are not forgotten) and are prewarmed once it is registered. Unregister before it is destroyed.
+    void register_program(const char *vs, const char *fs, bgfx::ProgramHandle program);
+    void unregister_program(bgfx::ProgramHandle program);
+
     void begin_scene(const char *scene);
     bool hold_reveal();
     // Device::Present, after the frame was handed to bgfx: the prewarms asked for go to bgfx; the reveal and the
@@ -61,6 +66,7 @@ class PipelineSets
     // bgfx::setVkPipelineCreated (render thread; the game thread without a render thread).
     static void created(const char *vs, const char *fs, uint64_t state, double ms, uint32_t flags, uint32_t hash,
                         const void *recipe, uint32_t size);
+    void forget(uint32_t hash);
     void load();
     void write_file();
     bgfx::ProgramHandle program_of(Device &device, const Recipe &recipe);
@@ -77,7 +83,8 @@ class PipelineSets
     std::string scene_;
     std::set<uint32_t> created_; // this device's pipelines (created or asked for), by hash
     std::vector<uint32_t> to_prewarm_;
-    std::map<std::string, bgfx::ProgramHandle> fx_programs_; // made for prewarms, by "vs+fs"
+    std::map<std::string, bgfx::ProgramHandle> programs_;  // by "vs+fs": the fx package's, the interface's, made for prewarms
+    std::set<uint32_t> waiting_; // recorded pipelines whose program was not made yet (the interface's: at its init)
 
     // The scene begun last, until its reveal.
     struct Reveal
@@ -85,7 +92,7 @@ class PipelineSets
         bool armed = false, holding = false;
         std::chrono::steady_clock::time_point begun{}, hold_started{};
         uint32_t hold_frame = 0, query_frame = 0; // when the fade-in first asked; last asked
-        uint32_t asked = 0, refused = 0;         // prewarms handed to bgfx; not handed (no program, other format)
+        uint32_t asked = 0, refused = 0;         // prewarms handed to bgfx; not handed (other format)
         uint32_t prewarmed = 0, unusable = 0;    // reported by bgfx
         double prewarm_ms = 0.0;                 // compile time of the prewarms (summed over the threads)
         uint32_t waited = 0;                     // pipelines a scene draw waited for under the fader

@@ -23,6 +23,8 @@
 #include <filesystem>
 #include <string>
 #include <fstream>
+#include <thread>
+#include "texture/core/cache.hpp"
 #include <unistd.h>
 #include <vector>
 
@@ -178,6 +180,58 @@ Settled settle(Device &d, int scene)
     return {bgfx::getVkDrawsLeftOut() - before, bgfx::getVkDrawsLeftOut() - settled};
 }
 
+
+// A pipelines.bin of the scene "start" with one recorded pipeline of shaders no shim program is made of (the way
+// the interface's programs are: made by their own code, later than the first frame).
+void write_waiting_recipe(const fs::path &file)
+{
+    std::vector<uint8_t> bytes;
+    const auto put = [&bytes](const void *data, size_t size) {
+        bytes.insert(bytes.end(), static_cast<const uint8_t *>(data), static_cast<const uint8_t *>(data) + size);
+    };
+    const auto put_string = [&](const std::string &text) {
+        const uint16_t n = static_cast<uint16_t>(text.size());
+        put(&n, sizeof(n));
+        put(text.data(), text.size());
+    };
+    const char magic[8] = {'S', 'T', 'P', 'I', 'P', 'E', 'S', 'T'};
+    put(magic, sizeof(magic));
+    const uint32_t version = 1, one = 1, hash = 0x5EC12E7u, recipe_size = 4;
+    const uint8_t recipe[4] = {1, 2, 3, 4}; // not a recipe bgfx takes: the prewarm, once asked for, is refused
+    put(&version, 4);
+    put(&one, 4);
+    put(&hash, 4);
+    put_string("ext_vs");
+    put_string("ext_fs");
+    put(&recipe_size, 4);
+    put(recipe, 4);
+    put(&one, 4);
+    put_string("start");
+    put(&one, 4);
+    put(&hash, 4);
+    const uint64_t sum = storm::texture::hash64(bytes.data(), bytes.size(), 0x5354504950ull);
+    put(&sum, 8);
+    std::ofstream(file, std::ios::binary).write(reinterpret_cast<const char *>(bytes.data()),
+                                                  static_cast<std::streamsize>(bytes.size()));
+}
+
+bool file_has_waiting_recipe(const fs::path &file)
+{
+    std::ifstream in(file, std::ios::binary);
+    const std::string text((std::istreambuf_iterator<char>(in)), {});
+    return text.find("ext_vs") != std::string::npos;
+}
+
+// Polls (the file is written by a thread of its own) until the recipe is gone from the file.
+bool waiting_recipe_goes(const fs::path &file)
+{
+    for (const auto end = Clock::now() + std::chrono::seconds(5); Clock::now() < end;
+         std::this_thread::sleep_for(std::chrono::milliseconds(20)))
+        if (!file_has_waiting_recipe(file))
+            return true;
+    return false;
+}
+
 bool vulkan(SDL_Window *window, const fs::path &root)
 {
     bool ok = true;
@@ -250,6 +304,39 @@ bool vulkan(SDL_Window *window, const fs::path &root)
             std::printf("     no pipeline creation cache control, or a pipeline cache without pipelines (lavapipe): %u "
                         "draws left out\n",
                         left_out);
+    }
+    {
+        // 5. A recorded pipeline whose program is not made yet (the interface's programs exist from its init on) is
+        // kept, not forgotten, and prewarmed once the program is registered; one whose program never comes goes at
+        // the end of the run.
+        write_waiting_recipe(sets);
+        Renderer r(window);
+        Device &d = *r.device;
+        for (int i = 0; i < 5; ++i)
+            frame(d, -1, 0, 0);
+        render::BeginScenePipelines("elsewhere"); // writes the sets if anything was forgotten
+        std::this_thread::sleep_for(std::chrono::milliseconds(300));
+        ok &= expect(file_has_waiting_recipe(sets), "a recorded pipeline whose program does not exist yet is kept");
+        const bgfx::ProgramHandle program =
+            bgfx::createProgram(shim::create_embedded_shader(shim::shader_id_by_name("vs_blit")),
+                                shim::create_embedded_shader(shim::shader_id_by_name("fs_blit")), true);
+        render::RegisterPipelineProgram("ext_vs", "ext_fs", program);
+        for (int i = 0; i < 5; ++i)
+            frame(d, -1, 0, 0);
+        render::BeginScenePipelines("elsewhere again");
+        ok &= expect(waiting_recipe_goes(sets), "registered: it is asked for (refused here: not a bgfx recipe)");
+        render::UnregisterPipelineProgram(program);
+        frame(d, -1, 0, 0);
+        bgfx::destroy(program);
+    }
+    {
+        write_waiting_recipe(sets);
+        {
+            Renderer r(window);
+            for (int i = 0; i < 5; ++i)
+                frame(*r.device, -1, 0, 0);
+        }
+        ok &= expect(!file_has_waiting_recipe(sets), "a program that never comes: its recipe is forgotten at the end");
     }
     ok &= expect(fs::exists(sets), "and written again");
     return ok;

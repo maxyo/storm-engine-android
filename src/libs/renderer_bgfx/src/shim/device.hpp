@@ -598,6 +598,8 @@ struct Device final : Object
 };
 
 uint32_t shader_id_by_name(const char *name);
+// The same without the log for a name the shim has none of (a recorded pipeline of a program made elsewhere).
+uint32_t find_shader_by_name(const char *name);
 bgfx::ShaderHandle create_embedded_shader(uint32_t id);
 // The FF_OPAQUE twin (no discard: early depth stays on) of a fixed-function fragment shader, UINT32_MAX if none.
 uint32_t opaque_twin(uint32_t fs_id);

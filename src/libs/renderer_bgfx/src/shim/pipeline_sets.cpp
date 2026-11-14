@@ -144,7 +144,8 @@ void PipelineSets::attach(const fs::path &directory, bool vulkan)
     scenes_.clear();
     created_.clear();
     to_prewarm_.clear();
-    fx_programs_.clear(); // of the device before
+    waiting_.clear();
+    programs_.clear(); // of the device before
     dirty_ = false;
     reveal_ = {};
     measure_ = {};
@@ -300,6 +301,14 @@ void PipelineSets::detach()
              pipelines_, render_thread_, slow_, kSlowPipelineMs, render_thread_ms_, off_thread_, off_thread_ms_,
              prewarms_, unpredicted_);
     bgfx::setVkPipelineCreated(nullptr);
+    if (!waiting_.empty())
+    {
+        logf("pipelines: %zu recorded pipelines never got their program in this run (no program of those shaders was "
+             "made): forgotten",
+             waiting_.size());
+        for (const uint32_t hash : std::vector<uint32_t>(waiting_.begin(), waiting_.end()))
+            forget(hash);
+    }
     write_file();
     if (writer_.joinable())
         writer_.join();
@@ -466,16 +475,56 @@ void PipelineSets::end_measure(const char *why)
          measure_.unpredicted_ms);
 }
 
+void PipelineSets::forget(uint32_t hash)
+{
+    for (auto &[name, set] : scenes_)
+        set.erase(hash);
+    recipes_.erase(hash);
+    waiting_.erase(hash);
+    dirty_ = true;
+}
+
+void PipelineSets::register_program(const char *vs, const char *fs, bgfx::ProgramHandle program)
+{
+    std::lock_guard lock(mutex_);
+    if (!vulkan_)
+        return;
+    const std::string key = std::string(vs) + '+' + fs;
+    programs_[key] = program;
+    size_t woken = 0;
+    for (auto it = waiting_.begin(); it != waiting_.end();)
+    {
+        const auto recipe = recipes_.find(*it);
+        if (recipe != recipes_.end() && recipe->second.vs + '+' + recipe->second.fs == key)
+        {
+            to_prewarm_.push_back(*it);
+            it = waiting_.erase(it);
+            ++woken;
+        }
+        else
+            ++it;
+    }
+    if (woken)
+        logf("pipelines: program %s registered: %zu recorded pipelines waiting for it are prewarmed", key.c_str(), woken);
+}
+
+void PipelineSets::unregister_program(bgfx::ProgramHandle program)
+{
+    std::lock_guard lock(mutex_);
+    for (auto it = programs_.begin(); it != programs_.end();)
+        it = it->second.idx == program.idx ? programs_.erase(it) : std::next(it);
+}
+
 bgfx::ProgramHandle PipelineSets::program_of(Device &device, const Recipe &recipe)
 {
-    // The fx package's passes by their names, else the device's draws (whose registry logs a name it lacks).
+    // The registered programs (the interface's) and the fx package's passes by their names, else the shim's own.
     const std::string key = recipe.vs + '+' + recipe.fs;
-    if (const auto it = fx_programs_.find(key); it != fx_programs_.end())
+    if (const auto it = programs_.find(key); it != programs_.end())
         return it->second;
     if (const bgfx::ProgramHandle fx = fx::FindProgram(recipe.vs.c_str(), recipe.fs.c_str()); bgfx::isValid(fx))
-        return fx_programs_[key] = fx; // kept with the device (bgfx shares it with the pass's own)
-    const uint32_t vs = shader_id_by_name(recipe.vs.c_str());
-    const uint32_t fs = recipe.fs.empty() ? UINT32_MAX : shader_id_by_name(recipe.fs.c_str());
+        return programs_[key] = fx; // kept with the device (bgfx shares it with the pass's own)
+    const uint32_t vs = find_shader_by_name(recipe.vs.c_str());
+    const uint32_t fs = recipe.fs.empty() ? UINT32_MAX : find_shader_by_name(recipe.fs.c_str());
     return vs == UINT32_MAX || fs == UINT32_MAX ? bgfx::ProgramHandle BGFX_INVALID_HANDLE : device.program(vs, fs);
 }
 
@@ -502,16 +551,19 @@ void PipelineSets::frame(Device &device, uint32_t presented_frame, bool scene_fr
             continue;
         const Recipe &recipe = it->second;
         const bgfx::ProgramHandle program = program_of(device, recipe);
-        if (!bgfx::isValid(program) ||
-            !bgfx::prewarmVkPipeline(program, recipe.bytes.data(), static_cast<uint32_t>(recipe.bytes.size()),
+        if (!bgfx::isValid(program))
+        {
+            // Not made yet (the interface's programs exist from its init on): kept, prewarmed when it registers.
+            waiting_.insert(hash);
+            continue;
+        }
+        if (!bgfx::prewarmVkPipeline(program, recipe.bytes.data(), static_cast<uint32_t>(recipe.bytes.size()),
                                      presented_frame + 1))
         {
-            logf("pipelines: a recorded pipeline of %s + %s cannot be prewarmed (%s): forgotten", recipe.vs.c_str(),
-                 recipe.fs.c_str(), bgfx::isValid(program) ? "a recipe of another format" : "no such program");
-            for (auto &[name, set] : scenes_)
-                set.erase(hash);
-            recipes_.erase(it);
-            dirty_ = true;
+            logf("pipelines: a recorded pipeline of %s + %s cannot be prewarmed (a recipe of another format): "
+                 "forgotten",
+                 recipe.vs.c_str(), recipe.fs.c_str());
+            forget(hash);
             ++reveal_.refused;
             continue;
         }
@@ -548,6 +600,16 @@ namespace storm::render
 void BeginScenePipelines(const char *scene)
 {
     shim::PipelineSets::instance().begin_scene(scene);
+}
+
+void RegisterPipelineProgram(const char *vertex_shader, const char *fragment_shader, bgfx::ProgramHandle program)
+{
+    shim::PipelineSets::instance().register_program(vertex_shader, fragment_shader, program);
+}
+
+void UnregisterPipelineProgram(bgfx::ProgramHandle program)
+{
+    shim::PipelineSets::instance().unregister_program(program);
 }
 
 bool HoldSceneReveal()

@@ -140,7 +140,8 @@ target_link_libraries(thumbnail_check PRIVATE storm_bgfx storm_check_sdl)
 # pipeline_prewarm_check: the scenes' Vulkan pipelines (src/shim/pipeline_sets.hpp): the interface never waits for a
 # pipeline, the scene's recorded pipelines are prewarmed when it begins (an X display; OpenGL ES and Vulkan).
 add_executable(pipeline_prewarm_check pipeline_prewarm_check.cpp)
-target_include_directories(pipeline_prewarm_check PRIVATE "${CMAKE_CURRENT_LIST_DIR}/../../src/libs/renderer_bgfx/src/shim")
+target_include_directories(pipeline_prewarm_check PRIVATE "${CMAKE_CURRENT_LIST_DIR}/../../src/libs/renderer_bgfx/src/shim"
+                           "${CMAKE_CURRENT_LIST_DIR}/../../src/libs/renderer_bgfx/src")
 target_compile_definitions(pipeline_prewarm_check PRIVATE NOMINMAX)
 target_compile_options(pipeline_prewarm_check PRIVATE -fsigned-char)
 target_link_libraries(pipeline_prewarm_check PRIVATE storm_bgfx storm_check_sdl)

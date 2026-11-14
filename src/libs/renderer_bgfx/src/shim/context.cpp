@@ -1384,13 +1384,20 @@ uint32_t embedded_shader_count()
     return static_cast<uint32_t>(std::size(embedded));
 }
 
-uint32_t shader_id_by_name(const char *name)
+uint32_t find_shader_by_name(const char *name)
 {
     for (uint32_t i = 0; i < std::size(embedded); ++i)
         if (strcmp(embedded[i].name, name) == 0)
             return i;
-    logf("missing embedded shader %s", name);
     return UINT32_MAX;
+}
+
+uint32_t shader_id_by_name(const char *name)
+{
+    const uint32_t id = find_shader_by_name(name);
+    if (id == UINT32_MAX)
+        logf("missing embedded shader %s", name);
+    return id;
 }
 
 uint32_t opaque_twin(uint32_t fs_id)
