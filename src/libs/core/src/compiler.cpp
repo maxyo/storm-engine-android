@@ -58,7 +58,7 @@ auto GetCacheFolder()
 // themselves: the engine build (token numbering, internal function table and
 // bytecode layout are not stable across builds), the cache layout, and which
 // game directory the scripts came from (the cache folder is shared).
-constexpr uint64_t kCacheFormatVersion = 2;
+constexpr uint64_t kCacheFormatVersion = 3;
 
 uint64_t CalculateCacheKey(const char *program_directory)
 {
@@ -7072,9 +7072,13 @@ void COMPILER::SaveDefinesToCache(storm::script_cache::BufferWriter &writer)
             writer.WriteData(static_cast<int32_t>(value));
             break;
 
-        case FLOAT_NUMBER:
-            writer.WriteData(static_cast<float>(value));
+        case FLOAT_NUMBER: {
+            // data4b holds the float's bit pattern (Compile), not a number to convert.
+            float bits;
+            memcpy(&bits, &value, sizeof(bits));
+            writer.WriteData(bits);
             break;
+        }
 
         case STRING:
             writer.WriteArray(reinterpret_cast<const char *>(value));
@@ -7162,9 +7166,12 @@ void COMPILER::LoadDefinesFromCache(storm::script_cache::BufferReader &reader, S
             di.data4b = static_cast<uintptr_t>(reader.Read<int32_t>());
             break;
 
-        case FLOAT_NUMBER:
-            di.data4b = static_cast<uintptr_t>(reader.Read<float>());
+        case FLOAT_NUMBER: {
+            const float bits = reader.Read<float>();
+            di.data4b = 0;
+            memcpy(&di.data4b, &bits, sizeof(bits));
             break;
+        }
 
         case STRING: {
             auto value = reader.ReadArray();

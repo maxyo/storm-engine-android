@@ -236,13 +236,12 @@ void S_EVENTTAB::InvalidateBySegmentID(uint32_t segment_id)
     {
         for (uint32_t n = 0; n < Event_num[ti]; n++)
         {
-            for (uint32_t i = 0; i < pTable[ti][n].elements; i++)
+            // A removal shifts the later handlers down onto index i: look at i again.
+            for (uint32_t i = 0; i < pTable[ti][n].elements;)
             {
-                if (pTable[ti][n].pFuncInfo[i].segment_id == segment_id)
-                {
-                    if (DelEventHandler(static_cast<uint8_t>(ti), n, i, true))
-                        i = 0;
-                }
+                if (pTable[ti][n].pFuncInfo[i].segment_id == segment_id && DelEventHandler(static_cast<uint8_t>(ti), n, i, true))
+                    continue;
+                i++;
             }
         }
     }
@@ -269,15 +268,18 @@ void S_EVENTTAB::ProcessFrame()
         for (uint32_t n = 0; n < Event_num[ti]; n++)
         {
             // delete old handlers
-            for (uint32_t i = 0; i < pTable[ti][n].elements; i++)
+            // A removal shifts the later handlers down onto index i: look at i again. A static
+            // handler is not removed (DelEventHandler refuses) and keeps its status.
+            for (uint32_t i = 0; i < pTable[ti][n].elements;)
             {
                 if (pTable[ti][n].pFuncInfo[i].status == FSTATUS_DELETED)
                 {
-                    DelEventHandler(static_cast<uint8_t>(ti), n, i);
-                    i = 0;
+                    if (DelEventHandler(static_cast<uint8_t>(ti), n, i))
+                        continue;
                 }
                 else
                     pTable[ti][n].pFuncInfo[i].status = FSTATUS_NORMAL;
+                i++;
             }
         }
 }
