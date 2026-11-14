@@ -372,22 +372,6 @@ void WEATHER::SetCommonStates()
     pRS->SetRenderState(D3DRS_LIGHTING, false);
 }
 
-/*bool WEATHER::SetHour(int32_t hour)
-{
-    if (iHour == hour) return false;
-    iHour = hour;
-
-    INIFILE *ini = fio->OpenIniFile(WHT_INI_FILE);
-    if(!ini) throw std::runtime_error("weather.ini file not found!");
-    ini->WriteLong(0,"iCurHour",iHour);
-    delete ini;
-
-    AttributesPointer->SetAttributeUseuint32_t("Hour",iHour);
-
-    LoadWeatherIni();
-    return true;
-}*/
-
 int32_t WEATHER::GetInt(uint32_t dwCode)
 {
     return iLongs[dwCode];

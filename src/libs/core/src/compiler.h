@@ -235,8 +235,6 @@ class COMPILER : public VIRTUAL_COMPILER
 
     void CopyOffsets(SEGMENT_DESC &Segment, STRINGS_LIST &srclist, STRINGS_LIST &dstlist, const char *sname);
 
-    void FormatDialog(const char *file_name);
-    void FormatAllDialog(const char *directory_name);
 
 
     bool SetSaveData(const char *file_name, void *save_data, int32_t data_size);

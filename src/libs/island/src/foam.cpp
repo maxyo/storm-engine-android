@@ -24,7 +24,6 @@ CoastFoam::CoastFoam()
 
 CoastFoam::~CoastFoam()
 {
-    Save();
     clear();
 
     if (iVBuffer >= 0)
@@ -254,8 +253,6 @@ void CoastFoam::Realize(uint32_t Delta_Time)
     auto bMenu = core.Controls->GetDebugAsyncKeyState(VK_MENU) < 0;
     if (bShift && core.Controls->GetDebugAsyncKeyState('L') < 0)
         Load();
-    if (bShift && core.Controls->GetDebugAsyncKeyState('S') < 0)
-        Save();
 
     if (bEditMode)
     {
@@ -780,60 +777,6 @@ void CoastFoam::RecalculateFoam(int32_t iFoam)
                 sx += dx;
                 ii++;
             }
-        }
-    }
-}
-
-void CoastFoam::Save()
-{
-    if (!bCanEdit)
-        return;
-
-    char cKey[128], cSection[128], cTemp[1024];
-    const auto sID = std::string("resource\\foam\\locations\\") + to_string(AttributesPointer->GetAttribute("id")) + ".ini";
-    fio->_DeleteFile(sID.c_str());
-
-    auto pI = fio->CreateIniFile(sID.c_str(), false);
-    if (!pI)
-        return;
-
-    pI->WriteLong(nullptr, "NumFoams", aFoams.size());
-    pI->WriteDouble(nullptr, "MaxFoamDistance", fMaxFoamDistance);
-    pI->WriteDouble(nullptr, "FoamDeltaY", fFoamDeltaY);
-    pI->WriteLong(nullptr, "FoamDivides", iFoamDivides);
-
-    for (int32_t i = 0; i < aFoams.size(); i++)
-    {
-        auto *pF = aFoams[i];
-        sprintf_s(cSection, "foam_%d", i);
-        pI->WriteLong(cSection, "NumParts", pF->aFoamParts.size());
-
-        sprintf_s(cTemp, "%.0f, %.0f", pF->fAlphaMin, pF->fAlphaMax);
-        pI->WriteString(cSection, "Alpha", cTemp);
-
-        sprintf_s(cTemp, "%.3f, %.3f", pF->fSpeedMin, pF->fSpeedMax);
-        pI->WriteString(cSection, "Speed", cTemp);
-
-        sprintf_s(cTemp, "%.3f, %.3f", pF->fBrakingMin, pF->fBrakingMax);
-        pI->WriteString(cSection, "Braking", cTemp);
-
-        sprintf_s(cTemp, "%.3f, %.3f", pF->fAppearMin, pF->fAppearMax);
-        pI->WriteString(cSection, "Appear", cTemp);
-
-        sprintf_s(cTemp, "%.3f", pF->fTexScaleX);
-        pI->WriteString(cSection, "TexScaleX", cTemp);
-
-        pI->WriteLong(cSection, "NumFoams", pF->iNumFoams);
-
-        pI->WriteString(cSection, "Texture", (char *)pF->sTexture.c_str());
-        pI->WriteLong(cSection, "Type", pF->Type);
-
-        for (int32_t j = 0; j < pF->aFoamParts.size(); j++)
-        {
-            auto *pFP = &pF->aFoamParts[j];
-            sprintf_s(cKey, "key_%d", j);
-            sprintf_s(cTemp, "%.4f, %.4f, %.4f, %.4f", pFP->v[0].x, pFP->v[0].z, pFP->v[1].x, pFP->v[1].z);
-            pI->WriteString(cSection, cKey, cTemp);
         }
     }
 }

@@ -1,4 +1,7 @@
 #include "core.h"
+#include "fs.h"
+
+#include <filesystem>
 
 #include "geometry_r.h"
 #include "string_compare.hpp"
@@ -102,10 +105,11 @@ GEOS *GEOMETRY::CreateGeometry(const char *file_name, const char *light_file_nam
     if (geoLog)
     {
         vrtSize = 0;
-        if (first == 0)
-            fl = fopen("geoLoad.txt", "w");
-        else
-            fl = fopen("geoLoad.txt", "a");
+        // the geometry log (ini geometry_log): in the engine's log folder, never in the game folder
+        std::error_code error;
+        std::filesystem::create_directories(fs::GetLogsPath(), error);
+        const std::string log = (fs::GetLogsPath() / "geoLoad.txt").string();
+        fl = fopen(log.c_str(), first == 0 ? "w" : "a");
     }
 
     GEOS *gp;

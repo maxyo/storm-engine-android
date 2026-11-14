@@ -123,7 +123,6 @@ class CoastFoam : public Entity
 
     bool IsClipped(Foam *pF);
 
-    void Save();
     void Load();
     void clear();
 

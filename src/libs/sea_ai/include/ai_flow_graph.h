@@ -207,7 +207,6 @@ class AIFlowGraph
     // save/load/release section
     void ReleaseAll();
     bool Load(INIFILE &pIni);
-    bool Save(INIFILE *pIni);
 
     // point/edge/Path function section
     size_t GetNumPoints()
@@ -248,33 +247,6 @@ inline void AIFlowGraph::ReleaseAll()
 {
     aEdges.clear();
     aPoints.clear();
-}
-
-inline bool AIFlowGraph::Save(INIFILE *pIni)
-{
-    Assert(pIni);
-
-    pIni->DeleteSection((char *)sSectionName.c_str());
-    for (uint32_t i = 0; i < aPoints.size(); i++)
-    {
-        std::string sTemp;
-        sTemp += std::to_string(aPoints[i].vPos.x);
-        sTemp += ",";
-        sTemp += std::to_string(aPoints[i].vPos.z);
-        sTemp += ",";
-        sTemp += std::to_string(aPoints[i].aEdges.size());
-        sTemp += ",";
-        for (unsigned int aEdge : aPoints[i].aEdges)
-        {
-            sTemp += std::to_string(aEdges[aEdge].dw1);
-            sTemp += ",";
-            sTemp += std::to_string(aEdges[aEdge].dw2);
-            sTemp += ",";
-        }
-        std::string sKey = "pnt" + std::to_string(i);
-        pIni->WriteString(sSectionName.c_str(), sKey.c_str(), sTemp.c_str());
-    }
-    return true;
 }
 
 inline bool AIFlowGraph::Load(INIFILE &pIni)

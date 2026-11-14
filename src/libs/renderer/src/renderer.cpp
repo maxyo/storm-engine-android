@@ -33,6 +33,11 @@
 
 #include <algorithm>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
+#include <string>
+#include <spdlog/spdlog.h>
 #include <fstream>
 #include <functional>
 #include <iterator>
@@ -722,6 +727,13 @@ void ReconfigureGraphicsEffects()
 
 
 static bool texLog = false;
+// The texture log (ini texture_log): in the engine's log folder, never in the game folder.
+static std::filesystem::path TextureLogPath()
+{
+    std::error_code error;
+    std::filesystem::create_directories(fs::GetLogsPath(), error);
+    return fs::GetLogsPath() / "texLoad.txt";
+}
 
 bool Renderer::Init()
 {
@@ -2084,17 +2096,19 @@ bool Renderer::TextureLoad(int32_t t)
     if (texLog)
     {
         char s[256];
+        const std::filesystem::path log = TextureLogPath();
         if (totSize == 0)
         {
-            fio->_DeleteFile("texLoad.txt");
+            std::error_code error;
+            std::filesystem::remove(log, error);
         }
-        auto fileS2 = fio->_CreateFile("texLoad.txt", std::ios::binary | std::ios::out | std::ios::app);
+        std::ofstream fileS2(log, std::ios::binary | std::ios::app);
         totSize += Textures[t].dwSize;
         sprintf_s(s, "%.2f, size: %d, %d * %d, %s\n", totSize / 1024.0f / 1024.0f, Textures[t].dwSize, head.width,
                   head.height, Textures[t].name);
-        fio->_WriteFile(fileS2, s, strlen(s));
-        fio->_FlushFileBuffers(fileS2);
-        fio->_CloseFile(fileS2);
+        fileS2.write(s, static_cast<std::streamsize>(strlen(s)));
+        if (!fileS2)
+            spdlog::error("Cannot write the texture log {}", log.string());
     }
     dwTotalSize += Textures[t].dwSize;
     //---------------------------------------------------------------
@@ -2242,41 +2256,18 @@ bool Renderer::TextureRelease(int32_t texid)
     {
         if (texLog)
         {
-            auto fileS = fio->_CreateFile("texLoad.txt", std::ios::binary | std::ios::in | std::ios::out);
-            const int bytes = fio->_GetFileSize("texLoad.txt");
-            auto buf = new char[bytes + 1];
-            fio->_ReadFile(fileS, buf, bytes);
-            buf[bytes] = 0;
-
-            char *str = strstr(buf, Textures[texid].name);
-            if (str != nullptr)
+            std::fstream fileS(TextureLogPath(), std::ios::binary | std::ios::in | std::ios::out);
+            if (fileS)
             {
-                fio->_SetFilePointer(fileS, str - buf, std::ios::beg);
-                auto s = "*";
-                fio->_WriteFile(fileS, s, 1);
+                std::string buf((std::istreambuf_iterator<char>(fileS)), std::istreambuf_iterator<char>());
+                const auto at = buf.find(Textures[texid].name);
+                if (at != std::string::npos)
+                {
+                    fileS.clear();
+                    fileS.seekp(static_cast<std::streamoff>(at));
+                    fileS.put('*');
+                }
             }
-            delete[] buf;
-            fio->_FlushFileBuffers(fileS);
-            fio->_CloseFile(fileS);
-
-            /*FILE *flstat = fopen("texLoad.txt", "r+b");
-            totSize -= Textures[texid].dwSize;
-            fseek(flstat, 0, SEEK_END);
-            int bytes = ftell(flstat);
-            char *buf = new char[bytes+1];
-            fseek(flstat, 0, SEEK_SET);
-            fread(buf, bytes, sizeof *buf, flstat);
-            buf[bytes] = 0;
-
-            char *str = strstr(buf, Textures[texid].name);
-            if(str!=0)
-            {
-            fseek(flstat, str-buf, SEEK_SET);
-            const char *s = "*";
-            fwrite(s, 1, 1, flstat);
-            }
-            delete buf;
-            fclose(flstat);*/
         }
 
         delete[] Textures[texid].name;

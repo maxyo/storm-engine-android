@@ -98,48 +98,6 @@ void Astronomy::STARS::Init(ATTRIBUTES *pAP)
 
     iTexture = sTexture == nullptr ? -1 : pRS->TextureCreate(sTexture);
 
-    /*char * pBuffer = null;
-    uint32_t dwSize = 0;
-    if (fio->LoadFile("resource\\hic.txt", (void**)&pBuffer, &dwSize))
-    {
-    char str[1024], str2[128]; str[0] = 0;
-    uint32_t dwPos = 0;
-    while (dwPos < dwSize)
-    {
-    uint32_t dwStr = 0;
-    while (dwPos < dwSize && (pBuffer[dwPos] != 0xA && pBuffer[dwPos] != 0xd)) { str[dwStr++] = pBuffer[dwPos++];
-    str[dwStr + 1] = 0; } while (dwPos < dwSize && (pBuffer[dwPos] == 0xA || pBuffer[dwPos] == 0xd)) dwPos++;
-
-    Star & s = aStars[aStars.Add()];
-
-    strncpy_s(str2, &str[0], 10);        str2[10] = 0; sscanf(str2, "%f", &s.fRA);
-    strncpy_s(str2, &str[16], 10);    str2[10] = 0; sscanf(str2, "%f", &s.fDec);
-    strncpy_s(str2, &str[56], 6);        str2[6] = 0; sscanf(str2, "%f", &s.fMag);
-    strncpy_s(s.cSpectr, &str[63], 2);
-
-    s.dwSubTexture = rand()%4;
-
-    s.fRA = PIm2 * s.fRA / 360.0f;
-    s.fDec = PIm2 * s.fDec / 360.0f;
-    double RA = 0.0;
-    }
-    }
-
-    HANDLE hFile = fio->_CreateFile("resource\\hic.dat", GENERIC_WRITE, FILE_SHARE_WRITE, CREATE_ALWAYS);
-    if (INVALID_HANDLE_VALUE != hFile)
-    {
-    uint32_t dwSize = aStars.size();
-    fio->_WriteFile(hFile, &dwSize, sizeof(dwSize), null);
-    for (uint32_t i=0; i<aStars.size(); i++)
-    {
-    fio->_WriteFile(hFile, &aStars[i].fRA, sizeof(aStars[i].fRA), null);
-    fio->_WriteFile(hFile, &aStars[i].fDec, sizeof(aStars[i].fDec), null);
-    fio->_WriteFile(hFile, &aStars[i].fMag, sizeof(aStars[i].fMag), null);
-    fio->_WriteFile(hFile, &aStars[i].cSpectr[0], sizeof(aStars[i].cSpectr), null);
-    }
-    fio->_CloseHandle(hFile);
-    }*/
-
     auto fileS = fio->_CreateFile(sCatalog, std::ios::binary | std::ios::in);
     if (fileS.is_open())
     {
@@ -161,21 +119,41 @@ void Astronomy::STARS::Init(ATTRIBUTES *pAP)
         auto *pVColors = static_cast<uint32_t *>(pRS->LockVertexBuffer(iVertexBufferColors));
 
         auto bRecalculateData = true;
-        // The computed buffers are kept in the cache (never in the game folder), so the next start does not recompute.
+        // The buffers are computed once: the game ships them (resource\star.dat), else they are kept in the cache (never in
+        // the game folder) by the first start.
         const std::filesystem::path starCache = fs::GetCachePath() / "star.dat";
         const uint32_t stride = (sizeof(Star) + sizeof(glm::vec3) + sizeof(uint32_t));
-        {
-            std::ifstream in(starCache, std::ios::binary | std::ios::ate);
-            if (in && static_cast<uint64_t>(in.tellg()) == static_cast<uint64_t>(dwSize) * stride)
+        const auto readStars = [&](std::istream &in, const std::string &source) {
+            in.seekg(0, std::ios::end);
+            if (static_cast<uint64_t>(in.tellg()) != static_cast<uint64_t>(dwSize) * stride)
+                return false;
+            in.seekg(0);
+            const auto first = aStars.size();
+            aStars.resize(first + dwSize);
+            in.read(reinterpret_cast<char *>(aStars.data() + first), sizeof(Star) * dwSize);
+            in.read(reinterpret_cast<char *>(pVPos), sizeof(glm::vec3) * dwSize);
+            in.read(reinterpret_cast<char *>(pVColors), sizeof(uint32_t) * dwSize);
+            if (!in)
             {
-                aStars.resize(aStars.size() + dwSize);
-                in.seekg(0);
-                in.read(reinterpret_cast<char *>(aStars.data()), sizeof(Star) * dwSize);
-                in.read(reinterpret_cast<char *>(pVPos), sizeof(glm::vec3) * dwSize);
-                in.read(reinterpret_cast<char *>(pVColors), sizeof(uint32_t) * dwSize);
-                bRecalculateData = !in;
-                if (bRecalculateData)
-                    aStars.resize(aStars.size() - dwSize);
+                aStars.resize(first);
+                spdlog::warn("Stars: {} is damaged", source);
+                return false;
+            }
+            spdlog::info("Stars: read {} stars from {}", dwSize, source);
+            return true;
+        };
+        {
+            auto shipped = fio->_CreateFile("resource\\star.dat", std::ios::binary | std::ios::in);
+            if (shipped.is_open())
+            {
+                bRecalculateData = !readStars(shipped, "the game's resource\\star.dat");
+                fio->_CloseFile(shipped);
+            }
+            if (bRecalculateData)
+            {
+                std::ifstream cached(starCache, std::ios::binary);
+                if (cached)
+                    bRecalculateData = !readStars(cached, starCache.string());
             }
         }
 
@@ -215,7 +193,9 @@ void Astronomy::STARS::Init(ATTRIBUTES *pAP)
             out.write(reinterpret_cast<const char *>(aStars.data()), sizeof(Star) * dwSize);
             out.write(reinterpret_cast<const char *>(pVPos), sizeof(glm::vec3) * dwSize);
             out.write(reinterpret_cast<const char *>(pVColors), sizeof(uint32_t) * dwSize);
-            if (!out)
+            if (out)
+                spdlog::info("Stars: computed {} stars, kept in {}", dwSize, starCache.string());
+            else
                 spdlog::error("Stars: cannot write {} (the stars are computed again at the next start)", starCache.string());
         }
 
