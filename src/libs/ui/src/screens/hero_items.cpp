@@ -11,6 +11,7 @@
 // (ANDROID_ITEMS, ANDROID_SLOTS; ANDROID_POSTS for the officer switch).
 #include "hero.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -164,8 +165,16 @@ class ItemsScreen final : public Screen
             }
             slots.push_back(std::move(tile));
             const std::string id = slot.id;
-            bindings.On("slot-" + id, "", [this, &bindings, id](const Event &) {
+            // A slot that holds an item selects that item's row: the parchment and its action are the slot's.
+            const std::string held = item ? item->label : std::string();
+            bindings.On("slot-" + id, "", [this, &bindings, id, held](const Event &) {
                 filter_ = filter_ == id ? std::string() : id;
+                if (!filter_.empty() && !held.empty())
+                    if (const Widget *row = WornRow(held); row && row->value != "1")
+                    {
+                        sent_revision_ = 0;
+                        Step(bindings, row, "select", row->row_id);
+                    }
                 bindings.Rebuild();
             });
         }
@@ -202,8 +211,13 @@ class ItemsScreen final : public Screen
         {
             const Widget *fact = facts.count(row->index) ? facts[row->index] : nullptr;
             if (row->value == "1")
-                selected = row; // the parchment shows the game's selected item whatever the list is narrowed to
+                selected = row; // a slot filter below also guards the parchment and its action
             if (!filter_slot.empty() && Field(fact, "slot") != filter_slot)
+                continue;
+            // A worn amulet belongs to one particular slot, not to every slot of the category.
+            // The other slots offer only items that can go on there, never another slot's delete action.
+            if (filter_slot == "amulet" && Field(fact, "worn") == "1" &&
+                (!worn.count(filter_) || worn[filter_]->label != Trim(row->CellText(0))))
                 continue;
             Json name{{"text", Trim(row->CellText(0))}};
             name["image"] = PictureOf(row->cells.empty() || row->cells[0].images.empty() ? nullptr : &row->cells[0].images[0]);
@@ -232,7 +246,17 @@ class ItemsScreen final : public Screen
             Start(bindings, intent);
         });
 
-        // The selected item.
+        // The selected item. With a slot chosen the parchment speaks for that slot only: the item it holds or
+        // one that can go on; a selection left from before (another slot's item, an item outside the list)
+        // is not shown, nor its action.
+        if (selected && !filter_.empty())
+        {
+            const bool listed = std::find(shown.begin(), shown.end(), selected) != shown.end();
+            const Widget *fact = facts.count(selected->index) ? facts[selected->index] : nullptr;
+            const bool held = worn.count(filter_) && worn[filter_]->label == Trim(selected->CellText(0));
+            if (!listed || (Field(fact, "worn") == "1" && !held))
+                selected = nullptr;
+        }
         const Widget *selected_fact = selected && facts.count(selected->index) ? facts[selected->index] : nullptr;
         // What is worn in the selected item's slot: its figures are set against it. An amulet goes to any
         // of three slots and is compared with none.
@@ -303,6 +327,15 @@ class ItemsScreen final : public Screen
         sent_revision_ = revision_;
         bindings.Send(*widget, verb, value);
         return true;
+    }
+
+    // The worn row of the item a slot holds (by the name ANDROID_SLOTS gives it).
+    const Widget *WornRow(const std::string &name) const
+    {
+        for (const Widget *row : a_->All("TABLE_ITEMS"))
+            if (Trim(row->CellText(0)) == name && Worn(*row))
+                return row;
+        return nullptr;
     }
 
     bool Worn(const Widget &row) const
@@ -511,9 +544,9 @@ class ItemsScreen final : public Screen
         Json action{{"id", "item-equip"}, {"label", label}, {"variant", destroys ? "danger" : "primary"}, {"hold", destroys},
                     {"disabled", !ready}, {"reason", reason}, {"busy", bindings.Pending("item-equip")}};
         const Widget *target = equip;
-        bindings.On("item-equip", "", [this, &bindings, target](const Event &) {
+        bindings.On("item-equip", "", [this, &bindings, target, ready](const Event &) {
             sent_revision_ = 0;
-            if (target->Offers("press") && !target->row_id.empty())
+            if (ready && target->Offers("press") && !target->row_id.empty())
                 Step(bindings, target, "press", target->row_id);
         });
         return action;
