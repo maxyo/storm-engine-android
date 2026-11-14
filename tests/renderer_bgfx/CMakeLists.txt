@@ -130,6 +130,14 @@ target_compile_definitions(texture_format_check PRIVATE NOMINMAX)
 target_compile_options(texture_format_check PRIVATE -fsigned-char)
 target_link_libraries(texture_format_check PRIVATE storm_bgfx storm_check_sdl)
 
+# Upscale swaps through the real draw binding: offscreen pixels on GLES/Vulkan, --noop for submission/state only.
+add_executable(upscale_swap_check upscale_swap_check.cpp)
+target_include_directories(upscale_swap_check PRIVATE "${CMAKE_CURRENT_LIST_DIR}/../../src/libs/renderer_bgfx/src/shim"
+    "${CMAKE_CURRENT_LIST_DIR}/../../src/libs/renderer_bgfx/src")
+target_compile_definitions(upscale_swap_check PRIVATE NOMINMAX)
+target_compile_options(upscale_swap_check PRIVATE -fsigned-char)
+target_link_libraries(upscale_swap_check PRIVATE storm_bgfx storm_check_sdl)
+
 # buffer_pool_check: write-once buffers in bgfx's shared dynamic buffers (src/shim/draw.cpp) on OpenGL ES (an X display, like
 # skinning_check): every range draws exactly its buffer's data, after releases, rewrites and another stride.
 add_executable(buffer_pool_check buffer_pool_check.cpp)

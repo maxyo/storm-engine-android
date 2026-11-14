@@ -219,8 +219,7 @@ int main()
     const effects::NormalMaps::Stats again = Settle(maps, {stone.get(), bump.get(), brick.get()});
     expect(again.unqueued == 0 && again.derived == 1, "off and on again derives nothing twice");
 
-    // A map evicted from the cache while its texture stays loaded (the system frees storage, «Очистить кэш»): the next
-    // draw finds it gone and makes it again, instead of failing.
+    // A grey-height derivative is not a shading fallback; eviction must not trigger its regeneration from a draw.
     {
         fx::Lighting lighting;
         const uint32_t derived_before = maps.stats().derived;
