@@ -1810,9 +1810,13 @@ DATA *COMPILER::BC_CallIntFunction(uint32_t func_code, DATA *&pVResult, uint32_t
         pV->Get(pChar);
         if (arguments > 1)
         {
-            CreateMessage(&ms, s_off, 1);
-            ms.Move2Start();
-            ProcessEvent(pChar, &ms);
+            if (CreateMessage(&ms, s_off, 1))
+            {
+                ms.Move2Start();
+                ProcessEvent(pChar, &ms);
+            }
+            else
+                SetError("Event(\"%s\") is not raised: its arguments do not match the format", pChar ? pChar : "");
         }
         else
             ProcessEvent(pChar);
@@ -1840,17 +1844,24 @@ DATA *COMPILER::BC_CallIntFunction(uint32_t func_code, DATA *&pVResult, uint32_t
             break;
         }
         pV->Get(TempLong1);
+        pMS = nullptr;
         if (arguments >= 4) // event w/o message
         {
             pMS = new MESSAGE();
-            CreateMessage(pMS, s_off, 2);
-            pMS->Move2Start();
+            if (CreateMessage(pMS, s_off, 2))
+                pMS->Move2Start();
+            else
+            {
+                delete pMS;
+                pMS = nullptr;
+                SetError("PostEvent(\"%s\") is not posted: its arguments do not match the format", pChar ? pChar : "");
+            }
         }
-        else
-            pMS = nullptr;
-
-        pEM = new S_EVENTMSG(pChar, pMS, TempLong1);
-        EventMsg.Add(pEM);
+        if (arguments < 4 || pMS != nullptr)
+        {
+            pEM = new S_EVENTMSG(pChar, pMS, TempLong1);
+            EventMsg.Add(pEM);
+        }
         for (n = 0; n < arguments; n++)
         {
             SStack.Pop();
@@ -1867,11 +1878,14 @@ DATA *COMPILER::BC_CallIntFunction(uint32_t func_code, DATA *&pVResult, uint32_t
         }
         pV->Get(ent);
 
-        CreateMessage(&ms, s_off, 1);
+        const bool created = CreateMessage(&ms, s_off, 1);
 
         uint64_t mresult = 0;
         pE = core.GetEntityPointerSafe(ent);
-        if (pE)
+        if (!created)
+            SetError("SendMessage to entity %llu is not sent (returns 0): its arguments do not match the format",
+                     static_cast<unsigned long long>(ent));
+        else if (pE)
         {
             ms.Move2Start();
             const auto classCode = core.GetClassCode(ent);
@@ -2620,6 +2634,10 @@ void COMPILER::DumpAttributes(ATTRIBUTES *pA, int32_t level)
 }
 
 // assume first param - format string
+// Fills pMs from the script arguments after the format string. A mismatch is a script error
+// (SetError names the script file and line, the call stack goes to the stack log) and the
+// message must not be delivered: MESSAGE refuses to read past what was set, so a receiver of a
+// half-built message would throw (std::bad_variant_access) and end the session.
 bool COMPILER::CreateMessage(MESSAGE *pMs, uint32_t s_off, uint32_t var_offset, bool s2s)
 {
     uintptr_t TempPtr;
@@ -2650,6 +2668,13 @@ bool COMPILER::CreateMessage(MESSAGE *pMs, uint32_t s_off, uint32_t var_offset, 
     }
     // reset message class data
     pMs->Reset(Format_string);
+    const auto invalid = [&](uint32_t index, const char *expected, DATA *argument) {
+        SetError("message \"%s\": argument %u ('%c') must be %s, got %s; the message is not sent", Format_string,
+                 index + 1, Format_string[index], expected,
+                 argument == nullptr ? "an uninitialised reference" : Token.GetTypeName(argument->GetType()));
+        CollectCallStack();
+        return false;
+    };
     // scan format string
     uint32_t n = 0;
     while (Format_string[n])
@@ -2659,7 +2684,9 @@ bool COMPILER::CreateMessage(MESSAGE *pMs, uint32_t s_off, uint32_t var_offset, 
         var_offset++;
         if (!pV)
         {
-            SetError("No data in CreateMessage()");
+            SetError("message \"%s\": argument %u ('%c') is missing; the message is not sent", Format_string, n + 1,
+                     Format_string[n]);
+            CollectCallStack();
             return false;
         }
 
@@ -2667,61 +2694,43 @@ bool COMPILER::CreateMessage(MESSAGE *pMs, uint32_t s_off, uint32_t var_offset, 
         {
         case 'l':
             pV = pV->GetVarPointer();
-            if (pV->GetType() != VAR_INTEGER)
-            {
-                SetError("CreateMessage: Invalid Data");
-                return false;
-            }
+            if (pV == nullptr || pV->GetType() != VAR_INTEGER)
+                return invalid(n, "int", pV);
             pV->Get(TempLong1);
             pMs->Set(TempLong1);
             break;
         case 'p':
             pV = pV->GetVarPointer();
-            if (pV->GetType() != VAR_PTR)
-            {
-                SetError("CreateMessage: Invalid Data");
-                return false;
-            }
+            if (pV == nullptr || pV->GetType() != VAR_PTR)
+                return invalid(n, "a pointer", pV);
             pV->GetPtr(TempPtr);
             pMs->Set(TempPtr);
             break;
         case 'f':
             pV = pV->GetVarPointer();
-            if (pV->GetType() != VAR_FLOAT)
-            {
-                if (pV->GetType() == VAR_INTEGER)
-                {
-                    pV->Convert(VAR_FLOAT);
-                }
-                else
-                {
-                    SetError("CreateMessage: Invalid Data");
-                    return false;
-                }
-            }
+            if (pV == nullptr || (pV->GetType() != VAR_FLOAT && pV->GetType() != VAR_INTEGER))
+                return invalid(n, "float or int", pV);
+            if (pV->GetType() == VAR_INTEGER)
+                pV->Convert(VAR_FLOAT);
             pV->Get(TempFloat1);
             pMs->Set(TempFloat1);
             break;
         case 'i':
             pV = pV->GetVarPointer();
             if (pV == nullptr || !(pV->GetType() == VAR_OBJECT || pV->GetType() == VAR_AREFERENCE))
-            {
-                SetError("CreateMessage: Invalid Data");
-                return false;
-            }
+                return invalid(n, "an object", pV);
             pV->Get(TempEid);
             pMs->SetEntity(TempEid);
             break;
         case 'e':
             pV = pV->GetVarPointer();
+            if (pV == nullptr)
+                return invalid(n, "a variable", pV);
             pMs->Set(pV);
             break;
         case 's':
             if (pV->GetType() != VAR_STRING)
-            {
-                SetError("CreateMessage: Invalid Data");
-                return false;
-            }
+                return invalid(n, "string", pV);
             pV->Get(pChar);
             if (pChar != nullptr)
             {
@@ -2734,11 +2743,8 @@ bool COMPILER::CreateMessage(MESSAGE *pMs, uint32_t s_off, uint32_t var_offset, 
             break;
         case 'a':
             pV = pV->GetVarPointer();
-            if (!(pV->GetType() == VAR_OBJECT || pV->GetType() == VAR_AREFERENCE))
-            {
-                SetError("CreateMessage: Invalid Data");
-                return false;
-            }
+            if (pV == nullptr || !(pV->GetType() == VAR_OBJECT || pV->GetType() == VAR_AREFERENCE))
+                return invalid(n, "an object or aref", pV);
             pA = pV->GetAClass();
             pMs->Set(pA);
             break;
