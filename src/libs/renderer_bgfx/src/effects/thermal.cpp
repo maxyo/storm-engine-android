@@ -73,9 +73,15 @@ bool device_hot()
         const int status = thermal.api.status(thermal.manager);
         const float headroom = thermal.api.headroom ? thermal.api.headroom(thermal.manager, kHeadroomForecastSeconds)
                                                     : std::nanf("");
-        if (status != last_status.exchange(status))
-            shim::logf("effects: thermal status: %s, headroom %.2f", status_name(status), static_cast<double>(headroom));
-        hot = thermal_hot(hot.load(), status, headroom);
+        const bool was_hot = hot.load();
+        const bool now_hot = thermal_hot(was_hot, status, headroom);
+        // The forecast can pause work while the reported status stays LIGHT. Log that transition too: otherwise
+        // diagnostics only show an earlier, cooler forecast and incorrectly suggest a MODERATE status was seen.
+        if (status != last_status.exchange(status) || now_hot != was_hot)
+            shim::logf("effects: thermal status: %s, headroom %.2f, background work %s (forecast pause %.2f, resume below %.2f)",
+                       status_name(status), static_cast<double>(headroom), now_hot ? "paused" : "allowed",
+                       static_cast<double>(kHeadroomPause), static_cast<double>(kHeadroomResume));
+        hot = now_hot;
     }
     return hot.load();
 #else
@@ -101,7 +107,7 @@ const char *background_wait_reason()
 {
     if (const char *held = g_hold.load())
         return held;
-    return device_hot() ? "the device is hot (thermal status MODERATE or higher)" : nullptr;
+    return device_hot() ? "thermal protection (MODERATE status or forecast headroom; waiting to cool)" : nullptr;
 }
 
 } // namespace storm::effects

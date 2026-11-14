@@ -312,7 +312,7 @@ void Upscales::end_frame()
         {
             logged_ = s;
             next_log_ = now + kLogPeriod;
-            shim::logf("effects upscale: %u textures at ×2 (%.1f MB of the %.0f MB budget); %u being read, %u being made, %u not made yet, "
+            shim::logf("effects upscale: %u textures at ×2 (%.1f MB of the %.0f MB budget); %u being read, %u queued for generation, %u not made yet, "
                        "%u unusable (logged); %u loaded textures with a ×2 target",
                        s.resident, static_cast<double>(s.bytes) / 1048576.0, static_cast<double>(s.budget) / 1048576.0,
                        s.reading, s.waiting, s.missing, s.failed, s.entries);
