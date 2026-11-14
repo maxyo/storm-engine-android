@@ -57,6 +57,10 @@ struct Layout
     const char *own_icon = "";
     const char *other_icon = "";
     const char *carry_icon = "capacity"; // the header figure of what we carry (the hold; a character's weight)
+    // A chest's table has the total weight of each side's pieces instead of one piece's (itemsbox.c): the dock's
+    // weight is one piece's, from the side that has more of them (the finer figure). -1: no such columns.
+    int own_total_weight = -1;
+    int other_total_weight = -1;
 };
 
 constexpr Layout Captioned(Layout layout, const char *own, const char *own_icon, const char *other, const char *other_icon)
@@ -67,9 +71,11 @@ constexpr Layout Captioned(Layout layout, const char *own, const char *own_icon,
     layout.other_icon = other_icon;
     return layout;
 }
-constexpr Layout Carrying(Layout layout, const char *icon)
+constexpr Layout Carrying(Layout layout, const char *icon, int own_total_weight = -1, int other_total_weight = -1)
 {
     layout.carry_icon = icon;
+    layout.own_total_weight = own_total_weight;
+    layout.other_total_weight = other_total_weight;
     return layout;
 }
 
@@ -134,7 +140,7 @@ constexpr Layout kColonyCapture = Captioned({StringKey("trade.loot"), 0, 3, 2, -
                                             StringKey("trade.in_hold"), "capacity", StringKey("trade.in_store"), "store");
 constexpr Layout kItemsBox = Carrying({StringKey("trade.chest"), 0, 4, 2, -1, -1, -1, "CHARACTERS_SCROLL", true, {-1, -1, -1}, true,
                                        {StringKey("common.all"), StringKey("trade.tab_mine"), StringKey("trade.tab_here"), StringKey("trade.tab_weapons")}},
-                                      "weight");
+                                      "weight", 1, 3);
 // The goods of the loot / exchange screen (transfer_main): ours, weight, name, theirs, weight.
 constexpr Layout kTransfer{StringKey("transfer.title"), 0, 3, 2, -1, -1, -1, "", false};
 
@@ -911,8 +917,22 @@ class CommerceScreen final : public Screen
                                     : Json{{"icon", icon}, {"iconTone", IconTone(icon)}, {"v", Spaced(Number(price))}, {"tone", "gold"}});
             }
         if (columns.weight >= 0)
+        {
             if (const std::string weight = OneLine(row.CellText(columns.weight)); !weight.empty())
                 facts.push_back(Json{{"icon", "weight"}, {"v", columns.pieces ? weight : weight + " " + bindings.Text("transfer.cwt")}});
+        }
+        else if (columns.own_total_weight >= 0 && columns.other_total_weight >= 0)
+        {
+            const int own = Number(row.CellText(columns.own)), other = Number(row.CellText(columns.other));
+            const int count = std::max(own, other);
+            const double total = std::atof(row.CellText(own >= other ? columns.own_total_weight : columns.other_total_weight).c_str());
+            if (count > 0 && total > 0.0)
+            {
+                char weight[32];
+                std::snprintf(weight, sizeof(weight), "%.2g", total / count);
+                facts.push_back(Json{{"icon", "weight"}, {"v", std::string(weight)}});
+            }
+        }
         if (!facts.empty() && !pack.empty() && pack != "1")
             facts.push_back(Json{{"v", Fill(bindings.Text("trade.per_units"), {pack})}, {"tone", "dim"}});
         return facts;

@@ -768,6 +768,14 @@ static void Commerce(const std::string &models)
     ExpectEqual(surface.Last(), "widget:itemsbox\tDELBODY_BUTTON\t-1\tpress", "remove body");
     router.SetInterface(Load(models, "itemsbox-deal.json"));
     Expect(surface.props["deal"]["steps"].size() == 2 && surface.props["deal"]["max"] == 26, "single items: steps 1 and 10, up to both sides");
+    {
+        // The chest's table has each side's total weight: the dock's weight is one piece's (2.3 for 23 bullets).
+        Json facts;
+        for (const Json &row : surface.props["list"]["rows"])
+            if (row["selected"] == true)
+                facts = row["facts"];
+        Expect(facts.size() == 1 && facts[0]["icon"] == "weight" && facts[0]["v"] == "0.1", "itemsbox: the weight of one piece by its icon: " + facts.dump());
+    }
     // A chest, a body, an officer's pockets: the owner's bug was a pick of the amount moving the items at once.
     {
         const auto moves = [](const std::string &command) { return command.find("\tQTY_EDIT\t") != std::string::npos || command.find("\tQTY_OK_BUTTON\t") != std::string::npos; };
