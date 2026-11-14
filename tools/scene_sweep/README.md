@@ -80,8 +80,8 @@ the exact error text the sweep sees and the reason. A scene whose only problems 
 problem still fails it. Remove an entry once its cause is gone.
 
 ## Running
-Needs a Linux host engine configured with `-DSTORM_SCENE_SWEEP=ON`, Xvfb, Pillow, a Vulkan
-GPU driver (or `--llvmpipe`) and the game files (`--out` must be on the same filesystem as
+Needs a Linux host engine configured with `-DSTORM_SCENE_SWEEP=ON`, Xvfb, Pillow, a GPU driver and
+VirtualGL (or `--render vulkan` / `--render llvmpipe`, see *Renderer*) and the game files (`--out` must be on the same filesystem as
 `--game`). Keep one persistent build
 directory with the option on and rebuild it incrementally (`ninja -C <build> engine`); the
 sweep copies the binary once at start, so the build can go on while it runs.
@@ -108,7 +108,8 @@ python3 tools/scene_sweep/run.py --game <game dir> --engine <build>/engine --out
   when the engine binary or `scene_sweep.c` changed: use `--smoke` or `--failed` then).
   With nothing changed it reruns only the previous failures.
 - `--baseline report.json` exits non-zero only for scenes that pass in that report.
-- `--llvmpipe` renders with Mesa llvmpipe on the CPU (OpenGL ES) instead of the GPU, see *Renderer*.
+- `--render gles-gpu|vulkan|llvmpipe` what the engines draw with (default `gles-gpu`), see *Renderer*;
+  `--virtualgl DIR` (or `STORM_VIRTUALGL`) is the VirtualGL directory `gles-gpu` needs.
 - `--settle MS` how long each scene renders after its fader before the capture (default 300).
   Frame time and the renderer counters are means over this window: raise it (e.g. 5000) with
   `--only` on a few scenes and `--jobs 1` for performance measurements.
@@ -119,24 +120,29 @@ calls, RSS, and `renderer`: per-frame means of the bgfx shim counters, see
 Keep reports out of the repository.
 
 ## Renderer
-By default every engine runs `render_backend = vulkan` and draws on the host's GPU; the Vulkan driver
-(measured with NVIDIA's) presents into the shard's Xvfb display, whose framebuffer file the sweep captures
-as before.
-Frames take a few milliseconds instead of 0.1-3 s on llvmpipe, so long scenes (many variants, a long
-`--settle`, scenes that wait for game time) finish in a fraction of the time; the boot and the new game take
-as long as before (CPU-bound script and data loading). The GPU device nodes must be accessible to the user
-running the sweep (NVIDIA: `/dev/nvidia*`; Mesa drivers: `/dev/dri/renderD*`, group `render`).
+`--render` picks what every engine draws with; frames on the GPU take a few milliseconds instead of 0.1-3 s
+on llvmpipe, so long scenes (many variants, a long `--settle`, scenes that wait for game time) finish in a
+fraction of the time. The boot and the new game take as long in every mode (CPU-bound script and data
+loading).
 
-The sweep checks the renderer each engine logged (`bgfx renderer=`, the program cache's device) before its
-first capture and stops with a harness error when it is not Vulkan on a hardware device: no GPU, a missing
-Vulkan driver (the engine then falls back to OpenGL ES), or a software Vulkan device such as lavapipe. The
-renderer is in `report.json` (`meta.render`) and the summary's first line.
+- `gles-gpu` (default): `render_backend = gles`, OpenGL ES on the host's GPU, the phones' default backend.
+  NVIDIA's EGL cannot initialise on an Xvfb display, so the engine runs under VirtualGL
+  (`VGL_DISPLAY=egl`, its `libdlfaker.so` and `libvglfaker.so` preloaded): VirtualGL renders on the GPU
+  through EGL's device platform and copies each frame into the shard's Xvfb display, whose framebuffer
+  file the sweep captures as before. VirtualGL is a tool the user supplies, never fetched or committed:
+  unpack the official release once (`dpkg -x VirtualGL_3.1.5_amd64.deb ~/vgl`; it is under the
+  wxWindows Library Licence) and pass `--virtualgl ~/vgl` or set `STORM_VIRTUALGL`. Without it the
+  sweep refuses to start and says so.
+- `vulkan`: `render_backend = vulkan` on the host's GPU; the Vulkan driver (measured with NVIDIA's)
+  presents into the Xvfb display directly, no VirtualGL. A capture waits for a frame in which no draw
+  waited for its pipeline (`SceneSweepWindowComplete`; the report's `incomplete_windows`/`incomplete_ms`).
+- `llvmpipe`: OpenGL ES on Mesa llvmpipe on the CPU (`LIBGL_ALWAYS_SOFTWARE=1`, `--gl-threads`
+  rasteriser threads), for hosts without a GPU or to compare with reports made before the GPU modes.
 
-`--llvmpipe` is the explicit opt-out: OpenGL ES on Mesa llvmpipe (`render_backend = gles`,
-`LIBGL_ALWAYS_SOFTWARE=1`, `--gl-threads` rasteriser threads), checked the same way. Use it on hosts without a
-GPU or to compare with reports made before the GPU default (`build.renderer` in the report; `--failed` and
-`--changed` treat a report of the other renderer as a different build).
-
-The GPU path is Vulkan, while phones default to OpenGL ES: an OpenGL ES-only rendering problem shows only with
-`--llvmpipe`. OpenGL ES on the GPU is not available under Xvfb: NVIDIA's EGL fails to initialise on an Xvfb
-display (its X11 platform needs an X server with the NVIDIA driver), and Mesa there is llvmpipe.
+The GPU device nodes must be accessible to the user running the sweep (NVIDIA: `/dev/nvidia*`; Mesa
+drivers: `/dev/dri/renderD*`, group `render`). Before its first capture each engine's logged renderer
+(`bgfx renderer=`, the program cache's device) is checked against the mode, and anything else stops the
+sweep with a harness error: no GPU, VirtualGL not interposing (OpenGL ES on llvmpipe), a missing Vulkan
+driver (the engine falls back to OpenGL ES), or a software device such as lavapipe. The renderer is in
+`report.json` (`meta.render`, `build.renderer`) and the summary's first line; `--failed` and `--changed`
+treat a report of another mode as a different build.

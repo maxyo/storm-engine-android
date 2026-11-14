@@ -3,8 +3,9 @@
 
 An on-demand tool for engine and renderer work; not part of the routine checks
 (see README.md). Needs the player's game files, a Linux host engine built with
--DSTORM_SCENE_SWEEP=ON, Xvfb and Pillow. The engines draw with Vulkan on the host's GPU (--llvmpipe: Mesa
-llvmpipe on the CPU, OpenGL ES).
+-DSTORM_SCENE_SWEEP=ON, Xvfb and Pillow. The engines draw with OpenGL ES on the host's GPU through VirtualGL
+(--render gles-gpu, the phones' default backend), or with Vulkan on the GPU (--render vulkan), or with Mesa
+llvmpipe on the CPU (--render llvmpipe).
 
   python3 tools/scene_sweep/run.py --game <game dir> --engine build/host/engine --out <report dir>
 
@@ -16,7 +17,7 @@ llvmpipe on the CPU, OpenGL ES).
   --smoke             one scene of every category (a quick check after an engine change)
   --fail-fast         stop at the first failing scene
   --list              print the scene inventory and exit
-  --llvmpipe          render with Mesa llvmpipe (CPU, OpenGL ES) instead of Vulkan on the GPU
+  --render MODE       gles-gpu (default; needs --virtualgl or $STORM_VIRTUALGL), vulkan or llvmpipe
 """
 import argparse
 import collections
@@ -65,6 +66,12 @@ RENDER_BACKEND = re.compile(r'\[storm-bgfx\] bgfx renderer=(Vulkan|OpenGL ES)')
 RENDER_DEVICE = re.compile(r'\[storm-bgfx\] program cache: .*? binaries \(.*?\) for (.*?)(?: \| pipeline cache.*)?$',
                            re.MULTILINE)
 SOFTWARE_DEVICE = re.compile(r'(?i)llvmpipe|lavapipe|softpipe|swiftshader')
+# --render: what each engine draws with. The default is the phones' backend on the host's GPU.
+RENDER_DESCRIPTIONS = {'gles-gpu': "OpenGL ES on the host's GPU through VirtualGL",
+                       'vulkan': "Vulkan on the host's GPU",
+                       'llvmpipe': 'OpenGL ES on Mesa llvmpipe (CPU)'}
+RENDER_MODES = tuple(RENDER_DESCRIPTIONS)
+DEFAULT_RENDER = 'gles-gpu'
 # Defects of the game's own data the engine reports and cannot fix (known_defects.json): reported as KNOWN.
 KNOWN_DEFECTS = json.loads((HERE / 'known_defects.json').read_text(encoding='utf-8'))['defects']
 
@@ -100,9 +107,13 @@ def parse_arguments():
     parser.add_argument('--list', action='store_true')
     parser.add_argument('--size', default='1280x720', help='window size (default 1280x720)')
     parser.add_argument('--timeout', type=int, default=240, help='seconds one scene may take before the engine is killed')
-    parser.add_argument('--llvmpipe', action='store_true',
-                        help='render with Mesa llvmpipe on the CPU (OpenGL ES, as before the GPU default) instead of '
-                             "Vulkan on the host's GPU; about 100x slower per frame")
+    parser.add_argument('--render', choices=RENDER_MODES, default=DEFAULT_RENDER,
+                        help="gles-gpu: OpenGL ES on the host's GPU through VirtualGL (the phones' default backend); "
+                             "vulkan: Vulkan on the host's GPU; llvmpipe: OpenGL ES on Mesa llvmpipe on the CPU, about "
+                             '100x slower per frame')
+    parser.add_argument('--virtualgl', type=Path, default=os.environ.get('STORM_VIRTUALGL'),
+                        help='VirtualGL directory for --render gles-gpu (an unpacked official .deb: opt/ and usr/; '
+                             'default $STORM_VIRTUALGL), see README.md')
     parser.add_argument('--gl-threads', type=int, default=2, help='llvmpipe rasteriser threads per engine')
     parser.add_argument('--variants', default='',
                         help="graphics option sets separated by ';' (e.g. 'fx_preset=0;fx_preset=2,fx_bloom=0'): every "
@@ -116,6 +127,13 @@ def parse_arguments():
     arguments = parser.parse_args()
     if not arguments.list and not (arguments.engine and arguments.out):
         parser.error('--engine and --out are required')
+    if not arguments.list and arguments.render == 'gles-gpu':
+        library = arguments.virtualgl and arguments.virtualgl.resolve() / 'usr/lib'
+        if not library or not all((library / name).is_file() for name in ('libdlfaker.so', 'libvglfaker.so')):
+            parser.error('--render gles-gpu needs VirtualGL: unpack the official .deb (`dpkg -x VirtualGL_<v>_amd64.deb '
+                         'DIR`) and pass --virtualgl DIR or set STORM_VIRTUALGL=DIR (README.md, Renderer); '
+                         '--render vulkan or llvmpipe need no VirtualGL')
+        arguments.virtualgl = arguments.virtualgl.resolve()
     return arguments
 
 
@@ -446,7 +464,7 @@ class Shard(threading.Thread):
         settings = inventory.read_script(source / 'engine.ini')
         for key, value in (('full_screen', 0), ('screen_x', self.size[0]), ('screen_y', self.size[1]),
                            ('vsync', 0), ('show_fps', 0),
-                           ('render_backend', 'gles' if self.arguments.llvmpipe else 'vulkan')):
+                           ('render_backend', 'vulkan' if self.arguments.render == 'vulkan' else 'gles')):
             settings, count = re.subn(rf'(?mi)^{key}\s*=.*$', f'{key} = {value}', settings)
             if not count:
                 settings = f'{key} = {value}\n' + settings
@@ -474,8 +492,13 @@ class Shard(threading.Thread):
                            SDL_VIDEODRIVER='x11', SDL_AUDIODRIVER='dummy', STORM_SCENE_SWEEP_DIR=str(control),
                            STORM_SCENE_SWEEP_SETTLE_MS=str(self.arguments.settle),
                            STORM_SCENE_SWEEP_VARIANTS=self.arguments.variants)
-        if self.arguments.llvmpipe:
+        if self.arguments.render == 'llvmpipe':
             environment.update(LIBGL_ALWAYS_SOFTWARE='1', LP_NUM_THREADS=str(self.arguments.gl_threads))
+        elif self.arguments.render == 'gles-gpu':
+            library = self.arguments.virtualgl / 'usr/lib'
+            environment.update(VGL_DISPLAY='egl', LD_PRELOAD=f'{library}/libdlfaker.so:{library}/libvglfaker.so',
+                               LD_LIBRARY_PATH=':'.join(filter(None, (str(library),
+                                                                       os.environ.get('LD_LIBRARY_PATH')))))
         stdout = run / 'stdout.log'
         with open(stdout, 'wb') as output:
             engine = subprocess.Popen(
@@ -614,9 +637,10 @@ class Shard(threading.Thread):
             self.abnormal(current, f'crash: engine {how}', booted, close)
 
     def check_renderer(self, lines):
-        """The engine runs the renderer the sweep asked for: Vulkan on a hardware GPU, or OpenGL ES on llvmpipe with
-        --llvmpipe. Anything else (no GPU, the Vulkan driver missing, a software Vulkan device) is a harness error:
-        the frame times and pictures of a sweep must never silently come from another renderer."""
+        """The engine runs the renderer the sweep asked for (--render): OpenGL ES or Vulkan on a hardware GPU, or OpenGL
+        ES on llvmpipe. Anything else (no GPU, VirtualGL not interposing, the Vulkan driver missing, a software
+        device) is a harness error: the frame times and pictures of a sweep must never silently come from another
+        renderer."""
         text = '\n'.join(line for _, line in lines)
         backend = RENDER_BACKEND.search(text)
         device = RENDER_DEVICE.search(text)
@@ -624,13 +648,14 @@ class Shard(threading.Thread):
             raise RuntimeError('the engine logged no renderer ("bgfx renderer=" and the program cache device) before '
                                'its first capture')
         render = f'{backend[1]} on {device[1]}'
-        if self.arguments.llvmpipe:
-            if backend[1] != 'OpenGL ES' or 'llvmpipe' not in device[1]:
-                raise RuntimeError(f'--llvmpipe asks for OpenGL ES on llvmpipe, the engine runs {render}')
-        elif backend[1] != 'Vulkan' or SOFTWARE_DEVICE.search(device[1]):
-            raise RuntimeError(f'the sweep renders with Vulkan on the GPU, the engine runs {render} (see '
-                               f'"render backend:" in {self.work}/run-{self.runs}/data/Akella/Sea Dogs/Logs/system.log;'
-                               f' --llvmpipe renders on the CPU)')
+        mode = self.arguments.render
+        wanted, software = {'gles-gpu': ('OpenGL ES', False), 'vulkan': ('Vulkan', False),
+                            'llvmpipe': ('OpenGL ES', True)}[mode]
+        on_software = bool(SOFTWARE_DEVICE.search(device[1]))
+        if backend[1] != wanted or on_software != software or (software and 'llvmpipe' not in device[1]):
+            raise RuntimeError(f'--render {mode} asks for {wanted} on '
+                               f"{'llvmpipe' if software else 'a hardware GPU'}, the engine runs {render} (see "
+                               f'"render backend:" in {self.work}/run-{self.runs}/data/Akella/Sea Dogs/Logs/system.log)')
         with self.context['lock']:
             self.context['render'].add(render)
 
@@ -771,7 +796,7 @@ def main():
     previous = json.loads(report_path.read_text()) if report_path.exists() else None
     # Pictures and frame times of the two renderers differ: a report of one is no previous report for the other.
     build = {'engine': file_digest(arguments.engine), 'script': file_digest(HERE / 'scene_sweep.c'),
-             'renderer': 'llvmpipe' if arguments.llvmpipe else 'gpu'}
+             'renderer': arguments.render}
     chosen = select(scenes, arguments, previous, build)
     if not chosen:
         print('no scenes selected')
@@ -802,8 +827,8 @@ def main():
                 print(f"{sum(done.values())} results, {done['fail']} failed", flush=True)
 
     context['progress'] = progress
-    print(f'{len(chosen)} scenes on {jobs} engines, rendering with '
-          + ('Mesa llvmpipe on the CPU (--llvmpipe)' if arguments.llvmpipe else 'Vulkan on the GPU'), flush=True)
+    print(f'{len(chosen)} scenes on {jobs} engines, rendering with {RENDER_DESCRIPTIONS[arguments.render]}',
+          flush=True)
     started = time.monotonic()
     shards = [Shard(index, queue, arguments, context) for index, queue in enumerate(make_shards(chosen, jobs))]
     for shard in shards:

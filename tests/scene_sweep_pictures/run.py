@@ -2,7 +2,7 @@
 """The scene sweep's picture and renderer checks (tools/scene_sweep/run.py frame_reasons, check_renderer) on
 synthetic frames and log lines: a scene with its lower part not drawn or without its HUD fails, every variant is
 judged, dark interiors, dialogues and the boot scenes pass; a sweep on the GPU refuses OpenGL ES, lavapipe or a
-missing renderer line, and --llvmpipe refuses the GPU."""
+missing renderer line, and each --render mode refuses the others."""
 import importlib.util
 from pathlib import Path
 import random
@@ -66,8 +66,8 @@ digest = sweep.frame_reasons(same, None, 'sea')[1]
 expect('the same frame as the previous scene', sweep.frame_reasons(same, digest, 'sea')[0], ['identical'])
 
 
-def shard(llvmpipe):
-    return types.SimpleNamespace(index=0, runs=1, work=Path('/work'), arguments=types.SimpleNamespace(llvmpipe=llvmpipe),
+def shard(render):
+    return types.SimpleNamespace(index=0, runs=1, work=Path('/work'), arguments=types.SimpleNamespace(render=render),
                                  context={'lock': threading.Lock(), 'render': set()})
 
 
@@ -76,8 +76,8 @@ def log(backend, device):
             ('system.log', f'[x] [system] [info] [storm-bgfx] bgfx renderer={backend} 1280x720 originBottomLeft=0')]
 
 
-def renderer(name, llvmpipe, lines, refused):
-    target = shard(llvmpipe)
+def renderer(name, render, lines, refused):
+    target = shard(render)
     try:
         sweep.Shard.check_renderer(target, lines)
     except RuntimeError as error:
@@ -91,11 +91,17 @@ def renderer(name, llvmpipe, lines, refused):
 
 
 nvidia = 'NVIDIA GeForce RTX 5070 Ti, Vulkan 1.4.329, driver 0x94d8c080, vendor 0x10de device 0x2c05 | pipeline cache 3f3d'
+nvidia_gl = 'NVIDIA Corporation | NVIDIA GeForce RTX 5070 Ti/PCIe/SSE2 | OpenGL ES 3.2 NVIDIA 595.99.02 | bgfx API 168'
 mesa = 'Mesa | llvmpipe (LLVM 21.1.8, 256 bits) | OpenGL ES 3.2 Mesa 26.0.8 | bgfx API 168'
-renderer('the GPU sweep on Vulkan on a GPU', False, log('Vulkan', nvidia), False)
-renderer('the GPU sweep fallen back to OpenGL ES', False, log('OpenGL ES 3.0', mesa), True)
-renderer('the GPU sweep on lavapipe', False, log('Vulkan', 'llvmpipe (LLVM 21.1.8, 256 bits), Vulkan 1.4.335'), True)
-renderer('no renderer line before the first capture', False, log('Vulkan', nvidia)[1:], True)
-renderer('--llvmpipe on llvmpipe', True, log('OpenGL ES 3.0', mesa), False)
-renderer('--llvmpipe on the GPU', True, log('Vulkan', nvidia), True)
+lavapipe = 'llvmpipe (LLVM 21.1.8, 256 bits), Vulkan 1.4.335'
+renderer('gles-gpu on OpenGL ES on the GPU', 'gles-gpu', log('OpenGL ES 3.2', nvidia_gl), False)
+renderer('gles-gpu without VirtualGL (llvmpipe)', 'gles-gpu', log('OpenGL ES 3.0', mesa), True)
+renderer('gles-gpu on Vulkan', 'gles-gpu', log('Vulkan', nvidia), True)
+renderer('vulkan on a GPU', 'vulkan', log('Vulkan', nvidia), False)
+renderer('vulkan fallen back to OpenGL ES', 'vulkan', log('OpenGL ES 3.0', mesa), True)
+renderer('vulkan on lavapipe', 'vulkan', log('Vulkan', lavapipe), True)
+renderer('no renderer line before the first capture', 'vulkan', log('Vulkan', nvidia)[1:], True)
+renderer('llvmpipe on llvmpipe', 'llvmpipe', log('OpenGL ES 3.0', mesa), False)
+renderer('llvmpipe on the GPU', 'llvmpipe', log('Vulkan', nvidia), True)
+renderer('llvmpipe on OpenGL ES on the GPU', 'llvmpipe', log('OpenGL ES 3.2', nvidia_gl), True)
 print('PASS scene sweep picture and renderer checks')
