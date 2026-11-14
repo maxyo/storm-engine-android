@@ -1007,7 +1007,7 @@ void Player::FireFromShootgun()
     {
         // Get the position where the buckshot will fall
         const auto r = rand() * 3.0f / RAND_MAX;
-        const auto a = rand() * 6.283185307f / (RAND_MAX + 1);
+        const auto a = rand() * 6.283185307f / (RAND_MAX + 1.0f);
         auto dst = storm::math::transformPoint(mtx, glm::vec3(r * sinf(a), r * cosf(a), 25.0f));
         if (collide)
         {

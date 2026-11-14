@@ -126,3 +126,19 @@ TEST_CASE("ProbabilityTable", "[utils]")
         CHECK(extended.pickRandom() == 5);
     }
 }
+
+TEST_CASE("ProbabilityTable default provider picks every entry by its weight", "[utils]")
+{
+    // RandUniform: every value of [0, sum) is drawn, so each entry wins about its share of the weight.
+    ProbabilityTable<size_t> table;
+    table.emplace(1.0f, 0);
+    table.emplace(1.0f, 1);
+    table.emplace(2.0f, 2);
+    size_t picks[3]{};
+    constexpr size_t kDraws = 40000;
+    for (size_t i = 0; i < kDraws; ++i)
+        ++picks[table.pickRandom()];
+    CHECK(picks[0] > kDraws / 4 * 9 / 10);
+    CHECK(picks[1] > kDraws / 4 * 9 / 10);
+    CHECK(picks[2] > kDraws / 2 * 9 / 10);
+}

@@ -471,7 +471,7 @@ void LocationEffects::SGEnvPrt(const glm::vec3 &pos, const glm::vec3 &ndir)
         flinders[numFlinders].pos = pos;
         flinders[numFlinders].spd = ndir;
         float r = rand() * 0.7f / RAND_MAX;
-        const float a = rand() * 6.283185307f / (RAND_MAX + 1);
+        const float a = rand() * 6.283185307f / (RAND_MAX + 1.0f);
         flinders[numFlinders].spd.y += r * sinf(a);
         r *= cosf(a);
         flinders[numFlinders].spd.x += r * ndir.z;
@@ -505,7 +505,7 @@ void LocationEffects::SGBldPrt(const glm::vec3 &pos, const glm::vec3 &ndir)
         blood[numBlood].pos = pos;
         blood[numBlood].spd = ndir;
         float r = rand() * 0.7f / RAND_MAX;
-        const float a = rand() * 6.283185307f / (RAND_MAX + 1);
+        const float a = rand() * 6.283185307f / (RAND_MAX + 1.0f);
         blood[numBlood].spd.y += r * sinf(a);
         r *= cosf(a);
         blood[numBlood].spd.x += r * ndir.z;
@@ -539,7 +539,7 @@ void LocationEffects::SGFirePrt(const glm::vec3 &pos, const glm::vec3 &ndir)
         smoke[numSmoke].pos = pos;
         smoke[numSmoke].spd = ndir;
         float r = rand() * 0.03f / RAND_MAX;
-        const float a = rand() * 6.283185307f / (RAND_MAX + 1);
+        const float a = rand() * 6.283185307f / (RAND_MAX + 1.0f);
         smoke[numSmoke].spd.y += r * sinf(a);
         r *= cosf(a);
         smoke[numSmoke].spd.x += r * ndir.z;

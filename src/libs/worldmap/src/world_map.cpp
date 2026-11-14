@@ -1114,7 +1114,7 @@ bool WorldMap::CreateWarringShips(const char *modelName1, const char *modelName2
     if (!WdmEnemyShip::GeneratePosition(fullRadius, 1.5f, x, z))
         return false;
     // General angle
-    const float angl = rand() * 2.0f * pi / (RAND_MAX + 1);
+    const float angl = rand() * 2.0f * pi / (RAND_MAX + 1.0f);
     // Center offset
     const float dx = moveRadius * cosf(angl);
     const float dz = -moveRadius * sinf(angl);

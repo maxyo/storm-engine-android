@@ -50,7 +50,7 @@ WdmStorm::WdmStorm()
     // Storm position, travel direction, life time
     isActiveTime = 2.0f;
     // Angle relative to ship
-    auto ang = rand() * 2.0f * 3.141592653589793f / (RAND_MAX + 1);
+    auto ang = rand() * 2.0f * 3.141592653589793f / (RAND_MAX + 1.0f);
     // Radius to ship
     auto r =
         wdmObjects->stormBrnDistMin + rand() * (wdmObjects->stormBrnDistMax - wdmObjects->stormBrnDistMin) / RAND_MAX;

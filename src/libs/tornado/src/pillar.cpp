@@ -202,7 +202,7 @@ float Pillar::GetZ(float y)
 float Pillar::RandomPos(glm::vec3 &pos)
 {
     pos.y = rand() * TRND_HEIGHT / RAND_MAX;
-    const auto ang = rand() * 2.0f * TRND_PI / (RAND_MAX + 1);
+    const auto ang = rand() * 2.0f * TRND_PI / (RAND_MAX + 1.0f);
     const auto r = GetRaduis(pos.y);
     pos.x = r * sinf(ang) + GetX(pos.y);
     pos.z = r * cosf(ang) + GetZ(pos.y);
